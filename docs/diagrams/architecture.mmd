@@ -1,0 +1,6 @@
+flowchart LR
+    A[LAN PC 4대] <-->|HTTP| B[Apache + PHP]
+    A <-->|Socket.IO| C[Node.js]
+    B --> D[(MySQL)]
+    C --> D
+    B --> E[이미지 저장소]

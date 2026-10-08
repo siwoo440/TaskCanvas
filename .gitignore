@@ -1,0 +1,29 @@
+# 실행 시 환경 정보 제외
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/vendor/
+
+# IDE 및 로컬 환경 제외
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# 생성되는 파일과 민감한 업로드 제외
+uploads/
+storage/uploads/
+storage/private/
+tmp/
+cache/
+coverage/
+dist/
+build/
+
+# 로컬 DB 덤프 제외
+*.sql.gz
+*.sqlite
+*.sqlite3
+!database/schema.sql
