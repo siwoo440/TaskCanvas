@@ -115,3 +115,23 @@ CREATE TABLE IF NOT EXISTS board_links ( -- P1 객체 관계 연결선
     CONSTRAINT fk_link_from FOREIGN KEY (from_object_id) REFERENCES board_objects (object_id) ON DELETE CASCADE, -- 출발 객체 참조
     CONSTRAINT fk_link_to FOREIGN KEY (to_object_id) REFERENCES board_objects (object_id) ON DELETE CASCADE -- 도착 객체 참조
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 연결선 테이블
+
+CREATE TABLE IF NOT EXISTS realtime_tickets ( -- Socket.IO 단기 접속 티켓
+    ticket_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 티켓 행 ID
+    ticket_hash CHAR(64) NOT NULL UNIQUE, -- 티켓 원문 SHA-256 해시
+    guest_id BIGINT UNSIGNED NOT NULL, -- 발급 대상 게스트
+    board_id BIGINT UNSIGNED NOT NULL, -- 참여 허용 보드
+    expires_at DATETIME NOT NULL, -- 티켓 만료 시각
+    used_at DATETIME NULL, -- 사용 시각(일회성 검사)
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 발급 시각
+    CONSTRAINT fk_ticket_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 참조
+    CONSTRAINT fk_ticket_board FOREIGN KEY (board_id) REFERENCES boards (board_id) ON DELETE CASCADE -- 보드 참조
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 티켓 테이블
+
+CREATE TABLE IF NOT EXISTS join_attempts ( -- 게스트 입장 시도 기록(요청 제한용)
+    attempt_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 시도 행 ID
+    client_ip VARCHAR(45) NOT NULL, -- 요청 IP(IPv6 길이 허용)
+    succeeded TINYINT(1) NOT NULL DEFAULT 0, -- 성공 여부
+    attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 시도 시각
+    INDEX idx_attempts_ip_time (client_ip, attempted_at) -- IP·시간 조회 인덱스
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 입장 시도 테이블

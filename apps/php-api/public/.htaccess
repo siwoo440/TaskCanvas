@@ -1,0 +1,4 @@
+# 모든 요청을 index.php 프런트 컨트롤러로 전달
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]

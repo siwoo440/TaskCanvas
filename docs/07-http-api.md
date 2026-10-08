@@ -8,6 +8,7 @@
 |---|---|---|---|
 | POST | `/api/guest/join` | 표시 이름+초대 코드 검증 후 세션 발급 | 공개(요청 제한 필요) |
 | POST | `/api/guest/leave` | 게스트 세션 종료 | 참여자 |
+| GET | `/api/me` | 현재 세션의 게스트와 참여 프로젝트·역할 | 참여자 |
 | POST | `/api/realtime-ticket` | Socket.IO 단기 접속 티켓 발급 | 보드 참여자 |
 | GET | `/api/projects/{id}/boards` | 프로젝트 보드 목록 | 참여자 |
 | POST | `/api/projects/{id}/boards` | 보드 생성 | 관리자·편집자 |
@@ -15,6 +16,9 @@
 | POST | `/api/images` | PNG/JPG/WEBP(최대 10MB) 이미지 업로드 | 관리자·편집자 |
 | GET | `/api/images/{id}` | 프로젝트 권한 검증 후 이미지 반환 | 참여자 |
 | GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록 | 참여자 |
+| GET | `/api/health` | 서버·DB 상태 확인(개발용) | 공개 |
+
+**구현 상태(1단계):** 이미지·tasks 를 제외한 위 엔드포인트는 `apps/php-api` 에 구현되어 있습니다. 모든 `POST` 는 `Content-Type: application/json` 과 `X-TaskCanvas: 1` 헤더를 요구합니다.
 
 ---
 
@@ -69,6 +73,10 @@
 | `FILE_TOO_LARGE` | 파일당 10MB 초과 |
 | `SAVE_FAILED` | 영구 저장 실패 |
 | `RECONNECT_REQUIRED` | 스냅샷 재로드 필요 |
+| `UNAUTHORIZED` | 세션 없음·만료 (HTTP 401) |
+| `RATE_LIMITED` | 입장 시도 횟수 초과 (HTTP 429) |
+| `BAD_REQUEST` | 본문 형식·필수값 오류 (HTTP 400) |
+| `NOT_FOUND` / `METHOD_NOT_ALLOWED` | 경로·메서드 오류 |
 
 ---
 
