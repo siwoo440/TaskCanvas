@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC17 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC19 를 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -291,6 +291,8 @@ async function run(envInfo)
     const vSnap = await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, V.cookie); // 열람은 허용
     record('AC14', '접근 권한', V.reply.ok && vBoard.status === 403 && vUpload.status === 403 && vStroke.ok === false && vStroke.error.code === 'FORBIDDEN' && vCreate.ok === false && vLock.ok === false && vSnap.status === 200, '열람자의 생성·업로드·확정·잠금 모두 서버가 거부, 조회는 허용');
 
+    const C2 = await enter('AC-C2', editorCode, boardA); // 보드 A 의 두 번째 편집자(연결선·다중 선택 전파 확인용)
+
     // AC16 공유 업무: 보드 A 의 상태 변경이 보드 B 의 블럭에도 반영
     const taskCreatedPromise = until(C.socket, 'task:created', (d) => d.task.title === 'AC shared task'); // 보드 B 참여자가 받을 생성 알림
     const taskCreate = await ack(B.socket, 'task:create', { board_id: boardA, title: 'AC shared task', status: 'todo', assignee_id: B.guestId, due_at: '2026-10-20' }); // 보드 A 에서 업무 생성
@@ -317,10 +319,51 @@ async function run(envInfo)
     const snapAAfter = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 보드 A 스냅샷
     record('AC17', '공유 업무 삭제', delBlock.ok && tasksAfter.tasks.some((t) => t.task_id === taskId) && snapBAfter.objects.some((o) => o.type === 'task' && o.task_id === taskId) && !snapAAfter.objects.some((o) => o.object_id === blockA.object_id), '보드 A 블럭만 제거, tasks 원본과 보드 B 블럭 보존');
 
+    // AC18 연결선: 생성·라벨 변경·삭제 전파, 객체 삭제 시 연결선도 제거
+    const n1 = await ack(B.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 40, height: 40 }); // 출발 객체
+    const n2 = await ack(B.socket, 'object:create', { board_id: boardA, type: 'ellipse', x: 200, y: 0, width: 40, height: 40 }); // 도착 객체
+    const linkCreatedPromise = until(C2.socket, 'link:created', (d) => d.link.from_object_id === n1.object_id); // 같은 보드 참여자가 받을 생성
+    const linkCreate = await ack(B.socket, 'link:create', { board_id: boardA, from_object_id: n1.object_id, to_object_id: n2.object_id, label: '다음 단계' }); // 연결선 생성
+    const linkCreated = await linkCreatedPromise; // 수신
+    const selfLink = await ack(B.socket, 'link:create', { board_id: boardA, from_object_id: n1.object_id, to_object_id: n1.object_id }); // 자기 자신 연결
+    const crossLink = await ack(B.socket, 'link:create', { board_id: boardA, from_object_id: n1.object_id, to_object_id: ellipseB.object_id }); // 다른 보드 객체와 연결
+    const linkUpdatedPromise = until(C2.socket, 'link:updated', (d) => d.link.link_id === linkCreate.link.link_id); // 라벨 변경 수신
+    const linkUpdate = await ack(B.socket, 'link:update', { board_id: boardA, link_id: linkCreate.link.link_id, label: '의존' }); // 라벨 변경
+    const linkUpdated = await linkUpdatedPromise; // 수신
+    const snapLinks = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 스냅샷의 연결선
+    const lockN2 = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: n2.object_id }); // 도착 객체 잠금
+    await ack(B.socket, 'object:delete', { board_id: boardA, object_id: n2.object_id, lock_token: lockN2.lock_token, version: 1 }); // 도착 객체 삭제(연결선 FK 연쇄 삭제)
+    const snapAfterDel = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 삭제 후 스냅샷
+    const link2 = await ack(B.socket, 'link:create', { board_id: boardA, from_object_id: n1.object_id, to_object_id: target.object_id }); // 두 번째 연결선
+    const linkDeletedPromise = until(C2.socket, 'link:deleted', (d) => d.link_id === link2.link.link_id); // 삭제 수신
+    const linkDelete = await ack(B.socket, 'link:delete', { board_id: boardA, link_id: link2.link.link_id }); // 연결선 삭제
+    const linkDeleted = await linkDeletedPromise; // 수신
+    record('AC18', '연결선', linkCreate.ok && linkCreate.link.label === '다음 단계' && linkCreated !== null && selfLink.ok === false && crossLink.ok === false
+        && linkUpdate.ok && linkUpdate.link.label === '의존' && linkUpdated !== null && snapLinks.links.some((l) => l.link_id === linkCreate.link.link_id && l.label === '의존')
+        && !snapAfterDel.links.some((l) => l.link_id === linkCreate.link.link_id) && linkDelete.ok && linkDeleted !== null, '생성·라벨·삭제 전파, 자기 자신·타 보드 연결 거부, 객체 삭제 시 연결선 제거');
+
+    // AC19 다중 선택 이동: 모든 객체 잠금을 얻어야 이동, 하나라도 타인 잠금이면 전체 취소(얻은 잠금 반납)
+    const m1 = await ack(B.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 10, height: 10 }); // 다중 선택 객체 1
+    const m2 = await ack(B.socket, 'object:create', { board_id: boardA, type: 'rect', x: 20, y: 0, width: 10, height: 10 }); // 다중 선택 객체 2
+    const otherLock = await ack(C2.socket, 'object:lock', { board_id: boardA, object_id: m2.object_id }); // 다른 사용자가 객체 2 잠금
+    const lockM1 = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: m1.object_id }); // B 가 객체 1 잠금 성공
+    const lockM2 = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: m2.object_id }); // B 가 객체 2 잠금 실패 → 클라이언트는 전체 취소
+    await ack(B.socket, 'object:unlock', { board_id: boardA, object_id: m1.object_id, lock_token: lockM1.lock_token }); // 얻었던 객체 1 잠금 반납
+    const otherLockM1 = await ack(C2.socket, 'object:lock', { board_id: boardA, object_id: m1.object_id }); // 반납 후 다른 사용자가 객체 1 잠금 가능
+    await ack(C2.socket, 'object:unlock', { board_id: boardA, object_id: m1.object_id, lock_token: otherLockM1.lock_token }); // 정리
+    await ack(C2.socket, 'object:unlock', { board_id: boardA, object_id: m2.object_id, lock_token: otherLock.lock_token }); // 정리
+    const lockBoth1 = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: m1.object_id }); // 둘 다 잠금
+    const lockBoth2 = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: m2.object_id }); // 둘 다 잠금
+    const [mv1, mv2] = await Promise.all([
+        ack(B.socket, 'object:commit', { board_id: boardA, object_id: m1.object_id, lock_token: lockBoth1.lock_token, version: 1, changes: { x: 100, y: 50 } }), // 함께 이동 1
+        ack(B.socket, 'object:commit', { board_id: boardA, object_id: m2.object_id, lock_token: lockBoth2.lock_token, version: 1, changes: { x: 120, y: 50 } }), // 함께 이동 2
+    ]); // 동시 확정
+    record('AC19', '다중 선택 이동', otherLock.ok && lockM1.ok && lockM2.ok === false && lockM2.error.code === 'OBJECT_LOCKED' && otherLockM1.ok && lockBoth1.ok && lockBoth2.ok && mv1.ok && mv2.ok && mv1.object.x === 100 && mv2.object.x === 120, '타인 잠금 포함 시 전체 취소·반납, 모두 잠그면 동시 이동 저장');
+
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');
 
-    for (const s of [B.socket, C.socket, V.socket])
+    for (const s of [B.socket, C.socket, C2.socket, V.socket])
     {
         s.disconnect(); // 소켓 정리
     }

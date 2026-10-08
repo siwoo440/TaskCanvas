@@ -53,7 +53,14 @@ final class BoardController
             'version' => (int) $r['version'],
             'updated_at' => $r['updated_at'],
         ], $rows); // 응답 형식 변환
-        Response::ok(['board_id' => $boardId, 'project_id' => $projectId, 'role' => $role, 'objects' => $objects]); // 스냅샷 응답
+        $links = array_map(static fn(array $l) => [
+            'link_id' => (int) $l['link_id'],
+            'board_id' => $boardId,
+            'from_object_id' => (int) $l['from_object_id'],
+            'to_object_id' => (int) $l['to_object_id'],
+            'label' => $l['label'],
+        ], Database::all('SELECT link_id, from_object_id, to_object_id, label FROM board_links WHERE board_id = ? ORDER BY link_id', [$boardId])); // 연결선 목록(P1)
+        Response::ok(['board_id' => $boardId, 'project_id' => $projectId, 'role' => $role, 'objects' => $objects, 'links' => $links]); // 스냅샷 응답
     }
 
     private function formatBoard(array $b): array

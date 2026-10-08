@@ -54,6 +54,9 @@ class Realtime
         socket.on('object:deleted', (data) => this.handlers.onObjectDeleted(data.object_id, data.guest_id)); // 타인 삭제
         socket.on('task:created', (data) => this.handlers.onTaskCreated(data.task, data.guest_id)); // 공유 업무 생성
         socket.on('task:updated', (data) => this.handlers.onTaskUpdated(data.task, data.guest_id)); // 공유 업무 변경
+        socket.on('link:created', (data) => this.handlers.onLinkCreated(data.link, data.guest_id)); // 연결선 생성
+        socket.on('link:updated', (data) => this.handlers.onLinkUpdated(data.link, data.guest_id)); // 연결선 라벨 변경
+        socket.on('link:deleted', (data) => this.handlers.onLinkDeleted(data.link_id, data.guest_id)); // 연결선 삭제
     }
 
     async authenticate(socket)

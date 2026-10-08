@@ -14,7 +14,11 @@ class BoardCanvas
         this.cursors = new Map(); // 타인 커서 guest_id → {x, y, display_name, color, at}
         this.locks = new Map(); // 타인 잠금 object_id → {display_name, color}
         this.moves = new Map(); // 이동 중 위치 object_id → {x, y} (내 드래그·타인 미리보기)
-        this.selectedId = null; // 선택한 객체 ID
+        this.selectedIds = new Set(); // 선택한 객체 ID 집합(다중 선택)
+        this.selectedLinkId = null; // 선택한 연결선 ID
+        this.links = []; // 연결선 목록 {link_id, from_object_id, to_object_id, label}
+        this.linkDraft = null; // 연결선 드래그 중 {from, to:{x,y}}
+        this.marquee = null; // 영역 선택 사각형 {x, y, width, height}
         this.draft = null; // 지금 그리는 중인 내 초안
         this.images = new Map(); // 이미지 캐시 url → {img, failed}
         this.tasks = new Map(); // 공유 업무 원본 task_id → task (app 이 채움)
@@ -93,7 +97,11 @@ class BoardCanvas
         this.setObjects([]); // 객체 비움
         this.locks.clear(); // 잠금 비움
         this.cursors.clear(); // 커서 비움
-        this.selectedId = null; // 선택 해제
+        this.selectedIds.clear(); // 선택 해제
+        this.selectedLinkId = null; // 연결선 선택 해제
+        this.links = []; // 연결선 비움
+        this.linkDraft = null; // 연결선 초안 비움
+        this.marquee = null; // 영역 선택 비움
         this.view = { scale: 1, x: 0, y: 0 }; // 뷰포트 초기화
         this.invalidate(); // 다시 그리기
     }
@@ -158,10 +166,8 @@ class BoardCanvas
         this.objects = this.objects.filter((o) => o.object_id !== id); // 객체 제거
         this.moves.delete(id); // 이동 미리보기 제거
         this.locks.delete(id); // 잠금 표시 제거
-        if (this.selectedId === id)
-        {
-            this.selectedId = null; // 선택 해제
-        }
+        this.selectedIds.delete(id); // 선택에서 제거
+        this.removeLinksOf(id); // 연결된 연결선 제거(서버도 FK 로 함께 삭제)
         this.invalidate(); // 다시 그리기
     }
 
@@ -293,6 +299,143 @@ class BoardCanvas
         return entry; // 캐시 항목
     }
 
+    primarySelected()
+    {
+        return this.selectedIds.size === 1 ? this.findObject([...this.selectedIds][0]) : null; // 하나만 선택했을 때 그 객체
+    }
+
+    setLinks(list)
+    {
+        this.links = (list || []).slice(); // 연결선 목록 교체
+        this.invalidate(); // 다시 그리기
+    }
+
+    addLink(link)
+    {
+        if (!this.links.some((l) => l.link_id === link.link_id))
+        {
+            this.links.push(link); // 연결선 추가
+        }
+        this.invalidate(); // 다시 그리기
+    }
+
+    updateLink(link)
+    {
+        const index = this.links.findIndex((l) => l.link_id === link.link_id); // 기존 위치
+        if (index >= 0)
+        {
+            this.links[index] = link; // 교체
+        }
+        else
+        {
+            this.links.push(link); // 없으면 추가
+        }
+        this.invalidate(); // 다시 그리기
+    }
+
+    removeLink(linkId)
+    {
+        this.links = this.links.filter((l) => l.link_id !== linkId); // 연결선 제거
+        if (this.selectedLinkId === linkId)
+        {
+            this.selectedLinkId = null; // 선택 해제
+        }
+        this.invalidate(); // 다시 그리기
+    }
+
+    removeLinksOf(objectId)
+    {
+        for (const l of this.links)
+        {
+            if ((l.from_object_id === objectId || l.to_object_id === objectId) && this.selectedLinkId === l.link_id)
+            {
+                this.selectedLinkId = null; // 삭제되는 연결선 선택 해제
+            }
+        }
+        this.links = this.links.filter((l) => l.from_object_id !== objectId && l.to_object_id !== objectId); // 객체에 붙은 연결선 제거
+    }
+
+    // 연결선 양 끝점: 두 객체 중심을 잇되 각 객체의 경계 사각형 가장자리에서 시작·끝
+    linkEndpoints(link)
+    {
+        const a = this.findObject(link.from_object_id); // 출발 객체
+        const b = this.findObject(link.to_object_id); // 도착 객체
+        if (!a || !b)
+        {
+            return null; // 끝 객체 없음
+        }
+        const pa = this.displayPosition(a); // 출발 표시 위치
+        const pb = this.displayPosition(b); // 도착 표시 위치
+        const ca = { x: pa.x + a.width / 2, y: pa.y + a.height / 2 }; // 출발 중심
+        const cb = { x: pb.x + b.width / 2, y: pb.y + b.height / 2 }; // 도착 중심
+        const len = Math.hypot(cb.x - ca.x, cb.y - ca.y); // 중심 거리
+        if (len < 1)
+        {
+            return null; // 겹침
+        }
+        const ux = (cb.x - ca.x) / len; // 방향 X
+        const uy = (cb.y - ca.y) / len; // 방향 Y
+        const clip = (c, w, h, dx, dy) =>
+        {
+            const t = Math.min(dx !== 0 ? (w / 2) / Math.abs(dx) : Infinity, dy !== 0 ? (h / 2) / Math.abs(dy) : Infinity); // 경계까지 거리
+            return { x: c.x + dx * t, y: c.y + dy * t }; // 경계 위 점
+        };
+        const p1 = clip(ca, a.width, a.height, ux, uy); // 출발 가장자리
+        const p2 = clip(cb, b.width, b.height, -ux, -uy); // 도착 가장자리
+        return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, ux, uy }; // 선분과 방향
+    }
+
+    hitTestLink(wx, wy)
+    {
+        const tol = 6 / this.view.scale; // 화면 6px 허용 오차
+        for (let i = this.links.length - 1; i >= 0; i--)
+        {
+            const e = this.linkEndpoints(this.links[i]); // 끝점
+            if (e && BoardCanvas.segmentDistance(wx, wy, [e.x1, e.y1], [e.x2, e.y2]) <= tol)
+            {
+                return this.links[i]; // 선 위
+            }
+        }
+        return null; // 맞은 연결선 없음
+    }
+
+    drawLink(ctx, link, selected)
+    {
+        const e = this.linkEndpoints(link); // 끝점
+        if (!e)
+        {
+            return; // 그릴 수 없음
+        }
+        ctx.save(); // 스타일 시작
+        ctx.strokeStyle = selected ? '#2563eb' : '#374151'; // 선 색
+        ctx.fillStyle = ctx.strokeStyle; // 화살촉 색
+        ctx.lineWidth = selected ? 3 : 2; // 선 굵기
+        ctx.beginPath(); // 선 경로
+        ctx.moveTo(e.x1, e.y1); // 시작
+        ctx.lineTo(e.x2 - e.ux * 10, e.y2 - e.uy * 10); // 화살촉 앞까지
+        ctx.stroke(); // 선
+        ctx.beginPath(); // 화살촉 경로
+        ctx.moveTo(e.x2, e.y2); // 끝점
+        ctx.lineTo(e.x2 - e.ux * 14 - e.uy * 6, e.y2 - e.uy * 14 + e.ux * 6); // 한쪽 날개
+        ctx.lineTo(e.x2 - e.ux * 14 + e.uy * 6, e.y2 - e.uy * 14 - e.ux * 6); // 다른 날개
+        ctx.closePath(); // 닫기
+        ctx.fill(); // 화살촉
+        if (link.label)
+        {
+            const mx = (e.x1 + e.x2) / 2; // 중점 X
+            const my = (e.y1 + e.y2) / 2; // 중점 Y
+            ctx.font = '12px sans-serif'; // 라벨 글꼴
+            const w = ctx.measureText(link.label).width + 10; // 라벨 너비
+            ctx.fillStyle = '#ffffff'; // 라벨 배경
+            ctx.fillRect(mx - w / 2, my - 10, w, 20); // 배경
+            ctx.lineWidth = 1; // 테두리 굵기
+            ctx.strokeRect(mx - w / 2, my - 10, w, 20); // 테두리
+            ctx.fillStyle = selected ? '#2563eb' : '#374151'; // 글자 색
+            ctx.fillText(link.label, mx - w / 2 + 5, my + 4); // 라벨
+        }
+        ctx.restore(); // 스타일 끝
+    }
+
     static segmentDistance(px, py, a, b)
     {
         const vx = b[0] - a[0]; // 선분 벡터 X
@@ -324,6 +467,10 @@ class BoardCanvas
         ctx.save(); // 뷰포트 변환 시작
         ctx.translate(this.view.x, this.view.y); // 이동
         ctx.scale(this.view.scale, this.view.scale); // 확대
+        for (const l of this.links)
+        {
+            this.drawLink(ctx, l, l.link_id === this.selectedLinkId); // 연결선(객체 아래)
+        }
         for (const o of this.objects)
         {
             this.drawObject(ctx, o); // 확정 객체
@@ -340,6 +487,32 @@ class BoardCanvas
         {
             this.drawObject(ctx, this.draft); // 내 초안
         }
+        if (this.linkDraft)
+        {
+            const a = this.linkDraft.from; // 출발 객체
+            const pa = this.displayPosition(a); // 출발 위치
+            ctx.save(); // 스타일 시작
+            ctx.strokeStyle = '#2563eb'; // 고무줄 색
+            ctx.lineWidth = 2 / this.view.scale; // 화면 기준 2px
+            ctx.setLineDash([8 / this.view.scale, 6 / this.view.scale]); // 점선
+            ctx.beginPath(); // 경로
+            ctx.moveTo(pa.x + a.width / 2, pa.y + a.height / 2); // 출발 중심
+            ctx.lineTo(this.linkDraft.to.x, this.linkDraft.to.y); // 현재 커서
+            ctx.stroke(); // 고무줄 선
+            ctx.restore(); // 스타일 끝
+        }
+        if (this.marquee)
+        {
+            const m = this.marquee; // 영역 선택
+            ctx.save(); // 스타일 시작
+            ctx.fillStyle = 'rgba(37, 99, 235, 0.08)'; // 영역 채우기
+            ctx.strokeStyle = '#2563eb'; // 영역 테두리
+            ctx.lineWidth = 1 / this.view.scale; // 화면 기준 1px
+            ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]); // 점선
+            ctx.fillRect(m.x, m.y, m.width, m.height); // 채우기
+            ctx.strokeRect(m.x, m.y, m.width, m.height); // 테두리
+            ctx.restore(); // 스타일 끝
+        }
         for (const [id, lock] of this.locks)
         {
             const o = this.findObject(id); // 잠긴 객체
@@ -348,10 +521,13 @@ class BoardCanvas
                 this.drawOutline(ctx, o, lock.color || '#999999'); // 타인 잠금 테두리
             }
         }
-        const selected = this.selectedId !== null ? this.findObject(this.selectedId) : null; // 선택 객체
-        if (selected)
+        for (const id of this.selectedIds)
         {
-            this.drawOutline(ctx, selected, '#2563eb'); // 선택 테두리
+            const selected = this.findObject(id); // 선택 객체
+            if (selected)
+            {
+                this.drawOutline(ctx, selected, '#2563eb'); // 선택 테두리
+            }
         }
         ctx.restore(); // 뷰포트 변환 끝
         for (const [id, lock] of this.locks)

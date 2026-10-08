@@ -15,7 +15,7 @@
 | `board_objects` | object_id, board_id, task_id, type, x, y, width, height, payload_json, style_json, version | 최종 확정된 객체만 저장 |
 | `media_assets` | asset_id, project_id, stored_path, mime_type, size_bytes | 이미지 파일 메타데이터 |
 | `tasks` (P1) | task_id, project_id, title, status, assignee_id, due_at | 보드와 독립된 업무 원본 |
-| `board_links` (P1) | link_id, board_id, from_object_id, to_object_id, label | 양 끝 객체의 보드 일치 검사 |
+| `board_links` (P1) | link_id, board_id, from_object_id, to_object_id, label | 양 끝 객체의 보드 일치 검사 (8단계 구현: 실시간 서버가 두 객체가 같은 보드에 있는지 확인, 객체 삭제 시 FK 연쇄 삭제) |
 | `realtime_tickets` | ticket_hash, guest_id, board_id, expires_at, used_at | Socket.IO 일회성 접속 티켓. 원문 저장 금지 |
 | `join_attempts` | client_ip, succeeded, attempted_at | 게스트 입장 요청 제한용 기록 |
 

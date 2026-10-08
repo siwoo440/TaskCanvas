@@ -18,10 +18,13 @@
 | `object:unlock` | object_id, lock_token | 잠금 해제 | X |
 | `task:create` (P1) | title, status, assignee_id, due_at | 업무 원본 생성 후 프로젝트 전체에 `task:created` 전파 | O |
 | `task:update` (P1) | task_id, version, changes(title·status·assignee_id·due_at) | 버전 검사 후 저장, 프로젝트 전체에 `task:updated` 전파 | O |
+| `link:create` (P1) | from_object_id, to_object_id, label | 같은 보드의 서로 다른 두 객체 연결. `link:created` 전파 | O |
+| `link:update` (P1) | link_id, label | 라벨 변경. `link:updated` 전파 | O |
+| `link:delete` (P1) | link_id | 연결선 삭제. `link:deleted` 전파. 객체 삭제 시 DB FK 로 함께 삭제 | O |
 
 서버→클라이언트 이벤트: `presence:update`(참여자 목록), `cursor:move`(타인 커서), `stroke:preview`(타인 펜 미리보기), `object:created`(확정 객체), `object:locked`(타인 잠금: object_id, guest_id, display_name, color), `object:unlocked`(해제: object_id, reason), `object:preview`(타인 이동 중 위치), `object:updated`(변경 확정 객체), `object:deleted`(삭제된 object_id), `task:created`/`task:updated`(공유 업무 원본 — 프로젝트 방 `project:{id}` 로 보드와 무관하게 전파).
 
-**구현 상태(2~4·7단계):** 위 이벤트 전부가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식이며, `object:lock` 실패 시 `error.locked_by`, `VERSION_CONFLICT` 시 최상위 `object`(최신 상태)를 함께 돌려줍니다. `board:join` 응답에는 현재 보드의 잠금 목록 `locks` 가 포함됩니다.
+**구현 상태(2~4·7·8단계):** 위 이벤트 전부가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식이며, `object:lock` 실패 시 `error.locked_by`, `VERSION_CONFLICT` 시 최상위 `object`(최신 상태)를 함께 돌려줍니다. `board:join` 응답에는 현재 보드의 잠금 목록 `locks` 가 포함됩니다.
 
 ---
 
@@ -51,7 +54,7 @@
 2. 서버는 멤버십·역할·보드·잠금 부재를 검증하고 단일 소유자에게 임시 토큰 발급.
 3. 같은 객체에 대한 타 사용자 잠금/수정 요청은 `OBJECT_LOCKED` 거절.
 4. 서버는 연결 종료·정상 완료·TTL 만료 시 잠금을 해제. (구현: TTL 30초, `object:preview`/`commit` 마다 연장, 5초 주기 만료 검사, 만료 시 `object:unlocked{reason:'expired'}` 를 잠금 소유자에게도 전송)
-5. 다중 선택(P1)은 선택된 **모든** 객체 잠금 획득 실패 시 이동 전체 취소.
+5. 다중 선택(P1)은 선택된 **모든** 객체 잠금 획득 실패 시 이동 전체 취소. (구현: 클라이언트가 객체마다 `object:lock` 을 순서대로 요청하고 하나라도 실패하면 이미 받은 토큰을 `object:unlock` 으로 반납. 성공 시 객체마다 `object:preview`/`object:commit`)
 6. `version`이 불일치하면 덮어쓰지 않고 `VERSION_CONFLICT` 응답 후 새 스냅샷 요청. (구현: 충돌 시 서버가 잠금도 해제하며, 클라이언트는 `GET /api/boards/{id}/snapshot` 으로 재동기화)
 7. 펜 획(`type='stroke'`)의 이동은 `changes.x/y` 만 보내고 서버가 `payload.points` 전체를 평행 이동해 저장. 크기 변경은 도형만 허용.
 

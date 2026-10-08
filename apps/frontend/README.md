@@ -50,8 +50,9 @@ node apps/realtime/src/server.js
 
 | 조작 | 동작 |
 |---|---|
-| 선택 (V) | 객체 클릭 → `object:lock` 획득 후 드래그 이동(`object:preview`), 놓으면 `object:commit`. 빈 곳 드래그는 화면 이동 |
-| Delete / Backspace | 선택 객체를 잠근 뒤 `object:delete` |
+| 선택 (V) | 객체 클릭 → `object:lock` 획득 후 드래그 이동(`object:preview`), 놓으면 `object:commit`. Shift+클릭으로 선택 토글, 빈 곳 드래그는 영역 선택. 여러 개를 선택하고 끌면 모든 객체 잠금을 얻은 뒤 함께 이동(하나라도 타인 잠금이면 전체 취소) |
+| 연결선 (L) | 객체에서 객체로 드래그 → `link:create`. 선을 클릭하면 오른쪽 패널에서 라벨 저장(`link:update`)·삭제(`link:delete`). 연결된 객체를 지우면 선도 사라짐 |
+| Delete / Backspace | 선택 객체(여러 개 가능)를 하나씩 잠근 뒤 `object:delete`, 연결선 선택 시 `link:delete` |
 | 속성 패널 변경 | 선택 객체가 있으면 잠근 뒤 `object:commit{changes:{style}}` 로 색상·굵기·채우기 적용 |
 | 펜 (P) | 누른 채 이동하면 약 40ms 단위로 `stroke:preview`, 놓으면 `stroke:commit` |
 | 사각형 (R) / 원 (O) | 드래그로 생성, 놓으면 `object:create` |
@@ -75,4 +76,5 @@ node apps/realtime/src/server.js
 
 ## 아직 없는 것
 
-- 다중 선택·크기 조절 핸들·연결선 — P1 후순위
+- 크기 조절 핸들, 초대 링크 편의 기능 — P1 후순위
+- 고급 체크리스트·댓글·표·흐름도 자동 정렬 — P2

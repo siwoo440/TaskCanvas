@@ -48,8 +48,10 @@ function attachTools(canvas, options)
         if (drag && (drag.mode === 'pen' || drag.mode === 'shape'))
         {
             canvas.draft = null; // 초안 폐기
-            canvas.invalidate(); // 다시 그리기
         }
+        canvas.linkDraft = null; // 연결선 초안 폐기
+        canvas.marquee = null; // 영역 선택 폐기
+        canvas.invalidate(); // 다시 그리기
         drag = null; // 드래그 종료
     }
 
@@ -72,8 +74,32 @@ function attachTools(canvas, options)
         if (state.tool === 'select')
         {
             const hit = canvas.hitTest(w.x, w.y); // 클릭한 객체
-            const started = options.onSelectDown(hit, w); // 선택·이동 시작(잠금 요청)
-            drag = started ? { mode: 'move' } : { mode: 'pan', sx, sy }; // 객체면 이동, 빈 곳이면 화면 이동
+            if (!hit)
+            {
+                const link = canvas.hitTestLink(w.x, w.y); // 클릭한 연결선
+                if (link)
+                {
+                    options.onLinkSelect(link); // 연결선 선택
+                    return;
+                }
+                options.onSelectDown(null, w, e.shiftKey); // 빈 곳 → 선택 해제(Shift 면 유지)
+                drag = { mode: 'marquee', origin: w }; // 영역 선택 시작
+                canvas.marquee = { x: w.x, y: w.y, width: 0, height: 0 }; // 영역 표시
+                return;
+            }
+            const started = options.onSelectDown(hit, w, e.shiftKey); // 선택·이동 시작(잠금 요청)
+            drag = started ? { mode: 'move' } : null; // 이동 시작 여부
+            return;
+        }
+        if (state.tool === 'link')
+        {
+            const hit = canvas.hitTest(w.x, w.y); // 출발 객체
+            if (hit)
+            {
+                drag = { mode: 'link', from: hit }; // 연결선 드래그
+                canvas.linkDraft = { from: hit, to: w }; // 고무줄 선
+                canvas.invalidate(); // 다시 그리기
+            }
             return;
         }
         if (state.tool === 'pen')
@@ -117,6 +143,16 @@ function attachTools(canvas, options)
         {
             options.onSelectMove(w); // 객체 이동 중
         }
+        else if (drag.mode === 'marquee')
+        {
+            canvas.marquee = { x: Math.min(drag.origin.x, w.x), y: Math.min(drag.origin.y, w.y), width: Math.abs(w.x - drag.origin.x), height: Math.abs(w.y - drag.origin.y) }; // 영역 갱신
+            canvas.invalidate(); // 다시 그리기
+        }
+        else if (drag.mode === 'link')
+        {
+            canvas.linkDraft = { from: drag.from, to: w }; // 고무줄 끝점 갱신
+            canvas.invalidate(); // 다시 그리기
+        }
         else if (drag.mode === 'pen')
         {
             drag.draft.payload.points.push([w.x, w.y]); // 좌표 추가
@@ -135,7 +171,7 @@ function attachTools(canvas, options)
         }
     });
 
-    el.addEventListener('pointerup', () =>
+    el.addEventListener('pointerup', (e) =>
     {
         if (!drag)
         {
@@ -146,6 +182,30 @@ function attachTools(canvas, options)
         if (finished.mode === 'move')
         {
             options.onSelectUp(); // 객체 이동 확정
+            return;
+        }
+        if (finished.mode === 'marquee')
+        {
+            const m = canvas.marquee; // 영역
+            canvas.marquee = null; // 영역 표시 해제
+            canvas.invalidate(); // 다시 그리기
+            if (m && (m.width > 2 || m.height > 2))
+            {
+                options.onMarquee(m, e.shiftKey); // 영역 안 객체 선택
+            }
+            return;
+        }
+        if (finished.mode === 'link')
+        {
+            const { sx, sy } = position(e); // 화면 좌표
+            const w = canvas.toWorld(sx, sy); // 월드 좌표
+            const target = canvas.hitTest(w.x, w.y); // 도착 객체
+            canvas.linkDraft = null; // 고무줄 해제
+            canvas.invalidate(); // 다시 그리기
+            if (target && target.object_id !== finished.from.object_id)
+            {
+                options.onLinkCreate(finished.from, target); // 연결선 생성
+            }
             return;
         }
         canvas.draft = null; // 초안 표시 해제
@@ -203,7 +263,7 @@ function attachTools(canvas, options)
         }
         else
         {
-            const map = { v: 'select', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan', t: 'task' }; // 단축키
+            const map = { v: 'select', l: 'link', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan', t: 'task' }; // 단축키
             if (map[e.key.toLowerCase()])
             {
                 options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환
