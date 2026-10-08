@@ -21,11 +21,12 @@ realtime/
 │   ├── auth.js          # 티켓 일회성 검증, 역할 재확인
 │   ├── presence.js      # 보드별 참여자·커서 색상(메모리)
 │   ├── locks.js         # 객체 선점 잠금(메모리, TTL·연결 종료 해제)
+│   ├── video.js         # 외부 영상 URL 검증·임베드 URL 생성
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
-│       ├── object.js    # object:create 도형 저장
+│       ├── object.js    # object:create 도형·이미지·영상 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트
@@ -59,7 +60,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 | C→S | `cursor:move` `{board_id, x, y}` | 커서 중계. S→C 로 `{guest_id, display_name, color, x, y}` |
 | C→S | `stroke:preview` `{board_id, stroke_id, points_delta, style}` | 그리는 중 중계 (DB 기록 없음) |
 | C→S (ack) | `stroke:commit` `{board_id, stroke_id, points, style, request_id}` | DB 저장. 응답 `{ok, request_id, object_id, new_version, persisted}` |
-| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, request_id}` | 사각형·원 생성. 응답에 `object` 포함 |
+| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, payload, request_id}` | `rect`·`ellipse`·`image`(payload.asset_id)·`video`(payload.source_url) 생성. 응답에 `object` 포함 |
 | S→C | `object:created` `{board_id, guest_id, object}` | 다른 참여자에게 확정 객체 전달 |
 | C→S (ack) | `object:lock` `{board_id, object_id}` | 선점 잠금. 응답 `{lock_token, expires_in}`, 실패 `OBJECT_LOCKED` + `error.locked_by` |
 | C→S | `object:preview` `{board_id, object_id, lock_token, x, y}` | 잠금 소유자의 이동 중 위치 중계 |

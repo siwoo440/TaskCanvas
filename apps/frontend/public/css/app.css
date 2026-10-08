@@ -134,6 +134,30 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 #board-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 #board-canvas.pan { cursor: grab; }
 #board-canvas.select { cursor: default; }
+
+/* 영상 iframe 오버레이: 캔버스 좌표와 동기화, 막대 영역은 캔버스가 처리 */
+.overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.overlay iframe { position: absolute; left: 0; top: 0; border: 0; background: #000; pointer-events: auto; transform-origin: 0 0; }
+.stage.dragging::after { content: ""; position: absolute; inset: 0; border: 3px dashed var(--primary); pointer-events: none; }
+.drop-hint {
+    position: absolute;
+    left: 50%;
+    top: 20px;
+    transform: translateX(-50%);
+    background: var(--primary);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    pointer-events: none;
+}
+.drop-hint[hidden] { display: none; }
+
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog form { display: flex; flex-direction: column; gap: 12px; }
+dialog input[type="url"] { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+dialog .row { justify-content: flex-end; }
 #board-canvas.viewer { cursor: default; }
 
 .props {

@@ -37,6 +37,10 @@ function rowToObject(row)
 function cleanStyle(type, style)
 {
     const s = style && typeof style === 'object' ? style : {}; // 객체 보정
+    if (type === 'image' || type === 'video')
+    {
+        return {}; // 이미지·영상은 스타일 없음
+    }
     if (type === 'stroke')
     {
         return {

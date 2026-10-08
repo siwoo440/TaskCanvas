@@ -12,6 +12,7 @@ frontend/public/
     ├── config.js     # API 경로, 실시간 서버 주소(기본: 같은 호스트의 3001 포트)
     ├── api.js        # fetch 래퍼 (JSON, X-TaskCanvas 헤더, 오류 코드)
     ├── realtime.js   # Socket.IO 연결, 티켓 참여, 재접속 시 자동 재참여
+    ├── media.js      # 이미지 업로드(multipart), 영상 URL 사전 검사, 영상 iframe 오버레이
     ├── canvas.js     # 격자·객체·미리보기·커서·선택/잠금 표시 렌더링, 클릭 판정, 확대·이동 뷰포트
     ├── tools.js      # 선택·펜·사각형·원·이동 도구 입력 처리, 단축키
     └── app.js        # 화면 전환, 상태, API·실시간 연결, 잠금 기반 이동·삭제·속성 변경
@@ -54,6 +55,8 @@ node apps/realtime/src/server.js
 | 속성 패널 변경 | 선택 객체가 있으면 잠근 뒤 `object:commit{changes:{style}}` 로 색상·굵기·채우기 적용 |
 | 펜 (P) | 누른 채 이동하면 약 40ms 단위로 `stroke:preview`, 놓으면 `stroke:commit` |
 | 사각형 (R) / 원 (O) | 드래그로 생성, 놓으면 `object:create` |
+| 이미지 🖼 | 파일 선택·캔버스에 드래그 앤 드롭·Ctrl+V → `POST /api/images` → `object:create{type:'image'}`. 긴 변 400 단위로 맞춰 삽입 |
+| 영상 ▶ | URL 입력(YouTube·Vimeo) → `object:create{type:'video'}`. 서버가 만든 `embed_url` 을 오버레이 iframe 으로 표시, 제목 막대를 잡아 이동 |
 | 이동 (H), Space+드래그, 가운데 버튼 | 화면 이동 |
 | 마우스 휠 | 커서 기준 확대·축소 (0.1~8배) |
 | ⤢ | 객체 전체가 보이도록 화면 맞춤 |
@@ -66,7 +69,8 @@ node apps/realtime/src/server.js
 - 다른 사용자가 잠근 객체는 그 사람 색상의 점선 테두리와 "OOO 편집 중" 이름표로 표시되고, 클릭하면 안내만 뜨고 선택되지 않습니다. 타인의 이동 중 위치(`object:preview`)도 실시간으로 따라갑니다.
 - 이동 중 잠금이 만료되거나(30초) 다른 사용자가 먼저 수정해 `VERSION_CONFLICT` 가 나면 이동을 취소하고 스냅샷을 다시 불러옵니다.
 
+- 이미지는 `<img>` 캐시로 캔버스에 직접 그리고(로딩·실패 자리 표시 포함), 영상은 캔버스에 그릴 수 없으므로 `#overlay` 의 iframe 을 매 렌더마다 캔버스 좌표에 맞춰 이동·크기 조정합니다. iframe 영역은 재생용으로 클릭을 받고, 위쪽 제목 막대만 캔버스가 받아 선택·이동합니다.
+
 ## 아직 없는 것
 
-- 이미지 업로드·영상 임베드 — 5단계
 - 다중 선택·크기 조절 핸들 — P1

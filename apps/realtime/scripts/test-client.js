@@ -2,6 +2,8 @@
 // 사용법: node scripts/test-client.js <초대코드> [API=http://127.0.0.1:8080] [RT=http://127.0.0.1:3001] [board_id=3]
 'use strict';
 
+const fs = require('fs'); // 표본 이미지 읽기
+const path = require('path'); // 경로 계산
 const { io } = require('socket.io-client'); // 테스트용 클라이언트
 
 const [inviteCode, API = 'http://127.0.0.1:8080', RT = 'http://127.0.0.1:3001', BOARD = '3'] = process.argv.slice(2); // 실행 인자
@@ -13,6 +15,7 @@ if (!inviteCode)
 }
 
 let failures = 0; // 실패 횟수
+let snapshotProject = 0; // 입장한 프로젝트 ID
 
 function check(label, condition, detail)
 {
@@ -38,6 +41,7 @@ async function login(name)
 {
     const joined = await api('/api/guest/join', { display_name: name, invite_code: inviteCode }); // 게스트 입장
     check(name + ' 입장', joined.status === 201, joined.json); // 입장 확인
+    snapshotProject = joined.json.project_id; // 프로젝트 ID 기록
     const ticket = await api('/api/realtime-ticket', { board_id: boardId }, joined.cookie); // 티켓 발급
     check(name + ' 티켓 발급', ticket.status === 201); // 티켓 확인
     return { cookie: joined.cookie, ticket: ticket.json.ticket }; // 세션·티켓
@@ -109,6 +113,50 @@ async function main()
 
     const badType = await emitAck(sa, 'object:create', { board_id: boardId, type: 'script', x: 0, y: 0, width: 10, height: 10 }); // 허용되지 않은 유형
     check('잘못된 객체 유형 거부', badType.ok === false && badType.error.code === 'BAD_REQUEST'); // 거부 확인
+
+    // ---- 이미지·영상 ----
+    const png = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'assets', 'design', 'reference-dashboard.png')); // 저장소의 PNG 를 업로드 표본으로 사용
+    const form = new FormData(); // multipart 본문
+    form.append('project_id', String(joinA.you ? snapshotProject : snapshotProject)); // 프로젝트 ID
+    form.append('file', new Blob([png], { type: 'image/png' }), 'sample.png'); // 이미지 파일
+    const uploadRes = await fetch(API + '/api/images', { method: 'POST', headers: { 'X-TaskCanvas': '1', Cookie: a.cookie }, body: form }); // 업로드
+    const uploaded = await uploadRes.json(); // 응답
+    check('이미지 업로드', uploadRes.status === 201 && uploaded.asset.mime_type === 'image/png' && uploaded.asset.width > 0, uploaded.asset); // 업로드 확인
+
+    const fake = new FormData(); // 위장 파일
+    fake.append('project_id', String(snapshotProject)); // 프로젝트 ID
+    fake.append('file', new Blob(['not an image'], { type: 'image/png' }), 'fake.png'); // 텍스트를 PNG 로 위장
+    const fakeRes = await fetch(API + '/api/images', { method: 'POST', headers: { 'X-TaskCanvas': '1', Cookie: a.cookie }, body: fake }); // 업로드 시도
+    check('위장 파일 거부(INVALID_FILE)', fakeRes.status === 415 && (await fakeRes.json()).error.code === 'INVALID_FILE'); // 거부 확인
+
+    const big = new FormData(); // 10MB 초과 파일
+    big.append('project_id', String(snapshotProject)); // 프로젝트 ID
+    big.append('file', new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], { type: 'image/png' }), 'big.png'); // 10MB + 1
+    const bigRes = await fetch(API + '/api/images', { method: 'POST', headers: { 'X-TaskCanvas': '1', Cookie: a.cookie }, body: big }); // 업로드 시도
+    check('10MB 초과 거부(FILE_TOO_LARGE)', bigRes.status === 413 && (await bigRes.json()).error.code === 'FILE_TOO_LARGE'); // 거부 확인
+
+    const imgGet = await fetch(API + uploaded.asset.url, { headers: { Cookie: a.cookie } }); // 참여자 이미지 조회
+    check('참여자 이미지 조회', imgGet.status === 200 && imgGet.headers.get('content-type') === 'image/png' && Number(imgGet.headers.get('content-length')) === png.length); // 조회 확인
+    const imgAnon = await fetch(API + uploaded.asset.url); // 세션 없이 조회
+    check('세션 없는 이미지 조회 거부', imgAnon.status === 401); // 거부 확인
+
+    const imageObjPromise = waitFor(sb, 'object:created'); // B 가 받을 이미지 객체
+    const imageObj = await emitAck(sa, 'object:create', { board_id: boardId, type: 'image', x: 0, y: 0, width: 200, height: 120, payload: { asset_id: uploaded.asset.asset_id } }); // 이미지 객체 생성
+    check('이미지 객체 생성', imageObj.ok === true && imageObj.object.payload.url === uploaded.asset.url && imageObj.object.payload.mime_type === 'image/png', imageObj.object && imageObj.object.payload); // 생성 확인
+    const imageSeen = await imageObjPromise; // 전달 수신
+    check('B 에게 이미지 객체 전달', imageSeen !== null && imageSeen.object.type === 'image'); // 전달 확인
+
+    const badAsset = await emitAck(sa, 'object:create', { board_id: boardId, type: 'image', x: 0, y: 0, width: 10, height: 10, payload: { asset_id: 999999 } }); // 없는 이미지
+    check('없는 이미지 ID 거부', badAsset.ok === false && badAsset.error.code === 'BAD_REQUEST'); // 거부 확인
+
+    const videoObj = await emitAck(sa, 'object:create', { board_id: boardId, type: 'video', x: 0, y: 0, width: 480, height: 298, payload: { source_url: 'https://youtu.be/dQw4w9WgXcQ?t=5' } }); // YouTube 단축 URL
+    check('영상 객체 생성(YouTube 임베드 변환)', videoObj.ok === true && videoObj.object.payload.provider === 'youtube' && videoObj.object.payload.embed_url === 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ', videoObj.object && videoObj.object.payload); // 변환 확인
+
+    const vimeoObj = await emitAck(sa, 'object:create', { board_id: boardId, type: 'video', x: 0, y: 0, width: 480, height: 298, payload: { source_url: 'https://vimeo.com/76979871' } }); // Vimeo URL
+    check('영상 객체 생성(Vimeo)', vimeoObj.ok === true && vimeoObj.object.payload.embed_url === 'https://player.vimeo.com/video/76979871'); // 변환 확인
+
+    const badVideo = await emitAck(sa, 'object:create', { board_id: boardId, type: 'video', x: 0, y: 0, width: 480, height: 298, payload: { source_url: 'https://example.com/watch?v=dQw4w9WgXcQ' } }); // 허용되지 않은 도메인
+    check('허용되지 않은 영상 도메인 거부', badVideo.ok === false && badVideo.error.code === 'BAD_REQUEST'); // 거부 확인
 
     // ---- 잠금·이동·삭제 ----
     const lockedPromise = waitFor(sb, 'object:locked'); // B 가 받을 잠금 알림

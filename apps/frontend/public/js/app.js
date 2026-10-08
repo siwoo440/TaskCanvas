@@ -15,6 +15,7 @@ const state = {
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
 let canvas = null; // BoardCanvas
 let realtime = null; // Realtime
+let overlay = null; // VideoOverlay
 let move = null; // 진행 중인 객체 이동 {object, start, dx, dy, token, armed, finished, lastPreviewAt}
 
 function showView(name)
@@ -187,6 +188,9 @@ async function openBoard(board)
     {
         canvas = new BoardCanvas($('board-canvas')); // 캔버스 생성
         attachTools(canvas, toolHandlers); // 입력 연결
+        overlay = new VideoOverlay($('overlay')); // 영상 iframe 오버레이
+        canvas.afterRender = () => overlay.sync(canvas); // 렌더마다 iframe 위치 동기화
+        attachMediaInputs(); // 이미지·영상 입력 연결
     }
     canvas.reset(); // 화면 비움
     updateSelectionInfo(); // 선택 안내 초기화
@@ -287,6 +291,8 @@ function applyRole()
         setTool('pan'); // 이동 도구 고정
     }
     $('board-canvas').classList.toggle('viewer', !editable); // 커서 모양
+    $('tool-image').disabled = !editable; // 열람자는 이미지 추가 불가
+    $('tool-video').disabled = !editable; // 열람자는 영상 추가 불가
     $('props-role-note').textContent = editable ? '편집자: 그리거나 옮기면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
 }
 
@@ -335,7 +341,7 @@ $('prop-fill').addEventListener('change', () => restyleSelected()); // 선택 �
 function updateSelectionInfo()
 {
     const o = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
-    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원' }; // 유형 이름
+    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원', image: '이미지', video: '영상' }; // 유형 이름
     $('selection-info').textContent = o ? '선택: ' + (names[o.type] ?? o.type) + ' #' + o.object_id + ' (v' + o.version + ') — Delete 키로 삭제' : ''; // 안내 문구
 }
 
@@ -540,9 +546,9 @@ async function deleteSelected()
 async function restyleSelected()
 {
     const object = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
-    if (!object || !canEdit() || move || !realtime || !realtime.joined)
+    if (!object || !canEdit() || move || !realtime || !realtime.joined || object.type === 'image' || object.type === 'video')
     {
-        return; // 적용 대상 없음
+        return; // 적용 대상 없음(이미지·영상은 스타일 없음)
     }
     if (canvas.locks.has(object.object_id))
     {
@@ -559,6 +565,125 @@ async function restyleSelected()
     {
         toast(lockMessage(err)); // 잠금 실패 안내
     }
+}
+
+// ---------- 이미지·영상 ----------
+
+function viewCenterWorld()
+{
+    return canvas.toWorld(canvas.el.width / canvas.dpr / 2, canvas.el.height / canvas.dpr / 2); // 화면 중앙의 월드 좌표
+}
+
+async function insertImages(files, world)
+{
+    if (!canEdit() || !realtime || !realtime.joined)
+    {
+        return toast('지금은 이미지를 추가할 수 없습니다.'); // 권한·연결 확인
+    }
+    let offset = 0; // 여러 장일 때 겹침 방지 간격
+    for (const file of files)
+    {
+        const problem = Media.checkFile(file); // 형식·크기 사전 검사
+        if (problem)
+        {
+            toast(problem, 4000); // 거부 안내
+            continue;
+        }
+        setSaveStatus('saving'); // 업로드 중 표시
+        try
+        {
+            const asset = await Media.upload(state.project.project_id, file); // 서버 업로드(내용 검사 포함)
+            const size = Media.fitSize(asset.width, asset.height); // 삽입 크기
+            const draft = { type: 'image', x: world.x - size.width / 2 + offset, y: world.y - size.height / 2 + offset, width: size.width, height: size.height, payload: { asset_id: asset.asset_id, url: asset.url }, style: {} }; // 이미지 객체 초안
+            offset += 24; // 다음 장 위치
+            await createObject('object:create', { type: 'image', x: draft.x, y: draft.y, width: draft.width, height: draft.height, payload: { asset_id: asset.asset_id } }, draft); // 보드 객체로 저장
+        }
+        catch (err)
+        {
+            setSaveStatus('failed'); // 실패 표시
+            toast('이미지 업로드 실패: ' + err.message, 4000); // 안내
+        }
+    }
+}
+
+function attachMediaInputs()
+{
+    const stage = document.querySelector('.stage'); // 캔버스 영역
+    $('tool-image').addEventListener('click', () => $('image-input').click()); // 파일 선택 열기
+    $('image-input').addEventListener('change', (e) =>
+    {
+        insertImages([...e.target.files], viewCenterWorld()); // 선택한 파일 삽입(화면 중앙)
+        e.target.value = ''; // 같은 파일 재선택 허용
+    });
+
+    stage.addEventListener('dragover', (e) =>
+    {
+        if (e.dataTransfer && [...e.dataTransfer.types].includes('Files'))
+        {
+            e.preventDefault(); // 드롭 허용
+            stage.classList.add('dragging'); // 테두리 표시
+            $('drop-hint').hidden = false; // 안내 표시
+        }
+    });
+    stage.addEventListener('dragleave', (e) =>
+    {
+        if (!stage.contains(e.relatedTarget))
+        {
+            stage.classList.remove('dragging'); // 테두리 해제
+            $('drop-hint').hidden = true; // 안내 숨김
+        }
+    });
+    stage.addEventListener('drop', (e) =>
+    {
+        e.preventDefault(); // 브라우저 기본 열기 방지
+        stage.classList.remove('dragging'); // 테두리 해제
+        $('drop-hint').hidden = true; // 안내 숨김
+        const rect = canvas.el.getBoundingClientRect(); // 캔버스 위치
+        const files = [...(e.dataTransfer ? e.dataTransfer.files : [])].filter((f) => f.type.startsWith('image/')); // 이미지 파일만
+        if (files.length > 0)
+        {
+            insertImages(files, canvas.toWorld(e.clientX - rect.left, e.clientY - rect.top)); // 놓은 위치에 삽입
+        }
+    });
+
+    window.addEventListener('paste', (e) =>
+    {
+        if ($('view-board').hidden || !e.clipboardData)
+        {
+            return; // 보드 화면이 아닐 때 무시
+        }
+        const files = [...e.clipboardData.items].filter((item) => item.kind === 'file' && item.type.startsWith('image/')).map((item) => item.getAsFile()).filter(Boolean); // 클립보드 이미지
+        if (files.length > 0)
+        {
+            e.preventDefault(); // 기본 붙여넣기 방지
+            insertImages(files, viewCenterWorld()); // 화면 중앙에 삽입
+        }
+    });
+
+    $('tool-video').addEventListener('click', () =>
+    {
+        $('video-url').value = ''; // 입력 초기화
+        $('video-error').textContent = ''; // 오류 초기화
+        $('video-dialog').showModal(); // 대화상자 열기
+        $('video-url').focus(); // 입력 포커스
+    });
+    $('video-cancel').addEventListener('click', () => $('video-dialog').close()); // 취소
+    $('video-form').addEventListener('submit', async (e) =>
+    {
+        e.preventDefault(); // 대화상자 자동 닫힘 방지
+        const url = $('video-url').value.trim(); // 입력 URL
+        if (!Media.parseVideoUrl(url))
+        {
+            $('video-error').textContent = 'YouTube 또는 Vimeo 영상 URL 만 추가할 수 있습니다.'; // 사전 검사 안내
+            return;
+        }
+        $('video-dialog').close(); // 대화상자 닫기
+        const center = viewCenterWorld(); // 화면 중앙
+        const width = Media.VIDEO_WIDTH; // 카드 너비
+        const height = Media.VIDEO_HEIGHT + BoardCanvas.VIDEO_BAR; // 카드 높이(막대 포함)
+        const draft = { type: 'video', x: center.x - width / 2, y: center.y - height / 2, width, height, payload: { source_url: url }, style: {} }; // 영상 객체 초안
+        await createObject('object:create', { type: 'video', x: draft.x, y: draft.y, width, height, payload: { source_url: url } }, draft); // 서버가 URL 검증 후 임베드 URL 생성
+    });
 }
 
 // ---------- 도구 → 실시간 이벤트 ----------

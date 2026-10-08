@@ -60,11 +60,17 @@
             <button type="button" data-tool="ellipse" title="원 (O)">◯</button>
             <button type="button" data-tool="pan" title="이동 (H / Space+드래그)">✥</button>
             <hr>
+            <button type="button" id="tool-image" title="이미지 추가 (버튼·드래그·Ctrl+V)">🖼</button>
+            <button type="button" id="tool-video" title="영상 URL 추가 (YouTube·Vimeo)">▶</button>
+            <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+            <hr>
             <button type="button" id="fit-view" title="화면 맞춤">⤢</button>
         </aside>
 
         <main class="stage">
             <canvas id="board-canvas"></canvas>
+            <div id="overlay" class="overlay"></div>
+            <div id="drop-hint" class="drop-hint" hidden>이미지를 놓으면 업로드됩니다 (PNG·JPG·WEBP, 10MB 이하)</div>
             <div id="toast" class="toast" hidden></div>
         </main>
 
@@ -77,13 +83,28 @@
             <hr>
             <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Delete: 선택 객체 삭제<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
+
+        <dialog id="video-dialog">
+            <form id="video-form" method="dialog">
+                <h2>영상 추가</h2>
+                <label>영상 URL (YouTube, Vimeo)
+                    <input id="video-url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+                </label>
+                <p id="video-error" class="error" role="alert"></p>
+                <div class="row">
+                    <button type="button" id="video-cancel">취소</button>
+                    <button type="submit" class="primary">보드에 추가</button>
+                </div>
+            </form>
+        </dialog>
     </section>
 
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
     <script src="js/realtime.js"></script>
+    <script src="js/media.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/tools.js"></script>
     <script src="js/app.js"></script>

@@ -16,7 +16,9 @@ Thumbs.db
 # 생성되는 파일과 민감한 업로드 제외
 uploads/
 storage/uploads/
+**/storage/uploads/
 storage/private/
+**/storage/private/
 tmp/
 cache/
 coverage/

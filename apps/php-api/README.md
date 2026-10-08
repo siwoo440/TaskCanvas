@@ -24,10 +24,11 @@ php-api/
 │   ├── Request.php / Response.php / Router.php
 │   ├── Auth.php       # 세션 쿠키, 역할 검사, CSRF 헤더 검사
 │   ├── ApiException.php
-│   └── controllers/   # Guest / Board / Ticket / System
+│   └── controllers/   # Guest / Board / Ticket / Image / System
 ├── bin/
 │   ├── create-project.php  # 프로젝트 + 보드 생성(개발용)
 │   └── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력)
+├── storage/uploads/   # 업로드 이미지(실행 시 생성, Git 제외)
 └── .env.example       # 설정 예시 → .env 로 복사
 ```
 
@@ -93,8 +94,18 @@ curl -c cookies.txt -X POST http://localhost:8080/api/guest/join -H "Content-Typ
 curl -b cookies.txt http://localhost:8080/api/me
 ```
 
+## 이미지 업로드 (5단계)
+
+```bash
+curl -b cookies.txt -X POST http://localhost:8080/api/images -H "X-TaskCanvas: 1" -F project_id=1 -F file=@sample.png
+```
+
+- PNG/JPG/WEBP, 파일당 10MB(`MAX_UPLOAD_BYTES`). 내용 기반 MIME(`finfo`)과 `getimagesize` 가 모두 통과해야 하며, 위장 확장자는 `INVALID_FILE`(415), 크기 초과는 `FILE_TOO_LARGE`(413).
+- 저장 위치는 `UPLOAD_DIR`(기본 `storage/uploads`, 웹 루트 밖), 파일명은 랜덤 32자. 응답에는 경로 대신 `/api/images/{id}` URL 만 포함.
+- `GET /api/images/{id}` 는 같은 프로젝트 참여자만 조회할 수 있고 ETag/304 를 지원합니다.
+
 ## 아직 없는 것 (다음 단계)
 
-- 이미지 업로드·조회 (`/api/images`) — 5단계
 - `tasks` 관련 API — P1
+- 이미지 참조가 사라졌을 때의 파일 정리 정책(미정 사항)
 - 세션·티켓 만료 행 정리 작업(현재 티켓만 1시간 지난 것을 발급 시 정리)

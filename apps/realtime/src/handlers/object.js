@@ -4,9 +4,10 @@
 const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
 const presence = require('../presence'); // 방 이름
+const video = require('../video'); // 영상 URL 검증
 const { ok, fail, joinedBoard } = require('./reply'); // 응답 헬퍼
 
-const TYPES = ['rect', 'ellipse']; // 생성 허용 객체 유형
+const TYPES = ['rect', 'ellipse', 'image', 'video']; // 생성 허용 객체 유형
 
 function cleanNumber(value, fallback = 0)
 {
@@ -52,8 +53,31 @@ function register(io, socket)
             }
             const x = cleanNumber(data.x); // X 좌표
             const y = cleanNumber(data.y); // Y 좌표
-            const style = cleanShapeStyle(data.style); // 스타일 정리
-            const payload = {}; // 도형은 본문 없음
+            let style = cleanShapeStyle(data.style); // 스타일 정리
+            let payload = {}; // 도형은 본문 없음
+            if (data.type === 'image')
+            {
+                const assetId = Number(data.payload?.asset_id); // 업로드된 이미지 ID
+                const asset = Number.isInteger(assetId) && assetId > 0
+                    ? await db.one('SELECT asset_id, mime_type FROM media_assets WHERE asset_id = ? AND project_id = ?', [assetId, socket.data.projectId]) // 같은 프로젝트의 이미지인지 확인
+                    : null;
+                if (!asset)
+                {
+                    return fail(ack, 'BAD_REQUEST', '이 프로젝트에 업로드된 이미지가 아닙니다.'); // 이미지 검사
+                }
+                payload = { asset_id: asset.asset_id, url: '/api/images/' + asset.asset_id, mime_type: asset.mime_type }; // 이미지 본문(경로는 API 경유)
+                style = {}; // 이미지는 스타일 없음
+            }
+            else if (data.type === 'video')
+            {
+                const parsed = video.parse(data.payload?.source_url); // 허용 서비스 URL 해석
+                if (!parsed)
+                {
+                    return fail(ack, 'BAD_REQUEST', '허용된 영상 서비스(YouTube, Vimeo)의 URL 이 아닙니다.'); // URL 검사
+                }
+                payload = parsed; // provider, video_id, embed_url, source_url
+                style = {}; // 영상은 스타일 없음
+            }
             const result = await db.query(
                 'INSERT INTO board_objects (board_id, type, x, y, width, height, payload_json, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 [boardId, data.type, x, y, width, height, JSON.stringify(payload), JSON.stringify(style)]

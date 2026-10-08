@@ -19,6 +19,8 @@ final class Env
         'RATE_WINDOW' => '600',
         'COOKIE_SECURE' => '0',
         'APP_DEBUG' => '0',
+        'UPLOAD_DIR' => 'storage/uploads',
+        'MAX_UPLOAD_BYTES' => '10485760',
     ];
 
     public static function load(string $path): void

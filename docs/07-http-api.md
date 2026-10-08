@@ -18,7 +18,7 @@
 | GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록 | 참여자 |
 | GET | `/api/health` | 서버·DB 상태 확인(개발용) | 공개 |
 
-**구현 상태(1단계):** 이미지·tasks 를 제외한 위 엔드포인트는 `apps/php-api` 에 구현되어 있습니다. 모든 `POST` 는 `Content-Type: application/json` 과 `X-TaskCanvas: 1` 헤더를 요구합니다.
+**구현 상태(1·5단계):** `tasks` 를 제외한 위 엔드포인트는 `apps/php-api` 에 구현되어 있습니다. 모든 `POST` 는 `X-TaskCanvas: 1` 헤더를 요구하며, `/api/images` 는 `multipart/form-data`(`project_id`, `file`), 나머지는 `Content-Type: application/json` 입니다. 이미지 업로드 응답은 `{asset:{asset_id, url:'/api/images/{id}', mime_type, size_bytes, width, height}}` 이고, 조회는 참여자 세션 쿠키가 있어야 하며 `Cache-Control: private` 로 반환됩니다.
 
 ---
 

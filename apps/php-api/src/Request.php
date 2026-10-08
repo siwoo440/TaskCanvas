@@ -57,6 +57,22 @@ final class Request
         return (int) $value; // 정수 반환
     }
 
+    public function field(string $key): string
+    {
+        $value = $_POST[$key] ?? ''; // multipart/form-data 필드
+        return is_string($value) ? trim($value) : ''; // 문자열만 허용
+    }
+
+    public function file(string $key): array
+    {
+        $file = $_FILES[$key] ?? null; // 업로드 파일 정보
+        if (!is_array($file) || !isset($file['error']) || is_array($file['error']))
+        {
+            throw new ApiException(400, 'INVALID_FILE', "{$key} 파일이 필요합니다."); // 단일 파일만 허용
+        }
+        return $file; // name, type, tmp_name, error, size
+    }
+
     public function cookie(string $name): ?string
     {
         $value = $_COOKIE[$name] ?? null; // 쿠키 값 조회

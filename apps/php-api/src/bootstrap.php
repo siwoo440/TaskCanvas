@@ -30,12 +30,16 @@ set_exception_handler(static function (Throwable $e): void
         Response::error($e->getCode() ?: 400, $e->errorCode, $e->getMessage()); // 정의된 API 오류 응답
         return;
     }
-    error_log($e); // 예상치 못한 오류 로그 기록
+    error_log((string) $e); // 예상치 못한 오류 로그 기록
     $detail = Env::bool('APP_DEBUG') ? $e->getMessage() : '서버 내부 오류가 발생했습니다.'; // 디버그 여부에 따른 메시지
     Response::error(500, 'INTERNAL_ERROR', $detail); // 500 응답
 }); // 전역 예외 처리기 등록
 
 set_error_handler(static function (int $severity, string $message, string $file, int $line): bool
 {
+    if (!(error_reporting() & $severity))
+    {
+        return false; // @ 연산자로 억제된 경고는 무시
+    }
     throw new ErrorException($message, 0, $severity, $file, $line); // PHP 경고를 예외로 승격
 }); // 전역 오류 처리기 등록

@@ -19,5 +19,7 @@ $router->add('POST', '/api/realtime-ticket', [TicketController::class, 'issue'])
 $router->add('GET', '/api/projects/{id}/boards', [BoardController::class, 'list']); // 보드 목록
 $router->add('POST', '/api/projects/{id}/boards', [BoardController::class, 'create']); // 보드 생성
 $router->add('GET', '/api/boards/{id}/snapshot', [BoardController::class, 'snapshot']); // 보드 스냅샷
+$router->add('POST', '/api/images', [ImageController::class, 'upload']); // 이미지 업로드
+$router->add('GET', '/api/images/{id}', [ImageController::class, 'show']); // 이미지 반환
 
 $router->dispatch(Request::fromGlobals()); // 요청 처리

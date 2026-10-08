@@ -16,6 +16,8 @@ class BoardCanvas
         this.moves = new Map(); // 이동 중 위치 object_id → {x, y} (내 드래그·타인 미리보기)
         this.selectedId = null; // 선택한 객체 ID
         this.draft = null; // 지금 그리는 중인 내 초안
+        this.images = new Map(); // 이미지 캐시 url → {img, failed}
+        this.afterRender = null; // 렌더 후 콜백(영상 오버레이 동기화)
         this.frame = 0; // 예약된 애니메이션 프레임
         this.resize = this.resize.bind(this); // 크기 변경 핸들러
         new ResizeObserver(this.resize).observe(el.parentElement); // 부모 크기 추적
@@ -249,11 +251,11 @@ class BoardCanvas
                     }
                 }
             }
-            else if (o.type === 'rect')
+            else if (o.type === 'rect' || o.type === 'image' || o.type === 'video')
             {
                 if (wx >= pos.x - tol && wx <= pos.x + o.width + tol && wy >= pos.y - tol && wy <= pos.y + o.height + tol)
                 {
-                    return o; // 사각형 안
+                    return o; // 경계 사각형 안(영상은 iframe 영역을 제외한 제목 막대만 캔버스에 도달)
                 }
             }
             else if (o.type === 'ellipse')
@@ -269,6 +271,25 @@ class BoardCanvas
             }
         }
         return null; // 맞은 객체 없음
+    }
+
+    imageFor(url)
+    {
+        let entry = this.images.get(url); // 캐시 항목
+        if (!entry)
+        {
+            const img = new Image(); // 이미지 요소
+            entry = { img, failed: false }; // 캐시 항목 생성
+            img.onload = () => this.invalidate(); // 로드 후 다시 그리기
+            img.onerror = () =>
+            {
+                entry.failed = true; // 실패 표시
+                this.invalidate(); // 다시 그리기
+            };
+            img.src = url; // 로드 시작(같은 출처라 세션 쿠키 포함)
+            this.images.set(url, entry); // 캐시 저장
+        }
+        return entry; // 캐시 항목
     }
 
     static segmentDistance(px, py, a, b)
@@ -345,6 +366,10 @@ class BoardCanvas
         for (const c of this.cursors.values())
         {
             this.drawCursor(ctx, c); // 타인 커서(화면 좌표)
+        }
+        if (this.afterRender)
+        {
+            this.afterRender(); // 영상 오버레이 위치 동기화
         }
     }
 
@@ -430,6 +455,37 @@ class BoardCanvas
             }
             ctx.stroke(); // 테두리
         }
+        else if (o.type === 'image')
+        {
+            const entry = o.payload && o.payload.url ? this.imageFor(o.payload.url) : null; // 이미지 캐시
+            if (entry && !entry.failed && entry.img.complete && entry.img.naturalWidth > 0)
+            {
+                ctx.drawImage(entry.img, o.x, o.y, o.width, o.height); // 이미지 그리기
+            }
+            else
+            {
+                ctx.fillStyle = entry && entry.failed ? '#fee2e2' : '#f3f4f6'; // 실패·로딩 배경
+                ctx.fillRect(o.x, o.y, o.width, o.height); // 자리 표시
+                ctx.strokeStyle = '#9ca3af'; // 테두리 색
+                ctx.lineWidth = 1 / this.view.scale; // 화면 기준 1px
+                ctx.strokeRect(o.x, o.y, o.width, o.height); // 테두리
+                ctx.fillStyle = '#6b7280'; // 글자 색
+                ctx.font = (12 / this.view.scale) + 'px sans-serif'; // 화면 기준 12px
+                ctx.fillText(entry && entry.failed ? '이미지를 불러올 수 없음' : '이미지 불러오는 중…', o.x + 8 / this.view.scale, o.y + 20 / this.view.scale); // 안내 문구
+            }
+        }
+        else if (o.type === 'video')
+        {
+            const bar = BoardCanvas.VIDEO_BAR; // 제목 막대 높이
+            ctx.fillStyle = '#111827'; // 재생 영역 배경(iframe 이 위에 겹침)
+            ctx.fillRect(o.x, o.y + bar, o.width, Math.max(0, o.height - bar)); // 재생 영역
+            ctx.fillStyle = '#374151'; // 제목 막대 색
+            ctx.fillRect(o.x, o.y, o.width, bar); // 제목 막대(선택·이동 손잡이)
+            ctx.fillStyle = '#fff'; // 글자 색
+            ctx.font = '13px sans-serif'; // 막대 글꼴(월드 단위, 확대 시 함께 커짐)
+            const label = o.payload && o.payload.provider ? ({ youtube: 'YouTube', vimeo: 'Vimeo' }[o.payload.provider] ?? o.payload.provider) : '영상'; // 서비스 이름
+            ctx.fillText('▶ ' + label + (o.payload && o.payload.source_url ? ' · ' + o.payload.source_url : ''), o.x + 8, o.y + bar - 9, o.width - 16); // 제목 표시
+        }
         ctx.restore(); // 객체 변환 끝
     }
 
@@ -468,5 +524,7 @@ class BoardCanvas
         this.drawLabel(ctx, s.x + 12, s.y + 12, c.display_name || '', c.color); // 이름표
     }
 }
+
+BoardCanvas.VIDEO_BAR = 28; // 영상 카드 제목 막대 높이(월드 단위)
 
 window.BoardCanvas = BoardCanvas; // 전역 노출
