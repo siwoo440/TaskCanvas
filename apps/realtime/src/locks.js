@@ -98,7 +98,7 @@ function startSweeper(io)
                 io.to(presence.roomName(lock.board_id)).emit('object:unlocked', { object_id: objectId, reason: 'expired' }); // 해제 알림
             }
         }
-    }, 5000); // 5초마다 만료 검사
+    }, env.int('LOCK_SWEEP_MS') || 5000); // 주기적 만료 검사(기본 5초)
 }
 
 module.exports = { TTL_MS, publicInfo, acquire, verify, holder, release, releaseAllBySocket, listForBoard, startSweeper };

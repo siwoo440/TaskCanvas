@@ -7,6 +7,7 @@ final class GuestController
     public function join(Request $request): void
     {
         Auth::requireMutationHeader($request); // CSRF 헤더 검사
+        $this->cleanupExpired(); // 만료 세션·오래된 시도 기록 정리
         $this->checkRateLimit($request->clientIp()); // 요청 제한 검사
         $name = $request->string('display_name', 60); // 표시 이름
         $code = $request->string('invite_code', 120); // 초대 코드 원문
@@ -98,6 +99,17 @@ final class GuestController
         {
             throw new ApiException(429, 'RATE_LIMITED', '입장 시도가 너무 많습니다. 잠시 후 다시 시도하세요.'); // 제한 초과
         }
+    }
+
+    private function cleanupExpired(): void
+    {
+        if (random_int(1, 20) !== 1)
+        {
+            return; // 입장 요청 20번 중 1번만 정리(부하 분산)
+        }
+        Database::run('DELETE FROM guest_sessions WHERE expires_at < DATE_SUB(NOW(), INTERVAL 1 DAY)', []); // 하루 지난 만료 세션 삭제
+        Database::run('DELETE FROM join_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 DAY)', []); // 하루 지난 시도 기록 삭제
+        Database::run('DELETE FROM realtime_tickets WHERE expires_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)', []); // 한 시간 지난 티켓 삭제
     }
 
     private function recordAttempt(string $ip, bool $ok): void

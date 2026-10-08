@@ -2,7 +2,7 @@
 
 **실시간 협업 화이트보드 기반 프로젝트 관리 웹사이트** · 웹서버 수업 팀 프로젝트 · 기획 및 개발 준비 초기 버전
 
-> **현재 상태:** 최초 기획·설계·프로젝트 구조 저장. **실제 서비스가 구현되거나 통합 테스트가 완료된 상태가 아닙니다.** `presentation/`의 화면은 기획용 콘셉트 이미지입니다.
+> **현재 상태:** P0 기능(게스트 입장, 보드, 실시간 펜·도형·커서, 선점 잠금, 이미지·영상, 저장·복원, 권한)이 `apps/` 에 구현되어 있고, 수용 테스트 AC01~AC14 가 개발 PC 에서 통과했습니다(`apps/realtime` 의 `npm run test:acceptance`). 학교 PC 4대 실환경(AC15)과 P1 기능은 아직입니다. `presentation/`의 화면은 기획용 콘셉트 이미지입니다.
 
 ![TaskCanvas 디자인 콘셉트](assets/design/01-cover.png)
 
@@ -58,6 +58,7 @@
 | `assets/design/` | 생성한 콘셉트 슬라이드 10장과 제공된 화면 참고 이미지 |
 | `assets/components/` | PPT 내부에 포함된 UI·역할 이미지 안내(개별 크롭 파일 미첨부) |
 | `apps/` | 구현 코드. `php-api/`(1·5단계: 입장·세션·보드·스냅샷·티켓·이미지 업로드), `realtime/`(2·4·5단계: 보드 참여·커서·펜·도형·이미지·영상 저장·선점 잠금·버전 검사), `frontend/`(3~5단계: 입장·보드·화이트보드·선택/이동/삭제·이미지·영상) |
+| `scripts/start-dev.bat` | MariaDB·실시간 서버·PHP 서버를 한 번에 띄우는 Windows 실행 스크립트 |
 | `PUSH_GUIDE.md` | GitHub 업로드 및 권한 복구 안내 |
 
 - [전체 문서 목차](docs/README.md)
@@ -66,6 +67,7 @@
 - [시스템 구조](docs/05-architecture.md)
 - [3주 역할별 WBS](docs/10-wbs-timeline.md)
 - [수용 기준](docs/11-acceptance-tests.md)
+- [학교 PC 배포·시연 가이드](docs/15-deployment-school-pc.md)
 - [원본 Google 기획서](https://docs.google.com/document/d/1OYAsiMSTDTKa1uIx4RwsZnK_TBrR2bgbeYqXM2kE5Sc/edit)
 
 ---

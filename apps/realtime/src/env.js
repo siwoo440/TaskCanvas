@@ -15,6 +15,7 @@ const DEFAULTS = { // .env 가 없을 때의 기본값
     CURSOR_INTERVAL_MS: '33',
     MAX_STROKE_POINTS: '5000',
     LOCK_TTL_MS: '30000',
+    LOCK_SWEEP_MS: '5000',
 };
 
 const values = { ...DEFAULTS }; // 로드된 설정 값
@@ -31,6 +32,14 @@ if (fs.existsSync(envPath))
         }
         const index = line.indexOf('='); // 구분자 위치
         values[line.slice(0, index).trim()] = line.slice(index + 1).trim().replace(/^["']|["']$/g, ''); // 따옴표 제거 후 저장
+    }
+}
+
+for (const key of Object.keys(DEFAULTS))
+{
+    if (process.env[key] !== undefined && process.env[key] !== '')
+    {
+        values[key] = process.env[key]; // 실행 환경 변수가 .env 보다 우선(테스트·배포 시 포트 변경용)
     }
 }
 

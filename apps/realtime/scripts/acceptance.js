@@ -1,0 +1,333 @@
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14 를 자동 검사
+// 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
+'use strict';
+
+const { spawn, execFileSync } = require('child_process'); // 서버·CLI 실행
+const fs = require('fs'); // 표본 파일 읽기
+const path = require('path'); // 경로 계산
+const { io } = require('socket.io-client'); // 테스트용 클라이언트
+
+const ROOT = path.resolve(__dirname, '..', '..', '..'); // 저장소 루트
+const PHP_API = path.join(ROOT, 'apps', 'php-api'); // PHP API 폴더
+const PHP = process.env.PHP_BIN || (process.platform === 'win32' ? 'C:/xampp/php/php.exe' : 'php'); // PHP 실행 파일
+const API_PORT = Number(process.env.AC_API_PORT || 8081); // 테스트용 PHP 포트
+const RT_PORT = Number(process.env.AC_RT_PORT || 3002); // 테스트용 실시간 포트
+const API = 'http://127.0.0.1:' + API_PORT; // PHP API 주소
+const RT = 'http://127.0.0.1:' + RT_PORT; // 실시간 서버 주소
+const FIXTURES = path.join(__dirname, 'fixtures'); // 표본 이미지 폴더
+
+const results = []; // {id, name, status, detail}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms)); // 대기
+
+function record(id, name, ok, detail)
+{
+    results.push({ id, name, status: ok === null ? 'MANUAL' : ok ? 'PASS' : 'FAIL', detail: detail ?? '' }); // 결과 기록
+    console.log((ok === null ? 'MANUAL' : ok ? 'PASS  ' : 'FAIL  ') + ' ' + id + ' ' + name + (detail ? ' — ' + detail : '')); // 즉시 출력
+}
+
+// ---------- 서버 준비 ----------
+
+async function waitFor(url, tries = 50)
+{
+    for (let i = 0; i < tries; i++)
+    {
+        try
+        {
+            const res = await fetch(url); // 상태 확인
+            if (res.ok)
+            {
+                return; // 준비 완료
+            }
+        }
+        catch (err)
+        {
+            // 아직 준비 안 됨
+        }
+        await sleep(200); // 재시도 간격
+    }
+    throw new Error(url + ' 가 응답하지 않습니다.'); // 시작 실패
+}
+
+function startServers()
+{
+    const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'] }); // PHP 내장 서버
+    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300' } }); // 실시간 서버(짧은 잠금 TTL)
+    php.stderr.on('data', (d) => { if (/PHP (Fatal|Parse|Warning)/.test(String(d))) { console.error('[php] ' + String(d).trim()); } }); // PHP 오류만 표시
+    rt.stderr.on('data', (d) => console.error('[realtime] ' + String(d).trim())); // 실시간 서버 오류 표시
+    return { php, rt }; // 프로세스 핸들
+}
+
+function phpCli(script, args)
+{
+    return execFileSync(PHP, [path.join(PHP_API, 'bin', script), ...args], { cwd: PHP_API, encoding: 'utf8' }); // 개발용 CLI 실행
+}
+
+function setupProject()
+{
+    const out = phpCli('create-project.php', ['AC Project ' + Date.now(), 'Board A', 'Board B']); // 프로젝트·보드 생성
+    const boards = [...out.matchAll(/board_id=(\d+)/g)].map((m) => Number(m[1])); // 보드 ID
+    const projectId = Number(/project_id=(\d+)/.exec(out)[1]); // 프로젝트 ID
+    const editorCode = /초대 코드: (\S+)/.exec(phpCli('create-invite.php', [String(projectId), 'editor', '1']))[1]; // 편집자 코드
+    const viewerCode = /초대 코드: (\S+)/.exec(phpCli('create-invite.php', [String(projectId), 'viewer', '1']))[1]; // 열람자 코드
+    return { projectId, boardA: boards[0], boardB: boards[1], editorCode, viewerCode }; // 테스트 환경
+}
+
+// ---------- 호출 도우미 ----------
+
+async function api(method, p, body, cookie)
+{
+    const res = await fetch(API + p, {
+        method, // 메서드
+        headers: { ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), 'X-TaskCanvas': '1', ...(cookie ? { Cookie: cookie } : {}) }, // 필수 헤더
+        body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), // 본문
+    }); // HTTP 호출
+    let json = null; // 응답 본문
+    try
+    {
+        json = await res.json(); // JSON 파싱
+    }
+    catch (err)
+    {
+        json = null; // JSON 아님
+    }
+    return { status: res.status, json, headers: res.headers, cookie: (res.headers.get('set-cookie') ?? '').split(';')[0] }; // 응답 요약
+}
+
+async function join(name, code)
+{
+    const res = await api('POST', '/api/guest/join', { display_name: name, invite_code: code }); // 게스트 입장
+    return { ...res, cookie: res.cookie }; // 세션 쿠키 포함
+}
+
+async function ticket(cookie, boardId)
+{
+    return (await api('POST', '/api/realtime-ticket', { board_id: boardId }, cookie)).json.ticket; // 티켓 원문
+}
+
+function connect()
+{
+    const socket = io(RT, { transports: ['websocket'], reconnection: false }); // 소켓 생성
+    return new Promise((resolve) => socket.on('connect', () => resolve(socket))); // 연결 대기
+}
+
+const ack = (socket, event, data) => new Promise((resolve) => socket.emit(event, data, resolve)); // ack 프로미스
+
+function once(socket, event, timeoutMs = 2500)
+{
+    return new Promise((resolve) =>
+    {
+        const timer = setTimeout(() => resolve(null), timeoutMs); // 시간 초과 시 null
+        socket.once(event, (payload) =>
+        {
+            clearTimeout(timer); // 타이머 해제
+            resolve(payload); // 수신 데이터
+        });
+    });
+}
+
+function until(socket, event, predicate, timeoutMs = 2500)
+{
+    return new Promise((resolve) =>
+    {
+        const timer = setTimeout(() =>
+        {
+            socket.off(event, handler); // 리스너 해제
+            resolve(null); // 시간 초과
+        }, timeoutMs);
+        function handler(payload)
+        {
+            if (predicate(payload))
+            {
+                clearTimeout(timer); // 타이머 해제
+                socket.off(event, handler); // 리스너 해제
+                resolve(payload); // 조건에 맞는 이벤트(다른 소켓 ack 와의 순서 차이로 먼저 온 이전 이벤트는 건너뜀)
+            }
+        }
+        socket.on(event, handler); // 조건 대기
+    });
+}
+
+async function enter(name, code, boardId)
+{
+    const session = await join(name, code); // HTTP 입장
+    const socket = await connect(); // 소켓 연결
+    const reply = await ack(socket, 'board:join', { board_id: boardId, ticket: await ticket(session.cookie, boardId) }); // 보드 참여
+    return { cookie: session.cookie, socket, reply, guestId: session.json.guest.guest_id }; // 참여자 묶음
+}
+
+function imageForm(projectId, file, type, name)
+{
+    const form = new FormData(); // multipart 본문
+    form.append('project_id', String(projectId)); // 프로젝트
+    form.append('file', new Blob([file], { type }), name); // 파일
+    return form; // 폼
+}
+
+// ---------- 시나리오 ----------
+
+async function run(envInfo)
+{
+    const { projectId, boardA, boardB, editorCode, viewerCode } = envInfo; // 테스트 환경
+
+    // AC01 게스트 참여
+    const bad = await join('AC-Bad', 'WRONG-CODE-0000'); // 잘못된 코드
+    const good = await join('AC-Editor', editorCode); // 유효한 코드
+    record('AC01', '게스트 참여', bad.status === 401 && bad.json.error.code === 'INVALID_INVITE' && good.status === 201 && good.json.role === 'editor', '잘못된 코드 401, 유효 코드 201');
+
+    const A = await enter('AC-A', editorCode, boardA); // 보드 A 편집자 A
+    const B = await enter('AC-B', editorCode, boardA); // 보드 A 편집자 B
+    const C = await enter('AC-C', editorCode, boardB); // 보드 B 편집자 C
+
+    // AC02 보드 분리
+    const rectA = await ack(A.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 50, height: 50 }); // 보드 A 객체
+    const ellipseB = await ack(C.socket, 'object:create', { board_id: boardB, type: 'ellipse', x: 0, y: 0, width: 50, height: 50 }); // 보드 B 객체
+    const crossBoard = await ack(A.socket, 'object:create', { board_id: boardB, type: 'rect', x: 0, y: 0, width: 50, height: 50 }); // A 소켓이 보드 B 에 생성 시도
+    const snapA = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, A.cookie)).json; // 보드 A 스냅샷
+    const snapB = (await api('GET', '/api/boards/' + boardB + '/snapshot', undefined, A.cookie)).json; // 보드 B 스냅샷
+    record('AC02', '보드 분리', rectA.ok && ellipseB.ok && crossBoard.ok === false && crossBoard.error.code === 'FORBIDDEN'
+        && snapA.objects.every((o) => o.type === 'rect') && snapB.objects.every((o) => o.type === 'ellipse') && snapA.objects.length === 1 && snapB.objects.length === 1, '보드 A/B 객체 섞이지 않음, 타 보드 생성 FORBIDDEN');
+
+    // AC03 펜 (그리는 중 표시)
+    const previewPromise = once(B.socket, 'stroke:preview'); // B 가 받을 미리보기
+    A.socket.emit('stroke:preview', { board_id: boardA, stroke_id: 'ac-stroke', points_delta: [[1, 1], [2, 2]], style: { color: '#ff0000', width: 3 } }); // A 그리는 중
+    const preview = await previewPromise; // 수신
+    const strokeCommit = await ack(A.socket, 'stroke:commit', { board_id: boardA, stroke_id: 'ac-stroke', points: [[1, 1], [2, 2], [3, 3]], style: { color: '#ff0000', width: 3 } }); // 확정
+    record('AC03', '펜', preview !== null && preview.stroke_id === 'ac-stroke' && preview.points_delta.length === 2 && strokeCommit.ok && strokeCommit.persisted, '확정 전 미리보기 수신, 확정 저장');
+
+    // AC04 도형 생성·이동·삭제 반영
+    const createdPromise = until(B.socket, 'object:created', (d) => d.object.type === 'ellipse'); // 생성 전파
+    const shape = await ack(A.socket, 'object:create', { board_id: boardA, type: 'ellipse', x: 10, y: 10, width: 40, height: 20 }); // 생성
+    const created = await createdPromise; // 수신
+    const lock1 = await ack(A.socket, 'object:lock', { board_id: boardA, object_id: shape.object_id }); // 잠금
+    const updatedPromise = until(B.socket, 'object:updated', (d) => d.object.object_id === shape.object_id); // 이동 전파
+    const moved = await ack(A.socket, 'object:commit', { board_id: boardA, object_id: shape.object_id, lock_token: lock1.lock_token, version: 1, changes: { x: 99, y: 88 } }); // 이동
+    const updated = await updatedPromise; // 수신
+    const lock2 = await ack(A.socket, 'object:lock', { board_id: boardA, object_id: shape.object_id }); // 삭제용 잠금
+    const deletedPromise = until(B.socket, 'object:deleted', (d) => d.object_id === shape.object_id); // 삭제 전파
+    const deleted = await ack(A.socket, 'object:delete', { board_id: boardA, object_id: shape.object_id, lock_token: lock2.lock_token, version: 2 }); // 삭제
+    const deletedEvent = await deletedPromise; // 수신
+    record('AC04', '도형', created !== null && created.object.object_id === shape.object_id && moved.ok && updated !== null && updated.object.x === 99 && deleted.ok && deletedEvent !== null && deletedEvent.object_id === shape.object_id, '생성·이동·삭제가 다른 참여자에게 반영');
+
+    // AC05 커서
+    const cursorPromise = once(B.socket, 'cursor:move'); // 커서 수신
+    A.socket.emit('cursor:move', { board_id: boardA, x: 12, y: 34 }); // A 커서
+    const cursor = await cursorPromise; // 수신
+    const colors = B.reply.participants.map((p) => p.color); // 참여자 색상
+    record('AC05', '커서', cursor !== null && cursor.display_name === 'AC-A' && cursor.x === 12 && cursor.y === 34 && typeof cursor.color === 'string' && new Set(colors).size === colors.length, '이름·좌표·색상 수신, 참여자별 색상 구분');
+
+    // AC06 잠금
+    const target = await ack(A.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 10, height: 10 }); // 잠금 대상
+    const lockA = await ack(A.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // A 잠금
+    const lockB = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // B 잠금 시도
+    const commitB = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: target.object_id, lock_token: 'x', version: 1, changes: { x: 5 } }); // B 수정 시도
+    record('AC06', '잠금', lockA.ok && lockB.ok === false && lockB.error.code === 'OBJECT_LOCKED' && commitB.ok === false && commitB.error.code === 'OBJECT_LOCKED', 'A 잠금 중 B 의 잠금·수정 요청 차단');
+
+    // AC07 잠금 해제: 완료·이탈·만료
+    const unlockedByCommit = until(B.socket, 'object:unlocked', (d) => d.object_id === target.object_id && d.reason === 'committed'); // 완료 해제
+    await ack(A.socket, 'object:commit', { board_id: boardA, object_id: target.object_id, lock_token: lockA.lock_token, version: 1, changes: { x: 1 } }); // 완료
+    const u1 = await unlockedByCommit; // 수신
+    const D = await enter('AC-D', editorCode, boardA); // 이탈 테스트용 참여자
+    const lockD = await ack(D.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // D 잠금
+    const unlockedByDrop = until(B.socket, 'object:unlocked', (d) => d.object_id === target.object_id && d.reason === 'disconnected', 3000); // 이탈 해제
+    D.socket.disconnect(); // D 연결 종료
+    const u2 = await unlockedByDrop; // 수신
+    const lockE = await ack(A.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // 만료 테스트용 잠금
+    const unlockedByExpiry = until(B.socket, 'object:unlocked', (d) => d.object_id === target.object_id && d.reason === 'expired', 4000); // 만료 해제(TTL 1.5초 + 검사 0.3초)
+    const u3 = await unlockedByExpiry; // 수신
+    const lockAfterExpiry = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // 만료 후 B 잠금
+    await ack(B.socket, 'object:unlock', { board_id: boardA, object_id: target.object_id, lock_token: lockAfterExpiry.lock_token }); // 정리
+    record('AC07', '잠금 해제', lockD.ok && lockE.ok && u1 !== null && u1.reason === 'committed' && u2 !== null && u2.reason === 'disconnected' && u3 !== null && u3.reason === 'expired' && lockAfterExpiry.ok, '완료·이탈·만료 세 경우 모두 해제');
+
+    // AC08 이미지 업로드 (PNG·JPG·WEBP)
+    const uploads = []; // 업로드 결과
+    for (const [file, type] of [['tiny.png', 'image/png'], ['tiny.jpg', 'image/jpeg'], ['tiny.webp', 'image/webp']])
+    {
+        const res = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, file)), type, file), A.cookie); // 업로드
+        const get = res.status === 201 ? await fetch(API + res.json.asset.url, { headers: { Cookie: A.cookie } }) : null; // 조회
+        uploads.push({ file, status: res.status, mime: res.json && res.json.asset ? res.json.asset.mime_type : null, getStatus: get ? get.status : null, getType: get ? get.headers.get('content-type') : null, asset: res.json && res.json.asset ? res.json.asset : null }); // 기록
+    }
+    const imageObj = await ack(A.socket, 'object:create', { board_id: boardA, type: 'image', x: 0, y: 0, width: 4, height: 4, payload: { asset_id: uploads[0].asset ? uploads[0].asset.asset_id : 0 } }); // 이미지 객체
+    record('AC08', '이미지', uploads.every((u) => u.status === 201 && u.getStatus === 200 && u.getType === u.mime) && imageObj.ok, uploads.map((u) => u.file + ':' + u.status).join(' '));
+
+    // AC09 업로드 거부
+    const gif = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'tiny.gif')), 'image/gif', 'tiny.gif'), A.cookie); // GIF
+    const fake = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'not-image.png')), 'image/png', 'fake.png'), A.cookie); // 위장
+    const big = await api('POST', '/api/images', imageForm(projectId, new Uint8Array(10 * 1024 * 1024 + 1), 'image/png', 'big.png'), A.cookie); // 10MB 초과
+    record('AC09', '업로드 거부', gif.status === 415 && gif.json.error.code === 'INVALID_FILE' && fake.status === 415 && big.status === 413 && big.json.error.code === 'FILE_TOO_LARGE', 'GIF·위장 PNG 415, 10MB 초과 413');
+
+    // AC10 추가 방식 (브라우저 UI)
+    record('AC10', '추가 방식', null, '버튼·드래그·Ctrl+V 는 브라우저에서 수동 확인 (apps/frontend/README.md)');
+
+    // AC11 영상
+    const video = await ack(A.socket, 'object:create', { board_id: boardA, type: 'video', x: 0, y: 0, width: 480, height: 298, payload: { source_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } }); // 허용 URL
+    const badVideo = await ack(A.socket, 'object:create', { board_id: boardA, type: 'video', x: 0, y: 0, width: 480, height: 298, payload: { source_url: 'https://example.com/video' } }); // 비허용 URL
+    record('AC11', '영상', video.ok && video.object.payload.embed_url === 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ' && badVideo.ok === false, '허용 URL 임베드 변환, 비허용 거부 (iframe 재생은 브라우저 수동 확인)');
+
+    // AC12 자동 저장 (새로고침 = 스냅샷 재조회)
+    const snapAfter = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 스냅샷
+    const savedTarget = snapAfter.objects.find((o) => o.object_id === target.object_id); // 이동한 객체
+    record('AC12', '자동 저장', snapAfter.objects.some((o) => o.type === 'stroke') && snapAfter.objects.some((o) => o.type === 'image') && snapAfter.objects.some((o) => o.type === 'video') && savedTarget && savedTarget.x === 1 && savedTarget.version === 2, '확정된 획·이미지·영상·이동 결과가 스냅샷에 존재');
+
+    // AC13 재접속
+    A.socket.disconnect(); // 연결 끊김
+    await sleep(300); // 서버 정리 대기
+    const reSocket = await connect(); // 재연결
+    const rejoin = await ack(reSocket, 'board:join', { board_id: boardA, ticket: await ticket(A.cookie, boardA) }); // 새 티켓으로 재참여
+    const snapRe = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, A.cookie)).json; // 복원 스냅샷
+    record('AC13', '재접속', rejoin.ok && rejoin.participants.some((p) => p.display_name === 'AC-A') && snapRe.objects.length === snapAfter.objects.length, '새 티켓 재참여, 마지막 저장 상태 복원');
+    reSocket.disconnect(); // 정리
+
+    // AC14 접근 권한 (열람자)
+    const V = await enter('AC-Viewer', viewerCode, boardA); // 열람자
+    const vBoard = await api('POST', '/api/projects/' + projectId + '/boards', { title: 'viewer board' }, V.cookie); // 보드 생성 시도
+    const vUpload = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'tiny.png')), 'image/png', 'v.png'), V.cookie); // 업로드 시도
+    const vStroke = await ack(V.socket, 'stroke:commit', { board_id: boardA, points: [[0, 0]] }); // 펜 확정 시도
+    const vCreate = await ack(V.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 5, height: 5 }); // 도형 생성 시도
+    const vLock = await ack(V.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // 잠금 시도
+    const vSnap = await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, V.cookie); // 열람은 허용
+    record('AC14', '접근 권한', V.reply.ok && vBoard.status === 403 && vUpload.status === 403 && vStroke.ok === false && vStroke.error.code === 'FORBIDDEN' && vCreate.ok === false && vLock.ok === false && vSnap.status === 200, '열람자의 생성·업로드·확정·잠금 모두 서버가 거부, 조회는 허용');
+
+    // AC15 실제 LAN
+    record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');
+
+    for (const s of [B.socket, C.socket, V.socket])
+    {
+        s.disconnect(); // 소켓 정리
+    }
+}
+
+// ---------- 실행 ----------
+
+async function main()
+{
+    const servers = startServers(); // 서버 시작
+    let exitCode = 0; // 종료 코드
+    try
+    {
+        await waitFor(API + '/api/health'); // PHP 준비
+        await waitFor(RT + '/health'); // 실시간 준비
+        const envInfo = setupProject(); // 프로젝트·초대 코드 준비
+        console.log('테스트 프로젝트 project_id=' + envInfo.projectId + ' 보드 ' + envInfo.boardA + '/' + envInfo.boardB); // 환경 출력
+        await run(envInfo); // 시나리오 실행
+    }
+    catch (err)
+    {
+        console.error('수용 테스트 실행 오류', err); // 실행 오류
+        exitCode = 1; // 실패
+    }
+    finally
+    {
+        servers.php.kill(); // PHP 종료
+        servers.rt.kill(); // 실시간 종료
+    }
+    const failed = results.filter((r) => r.status === 'FAIL'); // 실패 목록
+    console.log('\n| ID | 검증 대상 | 결과 | 비고 |\n|---|---|---|---|'); // 마크다운 표 머리
+    for (const r of results)
+    {
+        console.log('| ' + r.id + ' | ' + r.name + ' | ' + ({ PASS: '통과', FAIL: '실패', MANUAL: '수동 확인' })[r.status] + ' | ' + r.detail + ' |'); // 표 행
+    }
+    console.log('\n자동 ' + results.filter((r) => r.status === 'PASS').length + ' 통과, ' + failed.length + ' 실패, ' + results.filter((r) => r.status === 'MANUAL').length + ' 수동'); // 요약
+    process.exit(exitCode || (failed.length > 0 ? 1 : 0)); // 종료
+}
+
+main(); // 시작

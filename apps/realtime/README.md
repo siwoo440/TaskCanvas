@@ -29,7 +29,9 @@ realtime/
 │       ├── object.js    # object:create 도형·이미지·영상 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
-├── scripts/test-client.js  # 2인 통합 테스트
+├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14 (서버를 직접 띄워 검사)
+├── scripts/fixtures/       # 업로드 표본 이미지(png/jpg/webp/gif/위장 파일)
 └── .env.example
 ```
 
@@ -50,6 +52,14 @@ node apps/realtime/scripts/test-client.js <초대코드>
 ```
 
 두 사용자가 입장 → 티켓 발급 → 보드 참여 → 커서·펜 미리보기 중계 → 펜 확정 저장 → 스냅샷 복원 → 연결 종료 갱신을 순서대로 검사합니다.
+
+## 수용 테스트
+
+```bash
+npm run test:acceptance
+```
+
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14 를 검사해 마크다운 표로 출력합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 이벤트 요약
 

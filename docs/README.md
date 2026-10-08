@@ -19,5 +19,6 @@
 | [12 위험·보안](12-risks-security.md) | 주요 장애 요소·대체 계획 |
 | [13 PPT 수정안](13-presentation-plan.md) | 기존 12장/10장 산출물과 14장 개정안 |
 | [14 미결정 사항](14-open-decisions.md) | 최초 개발 전에 확정할 항목 |
+| [15 배포·시연 가이드](15-deployment-school-pc.md) | 학교 PC 방화벽·실행 방법·시연 순서·문제 해결 |
 | [original](original/project-plan-initial.md) | 기존 Google Docs 1차 기획 문서의 내보내기 |
 | [diagrams](diagrams/) | Mermaid 다이어그램 및 화면 와이어프레임 |

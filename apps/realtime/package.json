@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test:client": "node scripts/test-client.js"
+    "test:client": "node scripts/test-client.js",
+    "test:acceptance": "node scripts/acceptance.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
