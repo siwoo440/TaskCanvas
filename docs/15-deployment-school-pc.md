@@ -6,9 +6,17 @@
 
 ## 1. 첫날 확인 목록
 
+먼저 아래 한 줄로 서버 PC 를 점검합니다. PHP 버전·확장·업로드 한도, Node 버전·패키지, DB 연결·스키마, 두 포트, LAN 주소, 방화벽 규칙, 외부 영상 접속을 `[통과]`·`[주의]`·`[실패]` 로 보여 주고, 다른 PC 에서 열어 볼 주소를 출력합니다.
+
+```bash
+scripts\check-env.bat
+```
+
+`[실패]` 가 없어도 이 PC 안에서 볼 수 있는 것만 확인한 것입니다. 다른 PC 에서 실제로 열리는지는 출력된 주소로 직접 확인합니다. 손으로 확인할 때의 기준은 아래 표와 같습니다.
+
 | 항목 | 확인 방법 | 기준 |
 |---|---|---|
-| XAMPP 설치 | `C:\xampp\php\php.exe -v` | PHP 8.x (`pdo_mysql`, `fileinfo` 포함) |
+| XAMPP 설치 | `C:\xampp\php\php.exe -v` | PHP 8.x (`pdo_mysql`, `fileinfo`, `mbstring` 포함) |
 | Node.js 설치 | `node -v` | 18 이상 (24 LTS 확인됨) |
 | MariaDB 실행 | XAMPP Control Panel 의 MySQL Start | 포트 3306 |
 | 방화벽 | 아래 2절 명령 | 8080(또는 80), 3001 인바운드 허용 |
@@ -31,6 +39,8 @@ C:/xampp/mysql/bin/mysql.exe -u root < database/schema.sql
 
 `apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다.
 
+`apps/realtime/.env` 의 `CORS_ORIGIN` 은 `auto`(기본)로 둡니다. 실시간 서버와 같은 주소(같은 IP)에서 열린 화면만 붙을 수 있고, 서버 IP 가 바뀌어도 고칠 필요가 없습니다.
+
 ### 2-3. 방화벽 (관리자 PowerShell)
 
 ```powershell
@@ -39,6 +49,8 @@ New-NetFirewallRule -DisplayName "TaskCanvas Realtime 3001" -Direction Inbound -
 ```
 
 학교 PC 에서 관리자 권한이 없으면 Windows 보안 → 방화벽 → 앱 허용에서 `node.exe`, `php.exe` 를 허용하거나, 담당 교사에게 요청합니다.
+
+규칙이 들어갔는지는 `scripts\check-env.bat` 의 방화벽 줄로 확인합니다. 서버를 처음 띄울 때 뜨는 방화벽 알림에서 "취소"를 누른 적이 있으면 차단 규칙이 남아 허용 규칙보다 우선합니다. 이 경우도 `[실패]` 로 알려 줍니다.
 
 ### 2-4. 프로젝트·초대 코드
 
@@ -119,7 +131,15 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 cd apps/realtime && npm run test:acceptance
 ```
 
-PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC21 을 자동 검사하고 표를 출력합니다. 실행 중인 시연 서버에는 영향이 없지만 테스트용 프로젝트("AC Project …")가 DB 에 남으므로, 점검 뒤 2-5 의 초기화를 실행해 시연용 상태로 되돌립니다. (점검 → 초기화 → 시연 순서)
+PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC23 과 보안 점검 SEC01(접속 출처 제한)을 자동 검사하고 표를 출력합니다. 실행 중인 시연 서버에는 영향이 없지만 테스트용 프로젝트("AC Project …")가 DB 에 남으므로, 점검 뒤 2-5 의 초기화를 실행해 시연용 상태로 되돌립니다. (점검 → 초기화 → 시연 순서)
+
+이어서 시연 대본의 순서를 브라우저 네 개로 그대로 돌려 봅니다(Chrome 필요, 약 30초).
+
+```bash
+npm run rehearsal
+```
+
+PHP 8083·실시간 3004 포트의 임시 서버에서 입장부터 열람자 장면까지 9개 장면과 화면 사이 전달 지연을 확인합니다. 네 화면이 모두 서버 PC 안에서 돌기 때문에 다른 PC 의 접속과 LAN 구간은 확인하지 못합니다. "리허설 프로젝트"가 DB 에 남으므로 이것도 2-5 의 초기화 전에 실행합니다.
 
 ---
 
@@ -131,8 +151,8 @@ PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC21 
 2. PC 4대가 소개 페이지의 "입장하기"(또는 초대 링크)로 입장 → 작업실에서 같은 보드 열기 → 상단 참여자 4명 확인.
 3. A 가 펜으로 그리는 동안 다른 PC 에서 선이 따라 그려지는지 확인.
 4. B 가 도형을 선택해 이동, 그 사이 A 가 같은 도형을 클릭하면 "B 님이 편집 중" 안내 확인.
-5. C 가 PNG 를 드래그해 올리고, D 가 ▶ 버튼으로 YouTube URL 추가.
-6. 모두 새로고침 → 그대로 복원되는지, 다른 보드로 전환하면 내용이 섞이지 않는지 확인.
+5. C 가 PNG 를 빈 곳에 드래그해 올리고, D 가 ▶ 버튼으로 YouTube URL 추가(영상은 화면 가운데에 생기므로 D 는 먼저 빈 곳으로 화면을 옮김).
+6. 모두 새로고침 → 작업실에서 보드를 다시 열어 그대로 복원되는지, 다른 보드로 전환하면 내용이 섞이지 않는지 확인.
 7. 열람자 코드로 입장한 PC 는 도구가 비활성화되고 이동만 되는지 확인.
 
 ---
@@ -143,6 +163,7 @@ PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC21 
 |---|---|
 | 접속 PC 에서 페이지가 안 열림 | 방화벽 8080 미허용, 서버 IP 오타, LAN 격리. 서버 PC 에서 `http://localhost:8080` 은 되는지 먼저 확인 |
 | 페이지는 열리는데 `연결 끊김` | 3001 포트 미허용 또는 실시간 서버 창이 닫힘. 접속 PC 에서 `http://<서버 IP>:3001/health` 확인 |
+| 보드를 열면 "실시간 서버에 연결하지 못했습니다" 안내 | 위와 같은 원인이거나 접속 출처가 허용되지 않음. 실시간 서버 창의 시작 줄에 `접속 출처 목록 …` 이 보이면 `apps/realtime/.env` 의 `CORS_ORIGIN` 을 `auto` 로 되돌리고 서버를 다시 띄움 |
 | `"db":false` | MariaDB 가 꺼져 있음. XAMPP Control Panel 에서 MySQL Start |
 | 초대 코드 거부 | 만료(기본 7일)·취소·오타. 관리자 화면의 초대 코드 관리 또는 `create-invite.php` 로 재발급 |
 | 이미지 업로드 실패 | 10MB 초과 또는 PNG/JPG/WEBP 가 아님. `apps/php-api/storage/uploads` 쓰기 권한 확인 |

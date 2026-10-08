@@ -11,6 +11,7 @@ class Realtime
         this.boardId = null; // 참여 중인 보드
         this.joined = false; // 참여 완료 여부
         this.joinedOnce = false; // 이 연결에서 참여한 적이 있는지(재접속 판별)
+        this.refusedShown = false; // 첫 연결 거부 안내를 이미 했는지
     }
 
     static loadClient(url)
@@ -43,6 +44,14 @@ class Realtime
             this.handlers.onStatus('reconnecting'); // 재접속 중 표시
         });
         socket.io.on('reconnect_failed', () => this.handlers.onStatus('offline')); // 재접속 포기
+        socket.on('connect_error', () =>
+        {
+            if (socket === this.socket && !this.joinedOnce && !this.refusedShown)
+            {
+                this.refusedShown = true; // 다시 시도할 때마다 반복해서 띄우지 않음
+                this.handlers.onRefused(); // 한 번도 연결되지 못함: 서버가 꺼져 있거나 이 주소의 접속을 허용하지 않음
+            }
+        });
         socket.on('presence:update', (data) => this.handlers.onPresence(data.participants)); // 참여자 갱신
         socket.on('cursor:move', (data) => this.handlers.onCursor(data)); // 타인 커서
         socket.on('stroke:preview', (data) => this.handlers.onStrokePreview(data)); // 타인 펜 미리보기
@@ -127,6 +136,7 @@ class Realtime
         this.socket = null; // 소켓 비움
         this.joined = false; // 참여 해제
         this.joinedOnce = false; // 참여 이력 초기화
+        this.refusedShown = false; // 다음 연결에서는 다시 안내
         this.boardId = null; // 보드 비움
     }
 }

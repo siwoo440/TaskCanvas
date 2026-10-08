@@ -1,9 +1,10 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 과 보안 점검 SEC01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
 const { spawn, execFileSync } = require('child_process'); // 서버·CLI 실행
 const fs = require('fs'); // 표본 파일 읽기
+const http = require('http'); // 출처 헤더를 직접 지정한 요청
 const path = require('path'); // 경로 계산
 const { io } = require('socket.io-client'); // 테스트용 클라이언트
 
@@ -51,7 +52,7 @@ async function waitFor(url, tries = 50)
 function startServers()
 {
     const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RATE_LIMIT: '1000' } }); // PHP 내장 서버(테스트는 입장이 잦으므로 요청 제한 완화)
-    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300', BOARD_SWEEP_MS: '300' } }); // 실시간 서버(짧은 잠금 TTL·보드 감시 주기)
+    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300', BOARD_SWEEP_MS: '300', CORS_ORIGIN: 'auto' } }); // 실시간 서버(짧은 잠금 TTL·보드 감시 주기, 출처 검사는 기본값으로 고정)
     php.stderr.on('data', (d) => { if (/PHP (Fatal|Parse|Warning)/.test(String(d))) { console.error('[php] ' + String(d).trim()); } }); // PHP 오류만 표시
     rt.stderr.on('data', (d) => console.error('[realtime] ' + String(d).trim())); // 실시간 서버 오류 표시
     return { php, rt }; // 프로세스 핸들
@@ -112,6 +113,39 @@ function connect()
 }
 
 const ack = (socket, event, data) => new Promise((resolve) => socket.emit(event, data, resolve)); // ack 프로미스
+
+// 브라우저처럼 Origin 헤더를 붙여 웹소켓 연결을 시도한다. 연결되면 true, 거부되면 false
+function connectFrom(originHeader)
+{
+    return new Promise((resolve) =>
+    {
+        const socket = io(RT, { transports: ['websocket'], reconnection: false, timeout: 3000, extraHeaders: { Origin: originHeader } }); // 출처를 지정한 소켓
+        socket.on('connect', () =>
+        {
+            socket.disconnect(); // 확인만 하고 끊음
+            resolve(true); // 허용됨
+        });
+        socket.on('connect_error', () =>
+        {
+            socket.close(); // 정리
+            resolve(false); // 거부됨
+        });
+    });
+}
+
+// 폴링 방식의 첫 연결 요청을 Origin 헤더와 함께 보내고 상태 코드와 CORS 허용 헤더를 돌려준다
+function pollingHandshake(originHeader)
+{
+    return new Promise((resolve) =>
+    {
+        const req = http.get(RT + '/socket.io/?EIO=4&transport=polling', { headers: originHeader ? { Origin: originHeader } : {} }, (res) =>
+        {
+            res.resume(); // 본문은 쓰지 않음
+            resolve({ status: res.statusCode, allow: res.headers['access-control-allow-origin'] ?? null }); // 결과 요약
+        });
+        req.on('error', () => resolve({ status: 0, allow: null })); // 연결 실패
+    });
+}
 
 function once(socket, event, timeoutMs = 2500)
 {
@@ -439,6 +473,17 @@ async function run(envInfo)
         && boardDeleted !== null && disconnected !== null && snapGone.status === 404 && !boardsAfter.some((b) => b.board_id === tempBoard.board_id) && boardsAfter.length >= 2
         && missingRename.status === 404, '편집자 이름 변경·관리자 삭제(그 외 403), 보드 안 참여자에게 이름 변경·삭제 알림 후 연결 종료, 삭제된 보드 404');
 
+    // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
+    const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)
+    const foreignWs = await connectFrom('http://evil.example'); // 다른 사이트의 페이지
+    const nullWs = await connectFrom('null'); // 파일·샌드박스 페이지
+    const sameWs = await connectFrom(sameHostOrigin); // 우리 페이지
+    const foreignPoll = await pollingHandshake('http://evil.example'); // 다른 사이트의 폴링 연결
+    const samePoll = await pollingHandshake(sameHostOrigin); // 우리 페이지의 폴링 연결
+    const plainPoll = await pollingHandshake(null); // 출처 없는 클라이언트(테스트 스크립트)
+    record('SEC01', '접속 출처 제한', foreignWs === false && nullWs === false && sameWs === true && foreignPoll.status === 403 && foreignPoll.allow === null
+        && samePoll.status === 200 && samePoll.allow === sameHostOrigin && plainPoll.status === 200, '다른 사이트 출처의 웹소켓·폴링 연결 403, 같은 호스트의 페이지와 출처 없는 클라이언트는 허용');
+
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');
 
@@ -478,7 +523,11 @@ async function main()
     {
         console.log('| ' + r.id + ' | ' + r.name + ' | ' + ({ PASS: '통과', FAIL: '실패', MANUAL: '수동 확인' })[r.status] + ' | ' + r.detail + ' |'); // 표 행
     }
-    console.log('\n자동 ' + results.filter((r) => r.status === 'PASS').length + ' 통과, ' + failed.length + ' 실패, ' + results.filter((r) => r.status === 'MANUAL').length + ' 수동'); // 요약
+    const accept = results.filter((r) => r.id.startsWith('AC')); // 수용 기준 항목
+    const security = results.filter((r) => r.id.startsWith('SEC')); // 보안 점검 항목
+    const count = (list, status) => list.filter((r) => r.status === status).length; // 상태별 개수
+    console.log('\n자동 ' + count(accept, 'PASS') + ' 통과, ' + count(accept, 'FAIL') + ' 실패, ' + count(accept, 'MANUAL') + ' 수동'); // 수용 기준 요약
+    console.log('보안 점검 ' + count(security, 'PASS') + ' 통과, ' + count(security, 'FAIL') + ' 실패'); // 보안 점검 요약
     process.exit(exitCode || (failed.length > 0 ? 1 : 0)); // 종료
 }
 

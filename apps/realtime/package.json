@@ -8,7 +8,9 @@
     "start": "node src/server.js",
     "test:client": "node scripts/test-client.js",
     "test:acceptance": "node scripts/acceptance.js",
-    "capture": "node scripts/capture-screens.js"
+    "capture": "node scripts/capture-screens.js",
+    "rehearsal": "node scripts/rehearsal.js",
+    "check": "node scripts/check-env.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -6,7 +6,7 @@
 
 | 항목 | 값 |
 |---|---|
-| PHP | XAMPP 8.2 (`pdo_mysql`, `fileinfo` 확장 필요) |
+| PHP | XAMPP 8.2 (8.0 이상, `pdo_mysql`·`fileinfo`·`mbstring` 확장 필요) |
 | DB | XAMPP MariaDB 10.4 (`JSON` 컬럼은 `LONGTEXT + json_valid` 로 생성됨 — 정상) |
 | 개발 서버 | PHP 내장 서버 또는 Apache |
 
@@ -31,6 +31,7 @@ php-api/
 ├── bin/
 │   ├── create-project.php  # 프로젝트 + 보드 생성, 최초 관리자 초대 코드 출력
 │   ├── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력)
+│   ├── check-env.php       # 사전 점검(PHP 버전·확장·업로드 한도·DB·스키마·업로드 폴더)
 │   ├── reset-demo.php      # 시연 초기화(전체 데이터·업로드 삭제 후 시연 프로젝트 생성, --seed 로 예시 채움)
 │   └── seed-demo.php       # 빈 보드에 시연용 예시 내용 채우기
 ├── storage/
@@ -145,6 +146,14 @@ C:/xampp/php/php.exe apps/php-api/bin/seed-demo.php 1
 - 실시간 서버가 저장하는 것과 같은 형식으로 DB 에 직접 넣습니다. 전부 들어가거나 전부 취소됩니다(트랜잭션).
 - 첫 번째 보드에 객체가 하나라도 있으면 넣지 않습니다. `--force` 를 주면 기존 내용을 지우지 않고 그 위에 추가합니다.
 - 보드를 열어 둔 참여자에게는 알림이 가지 않으므로 새로고침해야 보입니다. 시연 전에 미리 실행합니다.
+
+## 사전 점검
+
+```bash
+C:/xampp/php/php.exe apps/php-api/bin/check-env.php
+```
+
+PHP 버전(8.0 이상), 확장(`pdo_mysql`·`fileinfo`·`mbstring`), php.ini 업로드 한도가 앱 한도(10MB)보다 큰지, `.env`, DB 연결과 테이블 12개, 업로드 폴더 쓰기 권한을 `[통과]`·`[주의]`·`[실패]` 로 출력합니다. 실패가 있으면 종료 코드 1 입니다. 실시간 서버·포트·방화벽까지 한 번에 보려면 저장소 루트의 `scripts\check-env.bat` 을 씁니다.
 
 ## 수동 테스트 예시
 

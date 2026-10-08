@@ -4,80 +4,23 @@
 // 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 메모 저장·실행 취소도 확인한다
 'use strict';
 
-const { spawn, execFileSync } = require('child_process'); // 서버·CLI 실행
-const fs = require('fs'); // 파일 읽기·쓰기
+const fs = require('fs'); // 파일 쓰기
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
+const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, centerOf } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
 
-const ROOT = path.resolve(__dirname, '..', '..', '..'); // 저장소 루트
-const PHP_API = path.join(ROOT, 'apps', 'php-api'); // PHP API 폴더
 const OUT = path.join(ROOT, 'assets', 'screenshots'); // 캡처 저장 폴더
-const PHP = process.env.PHP_BIN || (process.platform === 'win32' ? 'C:/xampp/php/php.exe' : 'php'); // PHP 실행 파일
 const API_PORT = Number(process.env.CAP_API_PORT || 8082); // 캡처용 PHP 포트
 const RT_PORT = Number(process.env.CAP_RT_PORT || 3003); // 캡처용 실시간 포트
 const BASE = 'http://127.0.0.1:' + API_PORT; // 접속 주소
-const VIEW = { width: 1280, height: 800, deviceScaleFactor: 2 }; // 화면 크기(2배 해상도로 저장)
+const USER = { rtPort: RT_PORT, view: { width: 1280, height: 800, deviceScaleFactor: 2 } }; // 탭 설정(2배 해상도로 저장)
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms)); // 대기
 const checks = []; // 실제 입력 확인 결과
 
 function check(label, ok)
 {
     checks.push({ label, ok }); // 결과 기록
     console.log((ok ? 'PASS ' : 'FAIL ') + label); // 즉시 출력
-}
-
-function findChrome()
-{
-    const candidates = [
-        process.env.CHROME_BIN,
-        'C:/Program Files/Google/Chrome/Application/chrome.exe',
-        'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-        'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-        'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium',
-    ].filter(Boolean); // 찾아볼 경로
-    const found = candidates.find((p) => fs.existsSync(p)); // 처음 발견한 브라우저
-    if (!found)
-    {
-        throw new Error('Chrome·Edge 를 찾지 못했습니다. CHROME_BIN 환경 변수로 실행 파일 경로를 지정하세요.'); // 안내
-    }
-    return found; // 실행 파일 경로
-}
-
-async function waitFor(url, tries = 50)
-{
-    for (let i = 0; i < tries; i++)
-    {
-        try
-        {
-            if ((await fetch(url)).ok)
-            {
-                return; // 준비 완료
-            }
-        }
-        catch (err)
-        {
-            // 아직 준비 안 됨
-        }
-        await wait(200); // 재시도 간격
-    }
-    throw new Error(url + ' 가 응답하지 않습니다.'); // 시작 실패
-}
-
-function startServers()
-{
-    const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RATE_LIMIT: '1000' } }); // PHP 내장 서버
-    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT) } }); // 실시간 서버
-    php.stderr.on('data', (d) => { if (/PHP (Fatal|Parse|Warning)/.test(String(d))) { console.error('[php] ' + String(d).trim()); } }); // PHP 오류만 표시
-    rt.stderr.on('data', (d) => console.error('[realtime] ' + String(d).trim())); // 실시간 서버 오류 표시
-    return { php, rt }; // 프로세스 핸들
-}
-
-function phpCli(script, args)
-{
-    return execFileSync(PHP, [path.join(PHP_API, 'bin', script), ...args], { cwd: PHP_API, encoding: 'utf8' }); // 개발용 CLI 실행
 }
 
 function setupProject()
@@ -90,94 +33,11 @@ function setupProject()
     return { projectId, adminCode, editorCode }; // 캡처 환경
 }
 
-// ---------- 브라우저 조작 도우미 ----------
-
-async function newUser(browser)
-{
-    const context = await browser.createBrowserContext(); // 사용자마다 쿠키가 분리된 창
-    const page = await context.newPage(); // 새 탭
-    const config = fs.readFileSync(path.join(ROOT, 'apps', 'frontend', 'public', 'js', 'config.js'), 'utf8').replace("':3001'", "':" + RT_PORT + "'"); // 캡처용 실시간 포트를 가리키는 설정
-    await page.setViewport(VIEW); // 화면 크기
-    await page.setRequestInterception(true); // 설정 파일만 바꿔치기
-    page.on('request', (req) =>
-    {
-        if (req.url().endsWith('/js/config.js'))
-        {
-            req.respond({ status: 200, contentType: 'application/javascript; charset=utf-8', body: config }); // 캡처용 설정 응답(제품 코드는 그대로)
-        }
-        else
-        {
-            req.continue(); // 나머지 요청은 그대로
-        }
-    });
-    page.on('pageerror', (err) => console.error('[page] ' + err.message)); // 화면 스크립트 오류 표시
-    return page; // 조작할 탭
-}
-
 async function shot(page, name)
 {
     const file = path.join(OUT, name + '.png'); // 저장 경로
     await page.screenshot({ path: file }); // 보이는 화면 캡처
     console.log('saved assets/screenshots/' + name + '.png'); // 저장 안내
-}
-
-async function joinWorkspace(page, name, code)
-{
-    await page.type('#join-name', name); // 표시 이름
-    if (code)
-    {
-        await page.$eval('#join-code', (el) => { el.value = ''; }); // 자리 표시 글 지움
-        await page.type('#join-code', code); // 초대 코드
-    }
-    await page.click('#join-form button[type="submit"]'); // 입장
-    await page.waitForSelector('#home-workspace', { visible: true }); // 작업실 구성 대기
-    await page.waitForSelector('#boards-list .open-board'); // 보드 카드 대기
-}
-
-async function openBoard(page, title)
-{
-    const cards = await page.$$('#boards-list .open-board'); // 보드 카드
-    for (const card of cards)
-    {
-        if ((await card.$eval('strong', (el) => el.textContent)) === title)
-        {
-            await card.click(); // 보드 열기
-            break;
-        }
-    }
-    await page.waitForSelector('#conn-status[data-state="online"]'); // 실시간 연결 대기
-    await wait(600); // 첫 화면 맞춤·이미지 로드 여유
-}
-
-// 월드 좌표 → 브라우저 화면 좌표
-function screenPoint(page, wx, wy)
-{
-    return page.evaluate((x, y) =>
-    {
-        const rect = canvas.el.getBoundingClientRect(); // 캔버스 위치
-        const s = canvas.toScreen(x, y); // 화면 좌표
-        return { x: rect.left + s.x, y: rect.top + s.y };
-    }, wx, wy);
-}
-
-// 글에 특정 낱말이 들어 있는 메모(또는 제목이 일치하는 업무 블럭)의 사각형
-function findObject(page, text)
-{
-    return page.evaluate((needle) =>
-    {
-        const hit = canvas.objects.find((o) => (o.type === 'note' && o.payload.text.includes(needle)) || (o.type === 'task' && state.tasks.get(o.task_id) && state.tasks.get(o.task_id).title === needle)); // 대상 객체
-        return hit ? { id: hit.object_id, x: hit.x, y: hit.y, width: hit.width, height: hit.height } : null;
-    }, text);
-}
-
-async function centerOf(page, text)
-{
-    const o = await findObject(page, text); // 대상 객체
-    if (!o)
-    {
-        throw new Error("'" + text + "' 객체를 찾지 못했습니다."); // 예시 보드가 바뀐 경우
-    }
-    return screenPoint(page, o.x + o.width / 2, o.y + o.height / 2); // 가운데 화면 좌표
 }
 
 const snapshotCount = (page) => page.evaluate(async () => (await window.api.get('/api/boards/' + state.board.board_id + '/snapshot')).objects.length); // 서버에 저장된 객체 수
@@ -186,8 +46,8 @@ const snapshotCount = (page) => page.evaluate(async () => (await window.api.get(
 
 async function capture(browser, env)
 {
-    const a = await newUser(browser); // 관리자 '기획 담당'
-    const b = await newUser(browser); // 편집자 '프론트 담당'
+    const a = await newUser(browser, USER); // 관리자 '기획 담당'
+    const b = await newUser(browser, USER); // 편집자 '프론트 담당'
 
     // 1) 소개 페이지, 입장 화면
     await a.goto(BASE + '/'); // 첫 화면
@@ -287,7 +147,7 @@ async function capture(browser, env)
 async function main()
 {
     fs.mkdirSync(OUT, { recursive: true }); // 저장 폴더 준비
-    const servers = startServers(); // 서버 시작
+    const servers = startServers(API_PORT, RT_PORT); // 서버 시작
     let browser = null; // 브라우저 핸들
     let exitCode = 0; // 종료 코드
     try

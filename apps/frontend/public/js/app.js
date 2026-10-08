@@ -2313,6 +2313,7 @@ const realtimeHandlers = {
         return data.ticket; // 티켓 원문
     },
     onStatus: (name) => setConnection(name), // 연결 상태
+    onRefused: () => toast('실시간 서버에 연결하지 못했습니다. 서버 창이 켜져 있는지, 서버의 접속 출처 설정(CORS_ORIGIN)이 이 주소를 허용하는지 확인하세요.', 8000), // 첫 연결 실패 안내
     onJoined: async (reply, rejoined) =>
     {
         renderParticipants(reply.participants); // 참여자 표시

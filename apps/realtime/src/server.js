@@ -14,6 +14,7 @@ const taskHandler = require('./handlers/task'); // 공유 업무(P1)
 const linkHandler = require('./handlers/link'); // 연결선(P1)
 const locks = require('./locks'); // 잠금 만료 검사
 const boards = require('./boards'); // 보드 삭제·이름 변경 감시
+const origin = require('./origin'); // 접속 출처 검사
 
 const httpServer = http.createServer((req, res) =>
 {
@@ -28,7 +29,8 @@ const httpServer = http.createServer((req, res) =>
 }); // 상태 확인용 HTTP 서버
 
 const io = new Server(httpServer, {
-    cors: { origin: env.get('CORS_ORIGIN') === '*' ? true : env.get('CORS_ORIGIN').split(',') }, // 브라우저 출처 허용
+    cors: (req, callback) => callback(null, { origin: origin.isAllowed(req.headers.origin, req.headers.host) }), // 폴링 응답의 CORS 헤더는 허용한 출처에만 붙임
+    allowRequest: (req, callback) => callback(null, origin.isAllowed(req.headers.origin, req.headers.host)), // 웹소켓을 포함한 모든 새 연결 요청의 출처 검사(거부 시 403)
     maxHttpBufferSize: 1e6, // 이벤트당 최대 1MB
 }); // Socket.IO 서버
 
@@ -51,7 +53,7 @@ async function start()
     const port = env.int('PORT'); // 수신 포트
     httpServer.listen(port, '0.0.0.0', () =>
     {
-        console.log('TaskCanvas 실시간 서버 시작: 포트 ' + port); // 시작 로그
+        console.log('TaskCanvas 실시간 서버 시작: 포트 ' + port + ', 접속 출처 ' + origin.describe()); // 시작 로그
     });
 }
 

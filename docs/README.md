@@ -15,11 +15,11 @@
 | [08 실시간 계약](08-realtime-contract.md) | Socket.IO 이벤트·잠금·저장·복원 |
 | [09 이미지·미디어](09-media-handling.md) | 업로드 10MB·임베드·보안 |
 | [10 역할과 일정](10-wbs-timeline.md) | A~D 담당·W01~W22·3주 일정 |
-| [11 수용 테스트](11-acceptance-tests.md) | AC01~AC25 통과 조건과 결과 |
+| [11 수용 테스트](11-acceptance-tests.md) | AC01~AC25 통과 조건과 결과, 보안 점검, 자동 리허설 |
 | [12 위험·보안](12-risks-security.md) | 주요 장애 요소·대체 계획 |
 | [13 발표 자료](13-presentation-plan.md) | 14장 개정판 구성, 이전 12장/10장 자료, 발표 전에 손볼 곳 |
-| [14 미결정 사항](14-open-decisions.md) | 최초 개발 전에 확정할 항목 |
-| [15 배포·시연 가이드](15-deployment-school-pc.md) | 학교 PC 방화벽·실행 방법·시연 순서·문제 해결 |
+| [14 미결정 사항](14-open-decisions.md) | 개발 전에 정하려던 항목과 지금의 결정·제안 |
+| [15 배포·시연 가이드](15-deployment-school-pc.md) | 학교 PC 사전 점검·방화벽·실행 방법·시연 순서·문제 해결 |
 | [16 시연 대본](16-demo-script.md) | PC 4대·약 7분 진행 순서, 준비 목록, 막혔을 때 대처 |
 | [original](original/project-plan-initial.md) | 기존 Google Docs 1차 기획 문서의 내보내기 |
 | [diagrams](diagrams/) | Mermaid 다이어그램 및 화면 와이어프레임 |

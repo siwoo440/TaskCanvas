@@ -1,6 +1,6 @@
-# Realtime 서버 (2단계 구현)
+# Realtime 서버
 
-Node.js + Socket.IO 실시간 서버입니다. 보드 참여, 참여자·커서 공유, 펜 미리보기 중계, 펜 확정 저장을 담당합니다. 이벤트 규격은 [docs/08-realtime-contract.md](../../docs/08-realtime-contract.md)를 따릅니다.
+Node.js + Socket.IO 실시간 서버입니다. 보드 참여, 참여자·커서 공유, 펜·이동 미리보기 중계, 객체 잠금과 확정 저장, 공유 업무·연결선 전파를 담당합니다. 이벤트 규격은 [docs/08-realtime-contract.md](../../docs/08-realtime-contract.md)를 따릅니다.
 
 ## 확인된 환경
 
@@ -24,6 +24,7 @@ realtime/
 │   ├── video.js         # 외부 영상 URL 검증·임베드 URL 생성
 │   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거)
 │   ├── boards.js        # 보드 삭제·이름 변경 감시(주기적 DB 확인 → board:renamed / board:deleted)
+│   ├── origin.js        # 접속 출처 검사(CORS_ORIGIN: auto·*·목록)
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
@@ -34,8 +35,11 @@ realtime/
 │       ├── link.js      # link:create·update·delete (관계 연결선)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01 (서버를 직접 띄워 검사)
+├── scripts/rehearsal.js    # 시연 리허설(브라우저 4개로 시연 대본 실행 + 전달 지연 측정)
 ├── scripts/capture-screens.js  # 실제 화면 캡처(임시 서버 + 설치된 Chrome 조작 → assets/screenshots)
+├── scripts/check-env.js    # 사전 점검(Node·패키지·DB·포트·LAN 주소·방화벽·외부 영상)
+├── scripts/lib/browser-kit.js  # 리허설·캡처가 함께 쓰는 브라우저 조작 도우미
 ├── scripts/fixtures/       # 업로드 표본 이미지(png/jpg/webp/gif/위장 파일)
 └── .env.example
 ```
@@ -64,7 +68,46 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01)도 검사해 요약 줄을 따로 냅니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+
+## 시연 리허설
+
+```bash
+npm run rehearsal
+```
+
+MariaDB 와 Chrome(또는 Edge)만 있으면 됩니다. PHP 내장 서버(8083)와 실시간 서버(3004)를 임시로 띄우고 "리허설 프로젝트"에 예시 내용을 채운 뒤, 브라우저 네 개(관리자 1·편집자 3)로 [시연 대본](../../docs/16-demo-script.md)의 1~9번 장면을 실제 마우스·키보드 입력으로 실행합니다. 약 30초 걸리며 장면별 `PASS`/`FAIL` 과 결과 표를 출력합니다. 실패가 있으면 종료 코드 1 입니다.
+
+- 장면 뒤에는 A 화면이 보낸 것이 다른 화면에 도착하기까지의 시간을 잽니다(커서·펜 미리보기·이동 미리보기·확정 저장 응답·확정 결과). 미리보기 중앙값이 150ms, 확정 저장 응답 중앙값이 500ms 를 넘으면 실패입니다(`REH_MAX_PREVIEW_MS`·`REH_MAX_COMMIT_MS` 로 변경).
+- 마지막에 네 화면의 객체·연결선이 서버 저장 내용과 같은지, 화면 스크립트 오류가 없었는지 확인하고, 이 실행에서 만든 초대 코드를 모두 취소합니다. "리허설 프로젝트"는 DB 에 남습니다.
+- **네 화면이 모두 이 PC 안에서 돕니다.** 다른 PC 의 접속·방화벽·LAN 구간의 지연은 확인하지 못하므로 AC15 를 대신하지 않습니다. 영상은 객체 생성까지만 확인하고 외부 요청은 보내지 않습니다.
+- 환경 변수: `DB_NAME`(다른 DB), `CHROME_BIN`, `PHP_BIN`, `REH_API_PORT`, `REH_RT_PORT`.
+
+## 사전 점검
+
+```bash
+npm run check
+```
+
+Node 버전, 패키지 설치, `.env` 와 접속 출처 설정, DB 연결, 두 포트(서버가 떠 있으면 응답, 아니면 비어 있는지), LAN 주소, Windows 방화벽의 허용·차단 규칙, 외부 영상 접속을 확인합니다. PHP 쪽까지 한 번에 보려면 저장소 루트의 `scripts\check-env.bat` 을 씁니다.
+
+- 방화벽 규칙은 관리자 권한 없이 읽을 수 있는 레지스트리 저장 값을 해석합니다. 읽지 못하면 `[주의]` 로만 알립니다.
+- 서버가 떠 있을 때 실행하면 LAN 주소로도 응답하는지 확인합니다. 그래도 다른 PC 에서 실제로 열리는지는 마지막에 출력되는 주소로 직접 확인해야 합니다.
+
+## 접속 출처 제한
+
+`CORS_ORIGIN` 으로 실시간 서버에 붙을 수 있는 브라우저 출처를 정합니다(`src/origin.js`).
+
+| 값 | 동작 |
+|---|---|
+| `auto` (기본) | 요청의 Origin 과 Host 의 호스트 이름이 같을 때만 허용. 화면은 `http://서버IP:8080`, 실시간 서버는 `서버IP:3001` 이라 포트만 다르므로 서버 IP 가 바뀌어도 설정을 고치지 않아도 됨 |
+| `*` | 모든 출처 허용(개발용) |
+| 쉼표 목록 | `http://192.168.0.10:8080,http://192.168.0.10` 처럼 적은 출처만 허용 |
+
+- 폴링 응답의 CORS 헤더뿐 아니라 웹소켓을 포함한 모든 새 연결 요청에서 검사합니다(거부 시 403). 웹소켓 연결은 브라우저의 CORS 검사를 받지 않기 때문입니다.
+- Origin 헤더가 없는 요청(브라우저가 아닌 테스트 스크립트)은 통과시킵니다. 권한은 어느 경우든 일회용 티켓이 지킵니다.
+- 화면과 실시간 서버를 서로 다른 호스트에 두려면 `auto` 대신 목록을 씁니다. 거부된 화면에는 "실시간 서버에 연결하지 못했습니다" 안내가 뜹니다.
+- 이미 `.env` 를 만들어 둔 PC 는 예전 값 `CORS_ORIGIN=*` 가 남아 있을 수 있습니다. `auto` 로 바꾸고 서버를 다시 띄웁니다.
 
 ## 화면 캡처
 

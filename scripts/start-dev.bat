@@ -29,5 +29,6 @@ echo.
 echo 이 PC:     http://localhost:8080
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /C:"IPv4"') do echo 다른 PC:   http://%%a:8080  (방화벽에서 8080, 3001 허용 필요)
 echo 초대 코드:  C:\xampp\php\php.exe apps\php-api\bin\create-invite.php ^<project_id^> editor
+echo 사전 점검:  scripts\check-env.bat
 echo.
 pause

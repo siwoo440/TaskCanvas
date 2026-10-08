@@ -26,6 +26,8 @@
 
 **구현 상태(2~4·7~9·11단계):** 위 이벤트 전부가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식이며, `object:lock` 실패 시 `error.locked_by`, `VERSION_CONFLICT` 시 최상위 `object`(최신 상태)를 함께 돌려줍니다. `board:join` 응답에는 현재 보드의 잠금 목록 `locks` 가 포함됩니다.
 
+**접속 출처(14단계):** 새 연결 요청마다 Origin 헤더를 검사합니다. 기본값 `CORS_ORIGIN=auto` 는 실시간 서버와 같은 호스트에서 열린 페이지만 허용하며, 거부된 연결은 403 으로 끝나 `board:join` 까지 가지 못합니다. 설정값은 [apps/realtime/README.md](../apps/realtime/README.md)의 "접속 출처 제한"을 참고합니다.
+
 ---
 
 ## 객체 확정 예시(JSON)

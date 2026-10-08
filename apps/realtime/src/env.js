@@ -11,7 +11,7 @@ const DEFAULTS = { // .env 가 없을 때의 기본값
     DB_NAME: 'taskcanvas',
     DB_USER: 'root',
     DB_PASS: '',
-    CORS_ORIGIN: '*',
+    CORS_ORIGIN: 'auto',
     CURSOR_INTERVAL_MS: '33',
     MAX_STROKE_POINTS: '5000',
     LOCK_TTL_MS: '30000',

@@ -48,6 +48,6 @@ erDiagram
 
 ---
 
-## SQL 초안
+## SQL
 
-[database/schema.sql](../database/schema.sql)을 참고합니다. 설계 초안이며 실제 PHP·Node 로직에 맞춰 마이그레이션을 갱신해야 합니다.
+[database/schema.sql](../database/schema.sql)이 구현에서 쓰는 스키마입니다. 테이블을 바꾸면 그 파일과 이 문서를 함께 고칩니다.
