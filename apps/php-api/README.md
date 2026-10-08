@@ -99,6 +99,16 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 
 세 경로 모두 해당 프로젝트의 관리자만 호출할 수 있습니다(그 외 403). 최초 관리자는 `create-project.php` 가 출력하는 관리자 코드로 지정합니다.
 
+## 보드 관리
+
+| 메서드 | 경로 | 내용 |
+|---|---|---|
+| POST | `/api/projects/{id}/boards` | 보드 생성 `{title}` — 편집자 이상 |
+| POST | `/api/boards/{id}/rename` | 이름 변경 `{title}` — 편집자 이상 |
+| POST | `/api/boards/{id}/delete` | 보드 삭제 — 관리자만. 보드의 객체·연결선·접속 티켓이 함께 지워지며 되돌릴 수 없음. 업로드 이미지 파일과 공유 업무 원본은 유지 |
+
+이 API 는 소켓 알림을 보내지 않습니다. 그 보드를 열고 있는 참여자에게는 실시간 서버가 DB 를 주기적으로 확인해 알립니다(`apps/realtime/src/boards.js`).
+
 ## 이미지 업로드
 
 ```bash

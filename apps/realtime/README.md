@@ -22,6 +22,8 @@ realtime/
 │   ├── presence.js      # 보드별 참여자·커서 색상(메모리)
 │   ├── locks.js         # 객체 선점 잠금(메모리, TTL·연결 종료 해제)
 │   ├── video.js         # 외부 영상 URL 검증·임베드 URL 생성
+│   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거)
+│   ├── boards.js        # 보드 삭제·이름 변경 감시(주기적 DB 확인 → board:renamed / board:deleted)
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
@@ -32,7 +34,7 @@ realtime/
 │       ├── link.js      # link:create·update·delete (관계 연결선)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC21 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 (서버를 직접 띄워 검사)
 ├── scripts/fixtures/       # 업로드 표본 이미지(png/jpg/webp/gif/위장 파일)
 └── .env.example
 ```
@@ -61,7 +63,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC21 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 이벤트 요약
 
@@ -72,11 +74,11 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 | C→S | `cursor:move` `{board_id, x, y}` | 커서 중계. S→C 로 `{guest_id, display_name, color, x, y}` |
 | C→S | `stroke:preview` `{board_id, stroke_id, points_delta, style}` | 그리는 중 중계 (DB 기록 없음) |
 | C→S (ack) | `stroke:commit` `{board_id, stroke_id, points, style, request_id}` | DB 저장. 응답 `{ok, request_id, object_id, new_version, persisted}` |
-| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, payload, request_id}` | `rect`·`ellipse`·`image`(payload.asset_id)·`video`(payload.source_url)·`task`(payload.task_id) 생성. 응답에 `object` 포함 |
+| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, payload, request_id}` | `rect`·`ellipse`·`image`(payload.asset_id)·`video`(payload.source_url)·`task`(payload.task_id)·`note`(payload.text) 생성. 응답에 `object` 포함 |
 | S→C | `object:created` `{board_id, guest_id, object}` | 다른 참여자에게 확정 객체 전달 |
 | C→S (ack) | `object:lock` `{board_id, object_id}` | 선점 잠금. 응답 `{lock_token, expires_in}`, 실패 `OBJECT_LOCKED` + `error.locked_by` |
 | C→S | `object:preview` `{board_id, object_id, lock_token, x, y, width?, height?}` | 잠금 소유자의 이동·크기 조절 중 상태 중계(크기는 조절 중일 때만) |
-| C→S (ack) | `object:commit` `{board_id, object_id, lock_token, version, changes, request_id}` | 버전 검사 후 저장·잠금 해제. `changes`: x, y, width, height(도형만), style |
+| C→S (ack) | `object:commit` `{board_id, object_id, lock_token, version, changes, request_id}` | 버전 검사 후 저장·잠금 해제. `changes`: x, y, width, height(획 제외), style, text(메모만) |
 | C→S (ack) | `object:delete` `{board_id, object_id, lock_token, version}` | 버전 검사 후 삭제·잠금 해제 |
 | C→S (ack) | `object:unlock` `{board_id, object_id, lock_token}` | 변경 없이 잠금 해제 |
 | S→C | `object:locked` / `object:unlocked` / `object:preview` / `object:updated` / `object:deleted` | 잠금·해제(reason)·이동 중·변경·삭제 전파 |
@@ -84,6 +86,7 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 | C→S (ack) | `task:update` `{board_id, task_id, version, changes}` | 버전 검사 후 저장. 충돌 시 `VERSION_CONFLICT` + 최상위 `task` |
 | S→C | `task:created` / `task:updated` `{task, guest_id}` | 프로젝트 방(`project:{id}`)의 모든 보드 참여자에게 전파 |
 | C→S (ack) | `link:create` `{board_id, from_object_id, to_object_id, label}` / `link:update` `{link_id, label}` / `link:delete` `{link_id}` | 연결선. 응답 `{link}`. S→C 로 `link:created`/`link:updated`/`link:deleted` 전파 |
+| S→C | `board:renamed` `{board_id, title}` / `board:deleted` `{board_id}` | 작업실에서 보드 이름이 바뀌거나 삭제되면 그 보드의 참여자에게 알림. 삭제 시 알림 뒤 연결 종료. 감지 주기 `BOARD_SWEEP_MS`(기본 5초) |
 
 오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`, `OBJECT_LOCKED`, `LOCK_REQUIRED`, `VERSION_CONFLICT`, `NOT_FOUND`)를 씁니다.
 

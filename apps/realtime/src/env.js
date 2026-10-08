@@ -16,6 +16,7 @@ const DEFAULTS = { // .env 가 없을 때의 기본값
     MAX_STROKE_POINTS: '5000',
     LOCK_TTL_MS: '30000',
     LOCK_SWEEP_MS: '5000',
+    BOARD_SWEEP_MS: '5000',
 };
 
 const values = { ...DEFAULTS }; // 로드된 설정 값

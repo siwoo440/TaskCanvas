@@ -29,6 +29,34 @@ final class BoardController
         Response::ok(['board' => $this->formatBoard($board)], 201); // 생성 응답
     }
 
+    public function rename(Request $request): void
+    {
+        Auth::requireMutationHeader($request); // CSRF 헤더 검사
+        $guest = Auth::requireGuest($request); // 현재 게스트
+        $boardId = $request->params['id']; // 보드 ID
+        $projectId = Auth::boardProject($boardId); // 보드의 프로젝트(없으면 404)
+        Auth::requireRole((int) $guest['guest_id'], $projectId, 'editor'); // 편집자 이상 확인
+        $title = $request->string('title', 120); // 새 이름
+        if ($title === '')
+        {
+            throw new ApiException(400, 'BAD_REQUEST', '보드 이름을 입력해야 합니다.'); // 필수값 검사
+        }
+        Database::run('UPDATE boards SET title = ? WHERE board_id = ?', [$title, $boardId]); // 이름 변경
+        $board = Database::one('SELECT board_id, title, created_at, updated_at FROM boards WHERE board_id = ?', [$boardId]); // 변경 결과 조회
+        Response::ok(['board' => $this->formatBoard($board)]); // 변경 응답(보드 안 참여자에게는 실시간 서버가 알림)
+    }
+
+    public function delete(Request $request): void
+    {
+        Auth::requireMutationHeader($request); // CSRF 헤더 검사
+        $guest = Auth::requireGuest($request); // 현재 게스트
+        $boardId = $request->params['id']; // 보드 ID
+        $projectId = Auth::boardProject($boardId); // 보드의 프로젝트(없으면 404)
+        Auth::requireRole((int) $guest['guest_id'], $projectId, 'admin'); // 삭제는 관리자만
+        Database::run('DELETE FROM boards WHERE board_id = ?', [$boardId]); // 보드 삭제(객체·연결선·티켓은 외래키로 함께 삭제, 이미지 파일·공유 업무 원본은 유지)
+        Response::ok(['deleted' => true, 'board_id' => $boardId]); // 삭제 응답(보드 안 참여자에게는 실시간 서버가 알림)
+    }
+
     public function snapshot(Request $request): void
     {
         $guest = Auth::requireGuest($request); // 현재 게스트

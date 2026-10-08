@@ -57,6 +57,8 @@ class Realtime
         socket.on('link:created', (data) => this.handlers.onLinkCreated(data.link, data.guest_id)); // 연결선 생성
         socket.on('link:updated', (data) => this.handlers.onLinkUpdated(data.link, data.guest_id)); // 연결선 라벨 변경
         socket.on('link:deleted', (data) => this.handlers.onLinkDeleted(data.link_id, data.guest_id)); // 연결선 삭제
+        socket.on('board:renamed', (data) => this.handlers.onBoardRenamed(data)); // 작업실에서 보드 이름이 바뀜
+        socket.on('board:deleted', (data) => this.handlers.onBoardDeleted(data)); // 작업실에서 보드가 삭제됨
     }
 
     async authenticate(socket)

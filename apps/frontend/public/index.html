@@ -29,7 +29,7 @@
                 <div class="hero-text">
                     <p class="eyebrow">실시간 협업 화이트보드 · 웹서버 수업 팀 프로젝트</p>
                     <h1>같은 보드에서 함께 그리고,<br>업무까지 한눈에 정리합니다</h1>
-                    <p class="lead">초대 코드 하나로 입장해 여러 명이 같은 화이트보드를 동시에 편집합니다. 펜·도형·이미지·영상을 올리고, 업무 블럭과 연결선으로 프로젝트 흐름을 정리하세요.</p>
+                    <p class="lead">초대 코드 하나로 입장해 여러 명이 같은 화이트보드를 동시에 편집합니다. 펜·도형·메모·이미지·영상을 올리고, 업무 블럭과 연결선으로 프로젝트 흐름을 정리하세요.</p>
                     <div class="row">
                         <button type="button" id="home-enter" class="primary big">초대 코드로 입장</button>
                         <button type="button" id="home-more" class="text-link">기능 살펴보기 ↓</button>
@@ -145,6 +145,7 @@
                 <h1 id="boards-project-title">프로젝트</h1>
                 <p class="muted" id="ws-summary"></p>
             </section>
+            <p id="ws-notice" class="notice" role="status" hidden></p>
 
             <section class="ws-section">
                 <div class="row between ws-section-head">
@@ -237,6 +238,8 @@
             <button type="button" data-tool="pen" class="active" title="펜 (P)">✎</button>
             <button type="button" data-tool="rect" title="사각형 (R)">▭</button>
             <button type="button" data-tool="ellipse" title="원 (O)">◯</button>
+            <button type="button" data-tool="note" title="메모 (N) — 클릭하거나 끌어서 놓고 바로 글 입력">🗒</button>
+            <button type="button" data-tool="text" title="텍스트 (X) — 배경 없는 글">T</button>
             <button type="button" data-tool="pan" title="이동 (H / Space+드래그)">✥</button>
             <hr>
             <button type="button" id="tool-image" title="이미지 추가 (버튼·드래그·Ctrl+V)">🖼</button>
@@ -250,6 +253,7 @@
         <main class="stage">
             <canvas id="board-canvas"></canvas>
             <div id="overlay" class="overlay"></div>
+            <textarea id="note-editor" class="note-editor" maxlength="2000" spellcheck="false" aria-label="메모 글" hidden></textarea>
             <div id="drop-hint" class="drop-hint" hidden>이미지를 놓으면 업로드됩니다 (PNG·JPG·WEBP, 10MB 이하)</div>
             <div id="toast" class="toast" hidden></div>
         </main>
@@ -289,7 +293,7 @@
             </section>
             <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>모서리 핸들: 크기 조절 (이미지·영상은 비율 유지, Shift: 비율 유지)<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>N: 메모, X: 텍스트 — 더블클릭해 글 수정 (바깥 클릭·Ctrl+Enter 저장, Esc 취소)<br>모서리 핸들: 크기 조절 (이미지·영상은 비율 유지, Shift: 비율 유지)<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
 
         <dialog id="video-dialog">
@@ -332,6 +336,31 @@
             </form>
         </dialog>
     </section>
+
+    <!-- 작업실의 보드 이름 변경·삭제 대화상자 (어느 화면에서도 열릴 수 있게 화면 바깥에 둔다) -->
+    <dialog id="board-rename-dialog">
+        <form id="board-rename-form" method="dialog">
+            <h2>보드 이름 변경</h2>
+            <label>새 이름 <input id="board-rename-title" type="text" maxlength="120" required></label>
+            <p id="board-rename-error" class="error" role="alert"></p>
+            <div class="row">
+                <button type="button" id="board-rename-cancel">취소</button>
+                <button type="submit" class="primary">저장</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="board-delete-dialog">
+        <form id="board-delete-form" method="dialog">
+            <h2>보드 삭제</h2>
+            <p id="board-delete-text"></p>
+            <p class="muted small">보드 안의 그림·도형·메모·연결선이 모두 지워지며 되돌릴 수 없습니다. 지금 이 보드를 열고 있는 사람은 작업실로 돌아갑니다. 업로드한 이미지 파일과 공유 업무 원본은 남습니다.</p>
+            <p id="board-delete-error" class="error" role="alert"></p>
+            <div class="row">
+                <button type="button" id="board-delete-cancel">취소</button>
+                <button type="submit" class="danger">삭제</button>
+            </div>
+        </form>
+    </dialog>
 
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>

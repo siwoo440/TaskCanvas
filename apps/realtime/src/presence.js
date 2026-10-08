@@ -43,4 +43,9 @@ function list(boardId)
     return members ? [...members.values()].map(({ socket_id, ...rest }) => rest) : []; // socket_id 를 뺀 공개 정보
 }
 
-module.exports = { roomName, add, remove, list };
+function activeBoardIds()
+{
+    return [...rooms.keys()]; // 참여자가 한 명이라도 있는 보드 ID
+}
+
+module.exports = { roomName, add, remove, list, activeBoardIds };

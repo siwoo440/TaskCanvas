@@ -27,7 +27,7 @@ async function consumeTicket(ticket, boardId)
         return null; // 없음·만료·재사용
     }
     return db.one(
-        `SELECT t.guest_id, g.display_name, b.board_id, b.project_id, m.role
+        `SELECT t.guest_id, g.display_name, b.board_id, b.project_id, b.title AS board_title, m.role
            FROM realtime_tickets t
            JOIN guests g ON g.guest_id = t.guest_id
            JOIN boards b ON b.board_id = t.board_id

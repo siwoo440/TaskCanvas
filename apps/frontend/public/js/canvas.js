@@ -22,6 +22,8 @@ class BoardCanvas
         this.draft = null; // 지금 그리는 중인 내 초안
         this.images = new Map(); // 이미지 캐시 url → {img, failed}
         this.tasks = new Map(); // 공유 업무 원본 task_id → task (app 이 채움)
+        this.editingId = null; // 글을 편집 중인 메모 ID(입력 요소가 위에 겹치므로 캔버스에는 글을 그리지 않음)
+        this.wrapCache = new Map(); // 메모 줄바꿈 결과 object_id → {key, lines}
         this.afterRender = null; // 렌더 후 콜백(영상 오버레이 동기화)
         this.frame = 0; // 예약된 애니메이션 프레임
         this.resize = this.resize.bind(this); // 크기 변경 핸들러
@@ -166,6 +168,7 @@ class BoardCanvas
         this.objects = this.objects.filter((o) => o.object_id !== id); // 객체 제거
         this.moves.delete(id); // 이동 미리보기 제거
         this.locks.delete(id); // 잠금 표시 제거
+        this.wrapCache.delete(id); // 메모 줄바꿈 캐시 제거
         this.selectedIds.delete(id); // 선택에서 제거
         this.removeLinksOf(id); // 연결된 연결선 제거(서버도 FK 로 함께 삭제)
         this.invalidate(); // 다시 그리기
@@ -301,7 +304,7 @@ class BoardCanvas
                     }
                 }
             }
-            else if (o.type === 'rect' || o.type === 'image' || o.type === 'video' || o.type === 'task')
+            else if (o.type === 'rect' || o.type === 'image' || o.type === 'video' || o.type === 'task' || o.type === 'note')
             {
                 const r = this.displayRect(o); // 표시 사각형(크기 조절 중 반영)
                 if (wx >= r.x - tol && wx <= r.x + r.width + tol && wy >= r.y - tol && wy <= r.y + r.height + tol)
@@ -479,6 +482,82 @@ class BoardCanvas
             ctx.fillText(link.label, mx - w / 2 + 5, my + 4); // 라벨
         }
         ctx.restore(); // 스타일 끝
+    }
+
+    // 메모 글 줄바꿈: 줄바꿈 문자로 나눈 뒤 폭에 맞춰 낱말 단위로, 낱말이 폭보다 길면 글자 단위로 자른다
+    wrapText(text, maxWidth)
+    {
+        const ctx = this.ctx; // 측정용 컨텍스트
+        const lines = []; // 결과 줄
+        ctx.save(); // 글꼴 설정 보존
+        ctx.font = BoardCanvas.NOTE.font + 'px sans-serif'; // 메모 글꼴
+        for (const paragraph of String(text).split('\n'))
+        {
+            let line = ''; // 현재 줄
+            for (const token of paragraph.split(/(\s+)/))
+            {
+                if (token === '')
+                {
+                    continue; // 빈 조각
+                }
+                if (ctx.measureText(line + token).width <= maxWidth)
+                {
+                    line += token; // 줄에 그대로 추가
+                    continue;
+                }
+                if (/^\s+$/.test(token))
+                {
+                    lines.push(line); // 줄 끝 공백은 버리고 줄바꿈
+                    line = '';
+                    continue;
+                }
+                if (line.trim() !== '')
+                {
+                    lines.push(line.trimEnd()); // 낱말이 들어가지 않으면 다음 줄로
+                    line = '';
+                }
+                for (const ch of token)
+                {
+                    if (line !== '' && ctx.measureText(line + ch).width > maxWidth)
+                    {
+                        lines.push(line); // 폭보다 긴 낱말은 글자 단위로 자름
+                        line = ch;
+                    }
+                    else
+                    {
+                        line += ch; // 글자 추가
+                    }
+                }
+            }
+            lines.push(line.trimEnd()); // 문단의 마지막 줄
+        }
+        ctx.restore(); // 글꼴 설정 복원
+        return lines; // 줄 목록
+    }
+
+    noteLines(o)
+    {
+        const text = o.payload && typeof o.payload.text === 'string' ? o.payload.text : ''; // 메모 글
+        const maxWidth = Math.max(10, o.width - BoardCanvas.NOTE.pad * 2); // 글이 들어갈 폭
+        const key = maxWidth + '|' + text; // 캐시 키(폭이나 글이 바뀌면 다시 계산)
+        const cached = o.object_id !== undefined ? this.wrapCache.get(o.object_id) : null; // 캐시 조회
+        if (cached && cached.key === key)
+        {
+            return cached.lines; // 캐시 사용
+        }
+        const lines = this.wrapText(text, maxWidth); // 줄바꿈 계산
+        if (o.object_id !== undefined)
+        {
+            this.wrapCache.set(o.object_id, { key, lines }); // 캐시 저장
+        }
+        return lines; // 줄 목록
+    }
+
+    // 글이 모두 보이려면 필요한 메모 높이
+    noteHeightFor(text, width)
+    {
+        const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
+        return this.wrapText(text, Math.max(10, width - n.pad * 2)).length * n.line + n.pad * 2; // 줄 수 × 줄 높이 + 위아래 여백
     }
 
     static segmentDistance(px, py, a, b)
@@ -753,6 +832,45 @@ class BoardCanvas
             ctx.font = '11px sans-serif'; // 안내 글꼴
             ctx.fillText('공유 업무 #' + o.task_id, o.x + 14, o.y + o.height - 10); // 공유 표시
         }
+        else if (o.type === 'note')
+        {
+            const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
+            const text = o.payload && typeof o.payload.text === 'string' ? o.payload.text : ''; // 메모 글
+            if (style.fill)
+            {
+                ctx.fillStyle = style.fill; // 배경 색
+                ctx.fillRect(o.x, o.y, o.width, o.height); // 메모 배경
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.14)'; // 옅은 테두리
+                ctx.lineWidth = 1; // 테두리 굵기
+                ctx.strokeRect(o.x, o.y, o.width, o.height); // 테두리
+            }
+            else if (text === '')
+            {
+                ctx.strokeStyle = '#9ca3af'; // 빈 텍스트 상자 표시 색
+                ctx.lineWidth = 1 / this.view.scale; // 화면 기준 1px
+                ctx.setLineDash([4 / this.view.scale, 4 / this.view.scale]); // 점선
+                ctx.strokeRect(o.x, o.y, o.width, o.height); // 배경 없는 빈 상자의 위치 표시
+                ctx.setLineDash([]); // 점선 해제
+            }
+            if (this.editingId !== o.object_id)
+            {
+                ctx.beginPath(); // 글이 메모 밖으로 넘치지 않게 자르는 영역
+                ctx.rect(o.x, o.y, o.width, o.height); // 메모 영역
+                ctx.clip(); // 영역 밖 숨김
+                ctx.font = n.font + 'px sans-serif'; // 메모 글꼴
+                ctx.textBaseline = 'top'; // 위쪽 기준 배치
+                if (text === '')
+                {
+                    ctx.fillStyle = '#9ca3af'; // 안내 글자 색
+                    ctx.fillText('더블클릭해 입력', o.x + n.pad, o.y + n.pad + 3); // 빈 메모 안내
+                }
+                else
+                {
+                    ctx.fillStyle = style.color || '#222222'; // 글자 색
+                    this.noteLines(o).forEach((line, i) => ctx.fillText(line, o.x + n.pad, o.y + n.pad + 3 + i * n.line)); // 줄마다 그리기
+                }
+            }
+        }
         ctx.restore(); // 객체 변환 끝
     }
 
@@ -793,6 +911,7 @@ class BoardCanvas
 }
 
 BoardCanvas.VIDEO_BAR = 28; // 영상 카드 제목 막대 높이(월드 단위)
-BoardCanvas.RESIZABLE = ['rect', 'ellipse', 'image', 'video', 'task']; // 크기 조절 핸들을 표시할 객체 유형
+BoardCanvas.RESIZABLE = ['rect', 'ellipse', 'image', 'video', 'task', 'note']; // 크기 조절 핸들을 표시할 객체 유형
+BoardCanvas.NOTE = { font: 16, line: 22, pad: 10 }; // 메모 글꼴 크기·줄 높이·안쪽 여백(월드 단위)
 
 window.BoardCanvas = BoardCanvas; // 전역 노출

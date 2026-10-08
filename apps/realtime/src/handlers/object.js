@@ -1,13 +1,14 @@
-// object:create — 도형·이미지·영상·업무 블럭 새 객체 확정 생성 (이동·크기·삭제·잠금은 edit.js)
+// object:create — 도형·이미지·영상·업무 블럭·메모 새 객체 확정 생성 (이동·크기·글 수정·삭제·잠금은 edit.js)
 'use strict';
 
 const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
 const presence = require('../presence'); // 방 이름
 const video = require('../video'); // 영상 URL 검증
+const note = require('../note'); // 메모 글·스타일 검증
 const { ok, fail, joinedBoard } = require('./reply'); // 응답 헬퍼
 
-const TYPES = ['rect', 'ellipse', 'image', 'video', 'task']; // 생성 허용 객체 유형
+const TYPES = ['rect', 'ellipse', 'image', 'video', 'task', 'note']; // 생성 허용 객체 유형
 
 function cleanNumber(value, fallback = 0)
 {
@@ -90,6 +91,16 @@ function register(io, socket)
                 taskId = id; // 업무 참조 저장
                 payload = {}; // 업무 내용은 tasks 원본에서 가져옴
                 style = {}; // 업무 블럭은 스타일 없음
+            }
+            else if (data.type === 'note')
+            {
+                const text = note.cleanText(data.payload?.text); // 메모 글(제어 문자 제거, 길이 제한)
+                if (text === null)
+                {
+                    return fail(ack, 'BAD_REQUEST', '메모 글은 ' + note.MAX_TEXT + '자 이하의 문자열이어야 합니다.'); // 글 검사
+                }
+                payload = { text }; // 메모 본문
+                style = note.cleanNoteStyle(data.style); // 배경·글자 색
             }
             const result = await db.query(
                 'INSERT INTO board_objects (board_id, task_id, type, x, y, width, height, payload_json, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',

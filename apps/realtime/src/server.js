@@ -13,6 +13,7 @@ const editHandler = require('./handlers/edit'); // 잠금·이동·삭제
 const taskHandler = require('./handlers/task'); // 공유 업무(P1)
 const linkHandler = require('./handlers/link'); // 연결선(P1)
 const locks = require('./locks'); // 잠금 만료 검사
+const boards = require('./boards'); // 보드 삭제·이름 변경 감시
 
 const httpServer = http.createServer((req, res) =>
 {
@@ -46,6 +47,7 @@ async function start()
 {
     await db.one('SELECT 1'); // DB 연결 확인
     locks.startSweeper(io); // 만료 잠금 정리 시작
+    boards.startWatcher(io); // 보드 삭제·이름 변경 감시 시작
     const port = env.int('PORT'); // 수신 포트
     httpServer.listen(port, '0.0.0.0', () =>
     {

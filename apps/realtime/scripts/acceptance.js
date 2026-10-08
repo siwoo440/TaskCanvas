@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC21 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -51,7 +51,7 @@ async function waitFor(url, tries = 50)
 function startServers()
 {
     const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RATE_LIMIT: '1000' } }); // PHP 내장 서버(테스트는 입장이 잦으므로 요청 제한 완화)
-    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300' } }); // 실시간 서버(짧은 잠금 TTL)
+    const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300', BOARD_SWEEP_MS: '300' } }); // 실시간 서버(짧은 잠금 TTL·보드 감시 주기)
     php.stderr.on('data', (d) => { if (/PHP (Fatal|Parse|Warning)/.test(String(d))) { console.error('[php] ' + String(d).trim()); } }); // PHP 오류만 표시
     rt.stderr.on('data', (d) => console.error('[realtime] ' + String(d).trim())); // 실시간 서버 오류 표시
     return { php, rt }; // 프로세스 핸들
@@ -394,6 +394,50 @@ async function run(envInfo)
     record('AC21', '크기 조절', rzLock.ok && rzPreview !== null && rzPreview.width === 80 && rzPreview.height === 50 && rzSmall.ok === false && rzSmall.error.code === 'BAD_REQUEST'
         && rzCommit.ok && rzCommit.object.width === 80 && rzCommit.object.x === -10 && snapRz && snapRz.width === 80 && snapRz.height === 50 && snapRz.version === 2
         && strokeResize.ok && strokeResize.object.width === 2 && strokeResize.object.height === 2, '미리보기·확정에 크기 반영, 0 크기 거부, 펜 획 크기는 유지');
+
+    // AC22 메모: 생성·글 수정 전파, 제어 문자 제거, 너무 긴 글 거부, 메모가 아닌 객체의 text 무시, 열람자 거부
+    const noteCreatedPromise = until(C2.socket, 'object:created', (d) => d.object.type === 'note'); // 같은 보드 참여자가 받을 생성
+    const noteObj = await ack(B.socket, 'object:create', { board_id: boardA, type: 'note', x: 10, y: 10, width: 180, height: 120, style: { fill: '#fff59d', color: '#222222' }, payload: { text: '첫 줄\r\n둘째 줄\u0007' } }); // 메모 생성(CRLF·제어 문자 포함)
+    const noteCreated = await noteCreatedPromise; // 수신
+    const noteLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: noteObj.object_id }); // 글 수정용 잠금
+    const noteTooLong = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: noteObj.object_id, lock_token: noteLock.lock_token, version: 1, changes: { text: 'x'.repeat(2001) } }); // 2001자
+    const noteUpdatedPromise = until(C2.socket, 'object:updated', (d) => d.object.object_id === noteObj.object_id); // 글 변경 수신
+    const noteCommit = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: noteObj.object_id, lock_token: noteLock.lock_token, version: 1, changes: { text: '회의 메모', height: 160, style: { fill: null, color: '#e53935' } } }); // 글·높이·스타일 확정
+    const noteUpdated = await noteUpdatedPromise; // 수신
+    const rectLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: rz.object_id }); // 메모가 아닌 객체
+    const rectText = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: rz.object_id, lock_token: rectLock.lock_token, version: 2, changes: { text: 'ignored' } }); // 사각형에 text 전송
+    const badNote = await ack(B.socket, 'object:create', { board_id: boardA, type: 'note', x: 0, y: 0, width: 100, height: 60, payload: { text: 123 } }); // 문자열이 아닌 글
+    const viewerNote = await ack(V.socket, 'object:create', { board_id: boardA, type: 'note', x: 0, y: 0, width: 100, height: 60, payload: { text: 'v' } }); // 열람자 생성 시도
+    const snapNote = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json.objects.find((o) => o.object_id === noteObj.object_id); // 저장 결과
+    record('AC22', '메모', noteObj.ok && noteObj.object.payload.text === '첫 줄\n둘째 줄' && noteObj.object.style.fill === '#fff59d' && noteCreated !== null
+        && noteTooLong.ok === false && noteTooLong.error.code === 'BAD_REQUEST' && noteCommit.ok && noteCommit.object.payload.text === '회의 메모' && noteCommit.object.height === 160
+        && noteCommit.object.style.fill === null && noteCommit.object.style.color === '#e53935' && noteUpdated !== null && noteUpdated.object.payload.text === '회의 메모'
+        && rectText.ok && rectText.object.payload.text === undefined && rectText.object.text === undefined && badNote.ok === false && badNote.error.code === 'BAD_REQUEST'
+        && viewerNote.ok === false && viewerNote.error.code === 'FORBIDDEN' && snapNote && snapNote.payload.text === '회의 메모' && snapNote.version === 2, '생성·글 수정 전파, 제어 문자 제거, 2001자 거부, 다른 객체의 text 무시, 열람자 거부');
+
+    // AC23 보드 관리: 이름 변경(편집자 이상)·삭제(관리자), 보드 안 참여자에게 실시간 알림 후 연결 정리
+    const tempBoard = (await api('POST', '/api/projects/' + projectId + '/boards', { title: 'AC Temp' }, B.cookie)).json.board; // 임시 보드
+    const tempPath = '/api/boards/' + tempBoard.board_id; // 임시 보드 API 경로
+    const T = await enter('AC-T', editorCode, tempBoard.board_id); // 임시 보드 안에 있는 참여자
+    await ack(T.socket, 'object:create', { board_id: tempBoard.board_id, type: 'rect', x: 0, y: 0, width: 10, height: 10 }); // 보드 안 객체
+    const viewerRename = await api('POST', tempPath + '/rename', { title: 'nope' }, V.cookie); // 열람자 이름 변경 시도
+    const emptyRename = await api('POST', tempPath + '/rename', { title: '   ' }, B.cookie); // 빈 이름
+    const renamedPromise = until(T.socket, 'board:renamed', (d) => d.board_id === tempBoard.board_id, 4000); // 보드 안 참여자가 받을 이름 변경
+    const rename = await api('POST', tempPath + '/rename', { title: 'AC Renamed' }, B.cookie); // 편집자 이름 변경
+    const renamed = await renamedPromise; // 수신
+    const editorDelete = await api('POST', tempPath + '/delete', {}, B.cookie); // 편집자 삭제 시도
+    const boardDeletedPromise = until(T.socket, 'board:deleted', (d) => d.board_id === tempBoard.board_id, 4000); // 삭제 알림
+    const disconnectedPromise = once(T.socket, 'disconnect', 5000); // 알림 뒤 연결 정리
+    const adminDelete = await api('POST', tempPath + '/delete', {}, admin.cookie); // 관리자 삭제
+    const boardDeleted = await boardDeletedPromise; // 수신
+    const disconnected = await disconnectedPromise; // 연결 종료 사유
+    const snapGone = await api('GET', tempPath + '/snapshot', undefined, B.cookie); // 삭제된 보드 조회
+    const boardsAfter = (await api('GET', '/api/projects/' + projectId + '/boards', undefined, B.cookie)).json.boards; // 남은 보드
+    const missingRename = await api('POST', '/api/boards/999999/rename', { title: 'x' }, B.cookie); // 없는 보드
+    record('AC23', '보드 관리', T.reply.ok && T.reply.board_title === 'AC Temp' && viewerRename.status === 403 && emptyRename.status === 400 && rename.status === 200 && rename.json.board.title === 'AC Renamed'
+        && renamed !== null && renamed.title === 'AC Renamed' && editorDelete.status === 403 && adminDelete.status === 200 && adminDelete.json.deleted === true
+        && boardDeleted !== null && disconnected !== null && snapGone.status === 404 && !boardsAfter.some((b) => b.board_id === tempBoard.board_id) && boardsAfter.length >= 2
+        && missingRename.status === 404, '편집자 이름 변경·관리자 삭제(그 외 403), 보드 안 참여자에게 이름 변경·삭제 알림 후 연결 종료, 삭제된 보드 404');
 
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');

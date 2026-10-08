@@ -1,4 +1,4 @@
-// 마우스·키보드 입력을 도구 동작으로 변환 (선택·이동·크기 조절, 연결선, 펜, 사각형, 원, 화면 이동, 확대)
+// 마우스·키보드 입력을 도구 동작으로 변환 (선택·이동·크기 조절, 연결선, 펜, 사각형, 원, 메모·텍스트, 화면 이동, 확대)
 'use strict';
 
 function attachTools(canvas, options)
@@ -119,8 +119,11 @@ function attachTools(canvas, options)
         else
         {
             const origin = snap(w, state); // 시작점(격자 맞춤 반영)
-            const draft = { type: state.tool, x: origin.x, y: origin.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
-            drag = { mode: 'shape', origin, draft }; // 도형 드래그
+            const isNote = state.tool === 'note' || state.tool === 'text'; // 메모·텍스트 도구 여부
+            const draft = isNote
+                ? { type: 'note', x: origin.x, y: origin.y, width: 0, height: 0, payload: { text: '' }, style: { fill: state.tool === 'text' ? null : (state.style.fill ?? '#fff59d'), color: state.style.color } } // 메모 초안(텍스트 도구는 배경 없음)
+                : { type: state.tool, x: origin.x, y: origin.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
+            drag = { mode: 'shape', origin, draft, tool: state.tool }; // 도형·메모 드래그
             canvas.draft = draft; // 초안 표시
         }
         canvas.invalidate(); // 다시 그리기
@@ -229,7 +232,16 @@ function attachTools(canvas, options)
         }
         else if (finished.mode === 'shape')
         {
-            if (finished.draft.width >= 2 && finished.draft.height >= 2)
+            if (finished.draft.type === 'note')
+            {
+                if (finished.draft.width < 8 || finished.draft.height < 8)
+                {
+                    finished.draft.width = finished.tool === 'text' ? 220 : 180; // 끌지 않고 클릭만 하면 기본 너비
+                    finished.draft.height = finished.tool === 'text' ? 44 : 120; // 기본 높이
+                }
+                options.onNoteCreate(finished.draft); // 메모 확정 후 바로 글 입력
+            }
+            else if (finished.draft.width >= 2 && finished.draft.height >= 2)
             {
                 options.onShapeCreate(finished.draft); // 도형 확정
             }
@@ -252,12 +264,27 @@ function attachTools(canvas, options)
         canvas.zoomAt(sx, sy, e.deltaY < 0 ? 1.1 : 1 / 1.1); // 휠 방향에 따른 확대·축소
     }, { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault()); // 우클릭 메뉴 방지
+    el.addEventListener('dblclick', (e) =>
+    {
+        const state = options.getState(); // 현재 도구·역할
+        if (state.tool !== 'select' || !state.canEdit)
+        {
+            return; // 선택 도구에서 편집 가능한 사람만
+        }
+        const { sx, sy } = position(e); // 화면 좌표
+        const w = canvas.toWorld(sx, sy); // 월드 좌표
+        const hit = canvas.hitTest(w.x, w.y); // 더블클릭한 객체
+        if (hit)
+        {
+            options.onDoubleClick(hit); // 메모면 글 편집 시작
+        }
+    });
 
     window.addEventListener('keydown', (e) =>
     {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')
         {
-            return; // 입력 중에는 무시
+            return; // 입력 중에는 무시(메모 글 입력 포함)
         }
         if (e.code === 'Space')
         {
@@ -276,7 +303,7 @@ function attachTools(canvas, options)
         }
         else
         {
-            const map = { v: 'select', l: 'link', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan', t: 'task' }; // 단축키
+            const map = { v: 'select', l: 'link', p: 'pen', r: 'rect', o: 'ellipse', n: 'note', x: 'text', h: 'pan', t: 'task' }; // 단축키
             if (map[e.key.toLowerCase()])
             {
                 options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환

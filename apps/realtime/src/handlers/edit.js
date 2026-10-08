@@ -5,6 +5,7 @@ const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
 const locks = require('../locks'); // 잠금 관리
 const presence = require('../presence'); // 방 이름
+const note = require('../note'); // 메모 글·스타일 검증
 const { ok, fail, joinedBoard } = require('./reply'); // 응답 헬퍼
 
 const HEX = /^#[0-9a-fA-F]{6}$/; // 색상 형식
@@ -40,6 +41,10 @@ function cleanStyle(type, style)
     if (type === 'image' || type === 'video' || type === 'task')
     {
         return {}; // 이미지·영상·업무 블럭은 스타일 없음
+    }
+    if (type === 'note')
+    {
+        return note.cleanNoteStyle(style); // 메모: 배경·글자 색
     }
     if (type === 'stroke')
     {
@@ -89,6 +94,15 @@ function cleanChanges(changes, type)
     if (c.style !== undefined)
     {
         out.style = cleanStyle(type, c.style); // 스타일 변경
+    }
+    if (c.text !== undefined && type === 'note')
+    {
+        const text = note.cleanText(c.text); // 메모 글 정리
+        if (text === null)
+        {
+            return null; // 문자열이 아니거나 너무 긴 글
+        }
+        out.text = text; // 메모 글 변경(메모가 아닌 객체에 보내면 무시)
     }
     return out; // 정리된 변경
 }
@@ -244,7 +258,12 @@ function register(io, socket)
                 await conn.rollback(); // 되돌림
                 return fail(ack, 'BAD_REQUEST', 'changes 가 올바르지 않습니다.'); // 형식 오류
             }
-            const next = { ...current, ...changes, version: current.version + 1 }; // 적용 결과
+            const { text, ...fields } = changes; // 메모 글은 본문(payload)으로, 나머지는 객체 필드로 적용
+            const next = { ...current, ...fields, version: current.version + 1 }; // 적용 결과
+            if (text !== undefined)
+            {
+                next.payload = { ...(current.payload || {}), text }; // 메모 글 갱신
+            }
             if (current.type === 'stroke' && (changes.x !== undefined || changes.y !== undefined))
             {
                 const dx = next.x - current.x; // X 이동량

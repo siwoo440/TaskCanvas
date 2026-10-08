@@ -72,6 +72,7 @@ button {
 }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 
 
 /* 화이트보드 레이아웃: 상단바 / 좌측 툴바 / 캔버스 / 우측 속성 */
@@ -127,13 +128,30 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 .toolbar button.active { background: #dbeafe; border-color: var(--primary); }
 .toolbar hr { width: 30px; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
-.stage { grid-area: stage; position: relative; overflow: hidden; background: #fafafa; }
+.stage { grid-area: stage; position: relative; overflow: hidden; overflow: clip; background: #fafafa; } /* clip: 화면 밖 메모의 입력란에 포커스가 가도 영역이 스크롤되지 않게 한다 */
 #board-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 #board-canvas.pan { cursor: grab; }
 #board-canvas.select { cursor: default; }
 
 /* 영상 iframe 오버레이: 캔버스 좌표와 동기화, 막대 영역은 캔버스가 처리 */
 .overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+/* 메모 글 입력: 편집 중인 메모 위에 같은 위치·크기·글꼴로 겹친다 */
+.note-editor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+    border: 2px solid var(--primary);
+    border-radius: 2px;
+    resize: none;
+    outline: none;
+    overflow: auto;
+    font-family: sans-serif;
+    white-space: pre-wrap;
+    word-break: keep-all; /* 캔버스 줄바꿈(낱말 단위)과 맞춤 */
+    overflow-wrap: break-word;
+    z-index: 3;
+}
 .overlay iframe { position: absolute; left: 0; top: 0; border: 0; background: #000; pointer-events: auto; transform-origin: 0 0; }
 .stage.dragging::after { content: ""; position: absolute; inset: 0; border: 3px dashed var(--primary); pointer-events: none; }
 .drop-hint {
@@ -285,10 +303,15 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
 .ws-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .count { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 4px; }
 .board-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.board-grid li button { width: 100%; height: 100%; text-align: left; padding: 16px; display: flex; flex-direction: column; gap: 6px; border-radius: 12px; }
-.board-grid li button strong { font-size: 16px; }
-.board-grid li button .open { color: var(--primary); font-size: 13px; margin-top: 6px; }
-.board-grid li button:hover { border-color: var(--primary); box-shadow: 0 6px 18px rgba(37, 99, 235, .12); }
+.board-grid li { display: flex; flex-direction: column; gap: 6px; }
+.board-grid .open-board { width: 100%; flex: 1; text-align: left; padding: 16px; display: flex; flex-direction: column; gap: 6px; border-radius: 12px; }
+.board-grid .open-board strong { font-size: 16px; overflow-wrap: anywhere; }
+.board-grid .open-board .open { color: var(--primary); font-size: 13px; margin-top: 6px; }
+.board-grid .open-board:hover { border-color: var(--primary); box-shadow: 0 6px 18px rgba(37, 99, 235, .12); }
+.board-actions { display: flex; gap: 14px; padding: 0 6px; }
+.board-actions .text-link { font-size: 13px; }
+.text-link.danger-link { color: var(--danger); }
+.notice { margin: 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; border: 1px solid #fde68a; color: #92400e; font-size: 14px; }
 .board-grid .empty { color: var(--muted); padding: 14px 0; grid-column: 1 / -1; }
 .plain-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .plain-list li { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }

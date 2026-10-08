@@ -20,6 +20,18 @@ let canvas = null; // BoardCanvas
 let realtime = null; // Realtime
 let overlay = null; // VideoOverlay
 let move = null; // 진행 중인 이동·크기 조절 세션 {kind, objects, tokens, start, dx, dy, corner?, shift?, armed, finished, lastPreviewAt}
+let noteEdit = null; // 글을 편집 중인 메모 {object, token, heartbeat, isNew}
+let busyOps = 0; // 진행 중인 잠금 요청·확정·삭제 수(다음 잠금 요청이 앞선 작업의 반납보다 먼저 나가지 않게 한다)
+let boardDialogTarget = null; // 이름 변경·삭제 대화상자의 대상 보드
+
+// 앞선 잠금 요청·확정이 모두 끝날 때까지 기다린다. 같은 객체를 연달아 잠글 때 서버에 도착하는 순서를 보장하기 위함
+async function whenIdle()
+{
+    while (busyOps > 0)
+    {
+        await new Promise((resolve) => setTimeout(resolve, 15)); // 잠깐 대기 후 다시 확인
+    }
+}
 
 function showView(name)
 {
@@ -159,6 +171,7 @@ async function openWorkspace()
     setHomeMode(true); // 같은 홈 화면을 작업실 구성으로 전환
     showView('home'); // 홈 화면
     window.scrollTo(0, 0); // 맨 위부터 표시
+    $('ws-notice').hidden = true; // 이전 알림 숨김
     $('boards-project-title').textContent = state.project.title; // 프로젝트 이름
     $('boards-guest-name').textContent = state.guest.display_name; // 게스트 이름
     $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
@@ -212,6 +225,7 @@ function renderBoardList()
         const meta = document.createElement('span'); // 만든 날
         const open = document.createElement('span'); // 열기 표시
         btn.type = 'button'; // 제출 방지
+        btn.className = 'open-board'; // 카드의 열기 영역
         title.textContent = b.title; // 서버 값은 textContent 로만 표시
         meta.className = 'muted small'; // 보조 글자
         meta.textContent = '만든 날 ' + String(b.created_at).slice(0, 10); // 생성일
@@ -220,7 +234,120 @@ function renderBoardList()
         btn.append(title, meta, open); // 카드 구성
         btn.addEventListener('click', () => openBoard(b)); // 보드 열기
         li.appendChild(btn); // 카드 추가
+        if (canEdit())
+        {
+            const actions = document.createElement('div'); // 카드 아래 동작
+            const rename = document.createElement('button'); // 이름 변경
+            actions.className = 'board-actions'; // 동작 줄
+            rename.type = 'button'; // 제출 방지
+            rename.className = 'text-link'; // 글자 버튼
+            rename.textContent = '이름 변경'; // 문구
+            rename.addEventListener('click', () => openBoardRename(b)); // 이름 변경 대화상자
+            actions.appendChild(rename); // 추가
+            if (state.project.role === 'admin')
+            {
+                const remove = document.createElement('button'); // 삭제(관리자만)
+                remove.type = 'button'; // 제출 방지
+                remove.className = 'text-link danger-link'; // 위험 동작 색
+                remove.textContent = '삭제'; // 문구
+                remove.addEventListener('click', () => openBoardDelete(b)); // 삭제 확인 대화상자
+                actions.appendChild(remove); // 추가
+            }
+            li.appendChild(actions); // 동작 줄 추가
+        }
         ul.appendChild(li); // 항목 추가
+    }
+}
+
+function openBoardRename(board)
+{
+    boardDialogTarget = board; // 대상 보드
+    $('board-rename-title').value = board.title; // 현재 이름
+    $('board-rename-error').textContent = ''; // 오류 초기화
+    $('board-rename-dialog').showModal(); // 대화상자 열기
+    $('board-rename-title').select(); // 바로 고칠 수 있게 전체 선택
+}
+
+function openBoardDelete(board)
+{
+    boardDialogTarget = board; // 대상 보드
+    $('board-delete-text').textContent = "'" + board.title + "' 보드를 삭제합니다."; // 확인 문구(textContent 로만 표시)
+    $('board-delete-error').textContent = ''; // 오류 초기화
+    $('board-delete-dialog').showModal(); // 대화상자 열기
+}
+
+function applyBoardTitle(id, title)
+{
+    const listed = state.boards.find((b) => b.board_id === id); // 목록의 보드
+    if (listed)
+    {
+        listed.title = title; // 목록 이름 갱신
+    }
+    if (state.board && state.board.board_id === id)
+    {
+        state.board.title = title; // 열려 있는 보드 이름 갱신
+        renderBoardSwitch(); // 상단 보드 전환 목록 갱신
+    }
+}
+
+$('board-rename-cancel').addEventListener('click', () => $('board-rename-dialog').close()); // 이름 변경 취소
+$('board-rename-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    if (!boardDialogTarget)
+    {
+        return;
+    }
+    try
+    {
+        const data = await window.api.post('/api/boards/' + boardDialogTarget.board_id + '/rename', { title: $('board-rename-title').value.trim() }); // 이름 변경(편집자 이상)
+        applyBoardTitle(data.board.board_id, data.board.title); // 목록 반영
+        $('board-rename-dialog').close(); // 닫기
+        renderBoardList(); // 카드 갱신
+    }
+    catch (err)
+    {
+        $('board-rename-error').textContent = err.message; // 오류 표시
+    }
+});
+
+$('board-delete-cancel').addEventListener('click', () => $('board-delete-dialog').close()); // 삭제 취소
+$('board-delete-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    if (!boardDialogTarget)
+    {
+        return;
+    }
+    try
+    {
+        const id = boardDialogTarget.board_id; // 삭제할 보드
+        await window.api.post('/api/boards/' + id + '/delete'); // 보드 삭제(관리자만, 되돌릴 수 없음)
+        state.boards = state.boards.filter((b) => b.board_id !== id); // 목록에서 제거
+        $('board-delete-dialog').close(); // 닫기
+        renderBoardList(); // 카드 갱신
+    }
+    catch (err)
+    {
+        $('board-delete-error').textContent = err.message; // 오류 표시
+    }
+});
+
+// 보드에서 작업실로 돌아가기: 진행 중인 이동·메모 편집을 정리하고, 필요하면 작업실에 알림을 띄운다
+async function returnToWorkspace(notice)
+{
+    cancelMove(); // 진행 중 이동 취소
+    finishNoteEdit(false); // 메모 편집 취소(잠금 반납)
+    if (realtime)
+    {
+        realtime.leave(); // 연결 종료
+    }
+    state.board = null; // 보드 비움
+    await openWorkspace(); // 작업실 구성
+    if (notice)
+    {
+        $('ws-notice').textContent = notice; // 알림 문구
+        $('ws-notice').hidden = false; // 알림 표시
     }
 }
 
@@ -452,6 +579,7 @@ for (const [buttonId, sourceId] of [['invite-copy-code', 'invite-code'], ['invit
 async function openBoard(board)
 {
     cancelMove(); // 진행 중 이동 취소
+    finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
     showView('board'); // 보드 화면
@@ -465,7 +593,12 @@ async function openBoard(board)
         canvas = new BoardCanvas($('board-canvas')); // 캔버스 생성
         attachTools(canvas, toolHandlers); // 입력 연결
         overlay = new VideoOverlay($('overlay')); // 영상 iframe 오버레이
-        canvas.afterRender = () => overlay.sync(canvas); // 렌더마다 iframe 위치 동기화
+        canvas.afterRender = () =>
+        {
+            overlay.sync(canvas); // 렌더마다 영상 iframe 위치 동기화
+            positionNoteEditor(); // 확대·이동 중에도 메모 입력 위치 유지
+        };
+        attachNoteEditor(); // 메모 글 입력 연결
         attachMediaInputs(); // 이미지·영상 입력 연결
         canvas.tasks = state.tasks; // 업무 블럭 렌더링용 공유 Map
         attachTaskInputs(); // 업무 블럭 입력 연결
@@ -529,16 +662,7 @@ $('board-switch').addEventListener('change', (e) =>
     }
 });
 
-$('board-back').addEventListener('click', () =>
-{
-    cancelMove(); // 진행 중 이동 취소
-    if (realtime)
-    {
-        realtime.leave(); // 연결 종료
-    }
-    state.board = null; // 보드 비움
-    openWorkspace(); // 작업실로 돌아가기
-});
+$('board-back').addEventListener('click', () => returnToWorkspace('')); // 작업실로 돌아가기
 
 function renderParticipants(list)
 {
@@ -629,12 +753,12 @@ function selectedObjects()
 
 function updateSelectionInfo()
 {
-    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원', image: '이미지', video: '영상', task: '업무 블럭' }; // 유형 이름
+    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원', image: '이미지', video: '영상', task: '업무 블럭', note: '메모' }; // 유형 이름
     const list = canvas ? selectedObjects() : []; // 선택 객체
     let text = ''; // 안내 문구
     if (list.length === 1)
     {
-        text = '선택: ' + (names[list[0].type] ?? list[0].type) + ' #' + list[0].object_id + ' (v' + list[0].version + ') — Delete 키로 삭제' + (BoardCanvas.RESIZABLE.includes(list[0].type) ? ', 모서리를 끌어 크기 조절' : ''); // 단일 선택
+        text = '선택: ' + (names[list[0].type] ?? list[0].type) + ' #' + list[0].object_id + ' (v' + list[0].version + ') — Delete 키로 삭제' + (BoardCanvas.RESIZABLE.includes(list[0].type) ? ', 모서리를 끌어 크기 조절' : '') + (list[0].type === 'note' ? ', 더블클릭해 글 수정' : ''); // 단일 선택
     }
     else if (list.length > 1)
     {
@@ -651,10 +775,65 @@ function setSelection(ids, linkId = null)
 {
     canvas.selectedIds = new Set(ids); // 객체 선택 집합
     canvas.selectedLinkId = linkId; // 연결선 선택
+    syncPropsToSelection(); // 하나만 선택하면 그 객체의 색·굵기·채우기를 속성 패널에 표시
     canvas.invalidate(); // 다시 그리기
     updateSelectionInfo(); // 안내 갱신
     refreshTaskProps(); // 업무 패널 갱신
     refreshLinkProps(); // 연결선 패널 갱신
+}
+
+// 속성 패널을 선택한 객체의 스타일로 맞춘다. 패널이 실제 값을 보여 줘야 한 항목만 바꿔도 나머지가 유지된다
+function syncPropsToSelection()
+{
+    const o = canvas ? canvas.primarySelected() : null; // 하나만 선택한 객체
+    if (!o || !o.style)
+    {
+        return; // 대상 없음
+    }
+    let color = null; // 색상
+    let width = null; // 굵기
+    let fill; // 채우기(undefined: 이 유형에는 없음, null: 채우기 없음)
+    if (o.type === 'stroke')
+    {
+        color = o.style.color; // 선 색
+        width = o.style.width; // 선 굵기
+    }
+    else if (o.type === 'rect' || o.type === 'ellipse')
+    {
+        color = o.style.stroke; // 테두리 색
+        width = o.style.width; // 테두리 굵기
+        fill = o.style.fill ?? null; // 채우기
+    }
+    else if (o.type === 'note')
+    {
+        color = o.style.color; // 글자 색
+        fill = o.style.fill ?? null; // 배경
+    }
+    else
+    {
+        return; // 이미지·영상·업무 블럭은 스타일 없음
+    }
+    if (color)
+    {
+        state.style.color = color; // 상태 반영
+        $('prop-color').value = color; // 패널 반영
+    }
+    if (width)
+    {
+        state.style.width = width; // 상태 반영
+        $('prop-width').value = String(width); // 패널 반영
+        $('prop-width-out').value = String(width); // 숫자 표시
+    }
+    if (fill !== undefined)
+    {
+        state.style.fill = fill; // 상태 반영
+        $('prop-fill-on').checked = fill !== null; // 채우기 여부
+        $('prop-fill').disabled = fill === null; // 채우기 색 활성화
+        if (fill)
+        {
+            $('prop-fill').value = fill; // 채우기 색
+        }
+    }
 }
 
 function selectObject(id)
@@ -707,8 +886,20 @@ function beginResize(object, corner, w)
 async function startSession(base)
 {
     const session = { ...base, tokens: new Map(), dx: 0, dy: 0, armed: false, finished: false, lastPreviewAt: 0 }; // 잠금 토큰과 누적 이동량을 가진 세션
-    const objects = session.objects; // 대상 객체
     move = session; // 현재 세션
+    await whenIdle(); // 직전 확정·반납이 끝난 뒤에 잠금 요청
+    if (move !== session)
+    {
+        return; // 기다리는 사이 취소됨
+    }
+    session.objects = session.objects.map((o) => canvas.findObject(o.object_id)).filter(Boolean); // 기다리는 동안 확정된 최신 객체(버전)로 교체
+    const objects = session.objects; // 대상 객체
+    if (objects.length === 0)
+    {
+        move = null; // 그 사이 모두 삭제됨
+        return;
+    }
+    busyOps += 1; // 잠금 요청 진행 중
     try
     {
         for (const o of objects)
@@ -736,6 +927,10 @@ async function startSession(base)
             move = null; // 세션 종료
         }
         toast(lockMessage(err) + (objects.length > 1 ? ' 전체 이동을 취소했습니다.' : '')); // 안내
+    }
+    finally
+    {
+        busyOps -= 1; // 잠금 요청 종료
     }
 }
 
@@ -870,6 +1065,7 @@ function cancelMove()
 async function commitObject(object, token, changes)
 {
     state.pendingSaves += 1; // 대기 수 증가
+    busyOps += 1; // 확정 진행 중(끝나야 같은 객체를 다시 잠글 수 있음)
     setSaveStatus('saving'); // 저장 중 표시
     try
     {
@@ -894,19 +1090,32 @@ async function commitObject(object, token, changes)
             await loadSnapshot(); // 최신 저장 상태 재동기화
         }
     }
+    finally
+    {
+        busyOps -= 1; // 확정 종료
+    }
 }
 
 async function withLock(object, action)
 {
-    const reply = await realtime.request('object:lock', { board_id: boardId(), object_id: object.object_id }); // 잠금 획득
+    await whenIdle(); // 직전 확정·반납이 끝난 뒤에 잠금 요청
+    busyOps += 1; // 잠금~작업 진행 중
     try
     {
-        return await action(reply.lock_token); // 잠금 상태에서 작업
+        const reply = await realtime.request('object:lock', { board_id: boardId(), object_id: object.object_id }); // 잠금 획득
+        try
+        {
+            return await action(reply.lock_token); // 잠금 상태에서 작업
+        }
+        catch (err)
+        {
+            realtime.emit('object:unlock', { board_id: boardId(), object_id: object.object_id, lock_token: reply.lock_token }); // 실패 시 해제(이미 해제되어도 무해)
+            throw err;
+        }
     }
-    catch (err)
+    finally
     {
-        realtime.emit('object:unlock', { board_id: boardId(), object_id: object.object_id, lock_token: reply.lock_token }); // 실패 시 해제(이미 해제되어도 무해)
-        throw err;
+        busyOps -= 1; // 작업 종료
     }
 }
 
@@ -960,7 +1169,7 @@ async function deleteSelected()
 
 async function restyleSelected()
 {
-    const list = selectedObjects().filter((o) => o.type === 'stroke' || o.type === 'rect' || o.type === 'ellipse'); // 스타일이 있는 객체만
+    const list = selectedObjects().filter((o) => o.type === 'stroke' || o.type === 'rect' || o.type === 'ellipse' || o.type === 'note'); // 스타일이 있는 객체만
     if (list.length === 0 || !canEdit() || move || !realtime || !realtime.joined)
     {
         return; // 적용 대상 없음
@@ -972,9 +1181,15 @@ async function restyleSelected()
             toast(canvas.locks.get(object.object_id).display_name + ' 님이 편집 중인 객체입니다.'); // 타인 잠금
             continue;
         }
-        const style = object.type === 'stroke'
-            ? { color: state.style.color, width: state.style.width } // 획 스타일
-            : { stroke: state.style.color, fill: state.style.fill, width: state.style.width }; // 도형 스타일
+        let style = { stroke: state.style.color, fill: state.style.fill, width: state.style.width }; // 도형 스타일
+        if (object.type === 'stroke')
+        {
+            style = { color: state.style.color, width: state.style.width }; // 획 스타일
+        }
+        else if (object.type === 'note')
+        {
+            style = { color: state.style.color, fill: state.style.fill }; // 메모: 글자 색·배경
+        }
         try
         {
             await withLock(object, (token) => commitObject(object, token, { style })); // 잠금 후 스타일 저장
@@ -984,6 +1199,159 @@ async function restyleSelected()
             toast(lockMessage(err)); // 잠금 실패 안내
         }
     }
+}
+
+// ---------- 메모 글 편집 ----------
+
+async function beginNoteEdit(object, isNew = false)
+{
+    if (!canEdit() || !realtime || !realtime.joined || noteEdit)
+    {
+        return; // 권한 없음·미연결·이미 편집 중
+    }
+    if (canvas.locks.has(object.object_id))
+    {
+        return toast(canvas.locks.get(object.object_id).display_name + ' 님이 편집 중인 객체입니다.'); // 타인 잠금
+    }
+    cancelMove(); // 더블클릭의 두 번째 클릭이 시작한 이동 세션 취소
+    await whenIdle(); // 앞선 잠금 요청·반납이 끝난 뒤에 새 잠금 요청(서버 도착 순서 보장)
+    const current = canvas.findObject(object.object_id); // 최신 객체
+    if (!current || noteEdit || move)
+    {
+        return; // 그 사이 삭제되었거나 다른 작업이 시작됨
+    }
+    let reply = null; // 잠금 응답
+    busyOps += 1; // 잠금 요청 진행 중
+    try
+    {
+        reply = await realtime.request('object:lock', { board_id: boardId(), object_id: current.object_id }); // 글 수정용 선점 잠금
+    }
+    catch (err)
+    {
+        return toast(lockMessage(err)); // 잠금 실패 안내
+    }
+    finally
+    {
+        busyOps -= 1; // 잠금 요청 종료
+    }
+    const area = $('note-editor'); // 글 입력 요소
+    noteEdit = {
+        object: current, // 편집 대상
+        token: reply.lock_token, // 잠금 토큰
+        isNew, // 방금 만든 메모인지(비워 두면 삭제)
+        heartbeat: setInterval(() => realtime.emit('object:preview', { board_id: boardId(), object_id: current.object_id, lock_token: reply.lock_token, x: current.x, y: current.y }), 10000), // 입력이 길어져도 잠금이 만료되지 않게 10초마다 연장
+    }; // 편집 상태
+    setSelection([current.object_id]); // 선택 표시
+    canvas.editingId = current.object_id; // 캔버스는 편집 중인 메모의 글을 그리지 않음
+    area.value = current.payload && typeof current.payload.text === 'string' ? current.payload.text : ''; // 현재 글
+    area.hidden = false; // 입력 표시
+    positionNoteEditor(); // 메모 위에 겹쳐 배치
+    canvas.invalidate(); // 다시 그리기
+    area.focus({ preventScroll: true }); // 바로 입력 가능(화면 밖에 걸친 메모여도 영역을 스크롤하지 않음)
+    area.setSelectionRange(area.value.length, area.value.length); // 커서를 글 끝으로
+}
+
+function positionNoteEditor()
+{
+    if (!noteEdit)
+    {
+        return; // 편집 중 아님
+    }
+    const o = canvas.findObject(noteEdit.object.object_id) ?? noteEdit.object; // 최신 객체
+    const r = canvas.displayRect(o); // 표시 사각형
+    const s = canvas.toScreen(r.x, r.y); // 화면 좌표
+    const scale = canvas.view.scale; // 확대 배율
+    const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
+    const area = $('note-editor'); // 글 입력 요소
+    area.style.transform = 'translate(' + s.x + 'px, ' + s.y + 'px)'; // 위치
+    area.style.width = r.width * scale + 'px'; // 너비
+    area.style.height = r.height * scale + 'px'; // 높이
+    area.style.fontSize = n.font * scale + 'px'; // 글자 크기
+    area.style.lineHeight = n.line * scale + 'px'; // 줄 높이
+    area.style.padding = Math.max(0, n.pad * scale - 2) + 'px'; // 테두리 2px 를 뺀 안쪽 여백
+    area.style.background = (o.style && o.style.fill) || '#ffffff'; // 메모 배경
+    area.style.color = (o.style && o.style.color) || '#222222'; // 글자 색
+}
+
+async function finishNoteEdit(save)
+{
+    if (!noteEdit)
+    {
+        return; // 편집 중 아님
+    }
+    const edit = noteEdit; // 끝낼 편집
+    const area = $('note-editor'); // 글 입력 요소
+    const text = area.value; // 입력한 글
+    noteEdit = null; // 편집 종료(입력을 숨길 때 blur 가 다시 불러도 무시되게 먼저 비움)
+    clearInterval(edit.heartbeat); // 잠금 연장 중지
+    canvas.editingId = null; // 캔버스가 다시 글을 그림
+    area.hidden = true; // 입력 숨김
+    canvas.invalidate(); // 다시 그리기
+    const o = canvas.findObject(edit.object.object_id); // 최신 객체
+    if (!o || !realtime || !realtime.joined)
+    {
+        return; // 삭제되었거나 연결이 끊김(잠금은 서버가 정리, 저장 전 글은 복구하지 않음)
+    }
+    const lockRef = { board_id: boardId(), object_id: o.object_id, lock_token: edit.token }; // 잠금 식별 정보
+    const before = o.payload && typeof o.payload.text === 'string' ? o.payload.text : ''; // 기존 글
+    if (edit.isNew && text.trim() === '')
+    {
+        busyOps += 1; // 삭제 진행 중
+        try
+        {
+            await realtime.request('object:delete', { ...lockRef, version: o.version, request_id: nextRequestId() }); // 방금 만든 메모를 비워 둔 채 끝내면 삭제
+            canvas.removeObject(o.object_id); // 화면에서 제거
+            setSelection([]); // 선택 해제
+        }
+        catch (err)
+        {
+            realtime.emit('object:unlock', lockRef); // 삭제 실패 시 잠금만 반납
+        }
+        finally
+        {
+            busyOps -= 1; // 삭제 종료
+        }
+        return;
+    }
+    if (!save || text === before)
+    {
+        realtime.emit('object:unlock', lockRef); // 변경 없음·취소 → 잠금 해제
+        return;
+    }
+    const changes = { text }; // 글 변경
+    const needed = canvas.noteHeightFor(text, o.width); // 글이 모두 보이는 높이
+    if (needed > o.height)
+    {
+        changes.height = needed; // 글이 넘치면 메모를 아래로 늘림
+    }
+    await commitObject(o, edit.token, changes); // 저장(성공하면 잠금 해제)
+}
+
+function attachNoteEditor()
+{
+    const area = $('note-editor'); // 글 입력 요소
+    area.addEventListener('blur', () => finishNoteEdit(true)); // 바깥을 누르면 저장
+    area.addEventListener('keydown', (e) =>
+    {
+        e.stopPropagation(); // 도구 단축키로 전달되지 않게
+        if (e.key === 'Escape')
+        {
+            e.preventDefault(); // 기본 동작 방지
+            finishNoteEdit(false); // 취소
+        }
+        else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey))
+        {
+            e.preventDefault(); // 줄바꿈 방지
+            finishNoteEdit(true); // Ctrl+Enter 저장
+        }
+    });
+    $('board-canvas').addEventListener('pointerdown', () => finishNoteEdit(true), true); // 캔버스를 누르면 저장부터 하고 그 클릭을 처리(blur 이벤트에만 기대지 않음)
+    const stage = document.querySelector('.stage'); // 캔버스 영역
+    stage.addEventListener('scroll', () =>
+    {
+        stage.scrollLeft = 0; // 입력 중 커서를 따라 영역이 밀리면 캔버스와 좌표가 어긋나므로 되돌림
+        stage.scrollTop = 0; // (overflow: clip 을 지원하지 않는 브라우저 대비)
+    });
 }
 
 // ---------- 연결선 (P1) ----------
@@ -1378,13 +1746,15 @@ async function createObject(event, data, draft)
     try
     {
         const reply = await realtime.request(event, { ...data, board_id: boardId(), request_id: requestId }); // 서버 확정 요청
+        const created = reply.object ?? { ...draft, object_id: reply.object_id, version: reply.new_version }; // 확정 객체
         canvas.pending.delete(requestId); // 대기 해제
-        canvas.addObject(reply.object ?? { ...draft, object_id: reply.object_id, version: reply.new_version }); // 확정 객체 반영
+        canvas.addObject(created); // 확정 객체 반영
         state.pendingSaves -= 1; // 대기 수 감소
         if (state.pendingSaves === 0)
         {
             setSaveStatus('saved'); // 모두 저장됨
         }
+        return created; // 만든 객체(메모는 이어서 글 입력)
     }
     catch (err)
     {
@@ -1393,6 +1763,7 @@ async function createObject(event, data, draft)
         state.pendingSaves -= 1; // 대기 수 감소
         setSaveStatus('failed'); // 저장 실패 표시
         toast('저장 실패: ' + err.message, 4000); // 안내
+        return null; // 생성 실패
     }
 }
 
@@ -1419,6 +1790,22 @@ const toolHandlers = {
         createObject('stroke:commit', { stroke_id: draft.payload.stroke_id, points: draft.payload.points, style: draft.style }, { ...draft, ...box }); // 획 저장
     },
     onShapeCreate: (draft) => createObject('object:create', { type: draft.type, x: draft.x, y: draft.y, width: draft.width, height: draft.height, style: draft.style }, draft), // 도형 저장
+    onNoteCreate: async (draft) =>
+    {
+        setTool('select'); // 메모를 놓은 뒤에는 선택 도구로(글 입력을 끝내려고 바깥을 눌러도 새 메모가 생기지 않게)
+        const created = await createObject('object:create', { type: 'note', x: draft.x, y: draft.y, width: draft.width, height: draft.height, style: draft.style, payload: { text: '' } }, draft); // 빈 메모 저장
+        if (created)
+        {
+            beginNoteEdit(created, true); // 바로 글 입력
+        }
+    },
+    onDoubleClick: (hit) =>
+    {
+        if (hit.type === 'note')
+        {
+            beginNoteEdit(hit); // 메모 글 수정
+        }
+    },
     onSelectDown: (hit, w, shift) =>
     {
         if (!hit)
@@ -1514,9 +1901,14 @@ const realtimeHandlers = {
     onJoined: async (reply, rejoined) =>
     {
         renderParticipants(reply.participants); // 참여자 표시
+        if (reply.board_title && state.board)
+        {
+            applyBoardTitle(state.board.board_id, reply.board_title); // 작업실을 본 뒤 이름이 바뀌었으면 최신 이름으로
+        }
         if (rejoined)
         {
             cancelMove(); // 끊긴 동안의 이동은 폐기
+            finishNoteEdit(false); // 끊긴 동안의 메모 편집도 폐기(잠금은 서버에서 이미 해제됨)
             await loadSnapshot(); // 재접속 시 서버의 마지막 저장 상태로 복원
             await loadProjectData(); // 참여자·업무 목록도 다시 조회
             toast('재접속되었습니다. 마지막 저장 상태를 불러왔습니다.'); // 안내
@@ -1530,6 +1922,11 @@ const realtimeHandlers = {
             realtime.leave(); // 연결 정리
             showView('join'); // 세션 만료 → 입장 화면
             $('join-error').textContent = '세션이 만료되었습니다. 다시 입장해 주세요.'; // 안내
+            return;
+        }
+        if (err instanceof window.api.ApiError && err.status === 404)
+        {
+            returnToWorkspace('보드를 찾을 수 없어 작업실로 돌아왔습니다. 삭제되었을 수 있습니다.'); // 삭제된 보드
             return;
         }
         toast('보드 참여 실패: ' + err.message, 5000); // 안내
@@ -1549,6 +1946,11 @@ const realtimeHandlers = {
         {
             cancelMove(); // 내 잠금 만료 → 이동 취소
             toast('잠금 시간이 지나 이동이 취소되었습니다.'); // 안내
+        }
+        if (noteEdit && noteEdit.object.object_id === data.object_id && data.reason === 'expired')
+        {
+            finishNoteEdit(false); // 내 잠금 만료 → 메모 편집 취소
+            toast('잠금 시간이 지나 메모 편집이 취소되었습니다.'); // 안내
         }
         canvas.locks.delete(data.object_id); // 잠금 표시 제거
         if (!move || !move.objects.some((o) => o.object_id === data.object_id))
@@ -1579,6 +1981,10 @@ const realtimeHandlers = {
         {
             cancelMove(); // 이동 중이던 객체가 삭제됨
         }
+        if (noteEdit && noteEdit.object.object_id === id)
+        {
+            finishNoteEdit(false); // 편집 중이던 메모가 삭제됨
+        }
         canvas.removeObject(id); // 화면에서 제거
         updateSelectionInfo(); // 선택 안내 갱신
         refreshTaskProps(); // 업무 패널 갱신
@@ -1593,6 +1999,18 @@ const realtimeHandlers = {
         state.tasks.set(task.task_id, task); // 다른 보드·사용자의 변경 반영
         canvas.invalidate(); // 블럭 다시 그리기
         refreshTaskProps(); // 선택 중이면 패널 갱신
+    },
+    onBoardRenamed: (data) =>
+    {
+        applyBoardTitle(data.board_id, data.title); // 작업실에서 바뀐 이름 반영
+        toast("보드 이름이 '" + data.title + "'(으)로 바뀌었습니다."); // 안내
+    },
+    onBoardDeleted: (data) =>
+    {
+        if (state.board && state.board.board_id === data.board_id)
+        {
+            returnToWorkspace('열려 있던 보드가 삭제되어 작업실로 돌아왔습니다.'); // 삭제된 보드에서 나가기
+        }
     },
     onLinkCreated: (link) => canvas.addLink(link), // 타인 연결선 생성
     onLinkUpdated: (link) =>
