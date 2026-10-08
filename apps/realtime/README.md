@@ -7,7 +7,7 @@ Node.js + Socket.IO 실시간 서버입니다. 보드 참여, 참여자·커서 
 | 항목 | 값 |
 |---|---|
 | Node.js | 24 LTS (18 이상이면 동작) |
-| 패키지 | `socket.io` 4, `mysql2` 3, 개발용 `socket.io-client` |
+| 패키지 | `socket.io` 4, `mysql2` 3, 개발용 `socket.io-client`·`puppeteer-core`(화면 캡처용, 브라우저는 내려받지 않고 설치된 Chrome·Edge 사용) |
 | DB | PHP API 와 같은 `taskcanvas` DB (티켓·객체 저장) |
 
 ## 폴더 구조
@@ -35,6 +35,7 @@ realtime/
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
 ├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 (서버를 직접 띄워 검사)
+├── scripts/capture-screens.js  # 실제 화면 캡처(임시 서버 + 설치된 Chrome 조작 → assets/screenshots)
 ├── scripts/fixtures/       # 업로드 표본 이미지(png/jpg/webp/gif/위장 파일)
 └── .env.example
 ```
@@ -64,6 +65,18 @@ npm run test:acceptance
 ```
 
 MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+
+## 화면 캡처
+
+```bash
+npm run capture
+```
+
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서버(3003)를 임시로 띄우고 "시연 프로젝트"를 만들어 예시 내용을 채운 뒤, 설치된 Chrome 을 창 없이 실행해 관리자와 편집자 두 사람으로 접속하고 `assets/screenshots/` 에 9장(소개·입장·작업실·초대 관리·보드·잠금·업무·메모 편집·PNG 내보내기)을 저장합니다.
+
+- 찍는 김에 실제 키보드·마우스 입력으로 세 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 초대 링크 입장, 메모 글 입력 후 바깥 클릭 저장, Ctrl+Z 로 그 메모 되돌리기. 하나라도 실패하면 종료 코드 1 입니다.
+- 실행할 때마다 `.env` 의 DB 에 "시연 프로젝트"가 하나 생깁니다. 다른 DB 에서 찍으려면 `DB_NAME` 환경 변수를 지정합니다. Chrome 경로는 `CHROME_BIN`, PHP 경로는 `PHP_BIN`, 포트는 `CAP_API_PORT`·`CAP_RT_PORT` 로 바꿀 수 있습니다.
+- 수용 테스트(8081·3002)나 개발 서버(8080·3001)와 포트가 달라 동시에 떠 있어도 됩니다.
 
 ## 이벤트 요약
 

@@ -1,8 +1,9 @@
 <?php
 // 시연용 초기화 CLI: DB 의 모든 TaskCanvas 데이터와 업로드 이미지를 지우고 시연 프로젝트·초대 코드를 새로 만든다
-// 사용법: php bin/reset-demo.php [--dry-run] [--yes] ["프로젝트 이름"]
+// 사용법: php bin/reset-demo.php [--dry-run] [--yes] [--seed] ["프로젝트 이름"]
 //   --dry-run  지울 대상만 보여 주고 아무것도 바꾸지 않음
 //   --yes      확인 질문을 건너뜀(스크립트 자동화용). 기본은 DB 이름을 직접 입력해야 진행
+//   --seed     새로 만든 보드에 시연용 예시 내용(메모·연결선·공유 업무)을 채움
 declare(strict_types=1);
 
 require dirname(__DIR__) . '/src/bootstrap.php'; // 공통 초기화
@@ -15,6 +16,7 @@ if (PHP_SAPI !== 'cli')
 $args = array_slice($argv, 1); // 실행 인자
 $dryRun = in_array('--dry-run', $args, true); // 미리보기 모드
 $assumeYes = in_array('--yes', $args, true); // 확인 생략
+$seed = in_array('--seed', $args, true); // 예시 내용 채우기
 $names = array_values(array_filter($args, static fn(string $a) => !str_starts_with($a, '--'))); // 옵션이 아닌 인자
 $projectTitle = $names[0] ?? '시연 프로젝트'; // 새로 만들 프로젝트 이름
 
@@ -45,7 +47,7 @@ foreach (RESET_TABLES as $table)
     echo sprintf("  %-18s %d 행\n", $table, $count); // 테이블별 출력
 }
 echo "  업로드 이미지      " . count($files) . " 개\n"; // 파일 수
-echo "초기화 후 '{$projectTitle}' 프로젝트(보드 2개)와 관리자·편집자·열람자 초대 코드를 새로 만듭니다.\n"; // 이후 작업
+echo "초기화 후 '{$projectTitle}' 프로젝트(보드 2개)와 관리자·편집자·열람자 초대 코드를 새로 만듭니다." . ($seed ? ' 보드에는 예시 내용을 채웁니다.' : '') . "\n"; // 이후 작업
 
 if ($dryRun)
 {
@@ -103,6 +105,11 @@ foreach (['기획 보드', '개발 보드'] as $boardTitle)
     Database::run('INSERT INTO boards (project_id, title) VALUES (?, ?)', [$projectId, $boardTitle]); // 기본 보드 생성
 }
 echo "\n새 프로젝트: project_id={$projectId} ({$projectTitle}), 보드: 기획 보드·개발 보드\n"; // 생성 결과
+if ($seed)
+{
+    $filled = DemoSeed::fill($projectId); // 시연용 예시 내용
+    echo "예시 내용: 기획 보드에 객체 {$filled['objects']}개·연결선 {$filled['links']}개·공유 업무 {$filled['tasks']}개를 채웠습니다.\n"; // 채운 결과
+}
 foreach (['admin' => '관리자', 'editor' => '편집자', 'viewer' => '열람자'] as $role => $label)
 {
     $issued = Invite::issue($projectId, $role, 7); // 역할별 초대 코드(7일)

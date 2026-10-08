@@ -2,7 +2,7 @@
 
 **실시간 협업 화이트보드 기반 프로젝트 관리 웹사이트** · 웹서버 수업 팀 프로젝트 · 기획 및 개발 준비 초기 버전
 
-> **현재 상태:** P0 기능(게스트 입장, 보드, 실시간 펜·도형·커서, 선점 잠금, 이미지·영상, 저장·복원, 권한)이 `apps/` 에 구현되어 있고, 수용 테스트 AC01~AC14 가 개발 PC 에서 통과했습니다(`apps/realtime` 의 `npm run test:acceptance`). P1 의 공유 업무 블럭·연결선·다중 선택·초대 코드 관리·크기 조절·메모·보드 관리(AC16~AC23)와 실행 취소·복제·PNG 내보내기도 구현되었고, 학교 PC 4대 실환경(AC15)만 현장 확인이 남았습니다. `presentation/`의 화면은 기획용 콘셉트 이미지입니다.
+> **현재 상태:** P0 기능(게스트 입장, 보드, 실시간 펜·도형·커서, 선점 잠금, 이미지·영상, 저장·복원, 권한)이 `apps/` 에 구현되어 있고, 수용 테스트 AC01~AC14 가 개발 PC 에서 통과했습니다(`apps/realtime` 의 `npm run test:acceptance`). P1 의 공유 업무 블럭·연결선·다중 선택·초대 코드 관리·크기 조절·메모·보드 관리(AC16~AC23)와 실행 취소·복제·PNG 내보내기도 구현되었고, 학교 PC 4대 실환경(AC15)만 현장 확인이 남았습니다. 발표 자료는 실제 화면 캡처를 넣은 14장으로 개정했고(`presentation/`), 진행 순서는 [시연 대본](docs/16-demo-script.md)에 있습니다. 아래 표지 그림과 `assets/design/` 은 기획용 콘셉트 이미지이고, 실제 화면은 `assets/screenshots/` 에 있습니다.
 
 ![TaskCanvas 디자인 콘셉트](assets/design/01-cover.png)
 
@@ -54,12 +54,13 @@
 | `docs/` | 1~4차 기획 결정, 기능·화면·기술·API·DB·테스트·위험 문서 |
 | `docs/original/` | 이전에 작성한 Google 문서의 Markdown 내보내기(1차 기획 스냅샷) |
 | `database/schema.sql` | DB 초안 스키마. 운영 전에 팀 검토 및 수정 필요 |
-| `presentation/` | 실제 제작한 12장 PPT, 10장 디자인 PPT, 미리보기 이미지 |
+| `presentation/` | 발표용 14장 PPT(최신)와 미리보기, 이전 12장 PPT·10장 디자인 PPT |
 | `assets/design/` | 생성한 콘셉트 슬라이드 10장과 제공된 화면 참고 이미지 |
 | `assets/components/` | PPT 내부에 포함된 UI·역할 이미지 안내(개별 크롭 파일 미첨부) |
+| `assets/screenshots/` | 구현된 화면을 Chrome 으로 찍은 실제 캡처 9장. `apps/realtime` 의 `npm run capture` 로 다시 생성 |
 | `apps/` | 구현 코드. `php-api/`(1·5·7·9단계: 입장·세션·보드·스냅샷·티켓·이미지 업로드·업무 조회·초대 코드 관리), `realtime/`(2·4·5단계: 보드 참여·커서·펜·도형·이미지·영상 저장·선점 잠금·버전 검사), `frontend/`(3~5·7·8단계: 입장·보드·화이트보드·선택/이동/삭제·이미지·영상·공유 업무 블럭·연결선·다중 선택) |
 | `scripts/start-dev.bat` | MariaDB·실시간 서버·PHP 서버를 한 번에 띄우는 Windows 실행 스크립트 |
-| `scripts/reset-demo.bat` | 시연 초기화(전체 데이터·업로드 이미지 삭제 후 시연 프로젝트·초대 코드 생성). `--dry-run` 으로 먼저 확인 |
+| `scripts/reset-demo.bat` | 시연 초기화(전체 데이터·업로드 이미지 삭제 후 시연 프로젝트·초대 코드 생성). `--dry-run` 으로 먼저 확인, `--seed` 를 붙이면 예시 보드까지 채움 |
 | `PUSH_GUIDE.md` | GitHub 업로드 및 권한 복구 안내 |
 
 - [전체 문서 목차](docs/README.md)
@@ -69,6 +70,8 @@
 - [3주 역할별 WBS](docs/10-wbs-timeline.md)
 - [수용 기준](docs/11-acceptance-tests.md)
 - [학교 PC 배포·시연 가이드](docs/15-deployment-school-pc.md)
+- [시연 대본](docs/16-demo-script.md)
+- [발표 자료 14장 구성](docs/13-presentation-plan.md)
 - [원본 Google 기획서](https://docs.google.com/document/d/1OYAsiMSTDTKa1uIx4RwsZnK_TBrR2bgbeYqXM2kE5Sc/edit)
 
 ---
@@ -86,5 +89,5 @@
 ## 6. 주의
 
 - 기술 구조와 이벤트명은 **설계 초안**입니다. 실제 API와 구현 경로를 확정한 뒤 정식 계약으로 갱신해야 합니다.
-- 스냅샷 문서와 PPT는 이전 기획 과정의 산출물이므로 **최종 4차 결정 사항과 일부 차이**가 있습니다. 최신 기준은 `README.md`, `docs/01-decisions-questionnaires.md`입니다.
+- 스냅샷 문서와 이전 PPT(12장·10장)는 이전 기획 과정의 산출물이므로 **최종 4차 결정 사항과 일부 차이**가 있습니다. 발표에는 14장 개정판을 씁니다. 최신 기준은 `README.md`, `docs/01-decisions-questionnaires.md`입니다.
 - 저장소와 문서의 공개 범위에 유의하십시오. 실제 팀원의 개인정보, 미공개 계정, 접근 가능한 초대코드·인증 정보는 공개 저장소에 올리지 않습니다.

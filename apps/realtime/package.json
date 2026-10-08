@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "test:client": "node scripts/test-client.js",
-    "test:acceptance": "node scripts/acceptance.js"
+    "test:acceptance": "node scripts/acceptance.js",
+    "capture": "node scripts/capture-screens.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
@@ -15,6 +16,7 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "puppeteer-core": "^25.13.0",
     "socket.io-client": "^4.8.4"
   }
 }
