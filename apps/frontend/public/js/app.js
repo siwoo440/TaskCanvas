@@ -1,4 +1,4 @@
-// 화면 전환과 상태 관리: 입장 → 보드 선택 → 화이트보드(스냅샷 복원 + 실시간 연동 + 선택·이동·삭제)
+// 화면 전환과 상태 관리: 홈(소개 ↔ 입장 후 작업실) → 입장 → 화이트보드(스냅샷 복원 + 실시간 연동 + 선택·이동·삭제)
 'use strict';
 
 const state = {
@@ -88,13 +88,38 @@ async function bootstrap()
         if (state.project)
         {
             pendingInviteCode = null; // 이미 입장한 상태면 링크의 코드는 쓰지 않음
-            return openBoards(); // 보드 선택 화면
+            return openWorkspace(); // 입장한 상태: 홈이 작업실로 구성됨
         }
     }
     catch (err)
     {
-        // 세션 없음 → 입장 화면
+        // 세션 없음 → 소개 페이지
     }
+    if (pendingInviteCode)
+    {
+        return showJoin(); // 초대 링크로 들어오면 소개를 건너뛰고 바로 입장 화면
+    }
+    showIntro(); // 처음 방문: 소개 홈페이지
+}
+
+// 홈 화면 구성 전환: 입장 전에는 소개 본문과 "입장하기", 입장 후에는 작업실 본문과 이름·역할·나가기
+function setHomeMode(member)
+{
+    $('home-intro').hidden = member; // 소개 본문
+    $('home-workspace').hidden = !member; // 작업실 본문
+    $('nav-guest').hidden = member; // 입장하기 버튼
+    $('nav-member').hidden = !member; // 이름·역할·나가기
+}
+
+function showIntro()
+{
+    setHomeMode(false); // 소개 구성
+    showView('home'); // 홈 화면
+    window.scrollTo(0, 0); // 맨 위부터 표시
+}
+
+function showJoin()
+{
     showView('join'); // 입장 화면
     if (pendingInviteCode)
     {
@@ -104,6 +129,11 @@ async function bootstrap()
     }
     $('join-name').focus(); // 이름 입력 포커스
 }
+
+$('home-enter-top').addEventListener('click', showJoin); // 상단 "입장하기"
+$('home-enter').addEventListener('click', showJoin); // 소개의 "초대 코드로 입장"
+$('home-more').addEventListener('click', () => $('home-features').scrollIntoView({ behavior: 'smooth' })); // 기능 소개로 스크롤
+$('join-back').addEventListener('click', showIntro); // 입장 화면에서 소개로 돌아가기
 
 $('join-form').addEventListener('submit', async (e) =>
 {
@@ -122,14 +152,17 @@ $('join-form').addEventListener('submit', async (e) =>
     }
 });
 
-// ---------- 보드 선택 ----------
+// ---------- 작업실 (입장 후의 홈) ----------
 
-async function openBoards()
+async function openWorkspace()
 {
-    showView('boards'); // 보드 선택 화면
+    setHomeMode(true); // 같은 홈 화면을 작업실 구성으로 전환
+    showView('home'); // 홈 화면
+    window.scrollTo(0, 0); // 맨 위부터 표시
     $('boards-project-title').textContent = state.project.title; // 프로젝트 이름
     $('boards-guest-name').textContent = state.guest.display_name; // 게스트 이름
-    $('boards-role').textContent = { admin: '관리자', editor: '편집자', viewer: '열람자' }[state.project.role] ?? state.project.role; // 역할 표시
+    $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
+    $('ws-summary').textContent = state.guest.display_name + (canEdit() ? ' 님, 보드를 골라 작업을 이어가세요.' : ' 님은 열람자로 입장했습니다. 보드를 열어 볼 수 있습니다.'); // 안내 문구
     $('board-create-form').hidden = !canEdit(); // 열람자는 생성 불가
     $('boards-error').textContent = ''; // 오류 초기화
     const isAdmin = state.project.role === 'admin'; // 관리자 여부
@@ -150,12 +183,22 @@ async function openBoards()
     {
         $('boards-error').textContent = err.message; // 오류 표시
     }
+    try
+    {
+        await loadProjectData(); // 참여자·공유 업무 조회
+        renderWorkspaceInfo(); // 작업실 현황 표시
+    }
+    catch (err)
+    {
+        $('boards-error').textContent = err.message; // 오류 표시(보드 목록은 그대로 사용 가능)
+    }
 }
 
 function renderBoardList()
 {
     const ul = $('boards-list'); // 목록 요소
     ul.innerHTML = ''; // 초기화
+    $('ws-board-count').textContent = state.boards.length + '개'; // 보드 수
     if (state.boards.length === 0)
     {
         ul.innerHTML = '<li class="empty">아직 보드가 없습니다.</li>'; // 빈 안내
@@ -164,12 +207,84 @@ function renderBoardList()
     for (const b of state.boards)
     {
         const li = document.createElement('li'); // 항목
-        const btn = document.createElement('button'); // 버튼
+        const btn = document.createElement('button'); // 보드 카드
+        const title = document.createElement('strong'); // 보드 이름
+        const meta = document.createElement('span'); // 만든 날
+        const open = document.createElement('span'); // 열기 표시
         btn.type = 'button'; // 제출 방지
-        btn.textContent = b.title; // 보드 이름
+        title.textContent = b.title; // 서버 값은 textContent 로만 표시
+        meta.className = 'muted small'; // 보조 글자
+        meta.textContent = '만든 날 ' + String(b.created_at).slice(0, 10); // 생성일
+        open.className = 'open'; // 강조 색
+        open.textContent = '열기 →'; // 안내
+        btn.append(title, meta, open); // 카드 구성
         btn.addEventListener('click', () => openBoard(b)); // 보드 열기
-        li.appendChild(btn); // 버튼 추가
+        li.appendChild(btn); // 카드 추가
         ul.appendChild(li); // 항목 추가
+    }
+}
+
+// 작업실 현황: 참여자 목록과 공유 업무 요약(업무 수정은 보드 안에서)
+function renderWorkspaceInfo()
+{
+    const memberList = $('ws-members'); // 참여자 목록 요소
+    memberList.innerHTML = ''; // 초기화
+    for (const m of state.members)
+    {
+        const li = document.createElement('li'); // 항목
+        const name = document.createElement('span'); // 이름
+        const role = document.createElement('span'); // 역할
+        name.className = 'grow'; // 남는 폭 사용
+        name.textContent = m.display_name + (state.guest && m.guest_id === state.guest.guest_id ? ' (나)' : ''); // 이름
+        role.className = 'chip'; // 역할 표시
+        role.textContent = ROLE_LABELS[m.role] ?? m.role; // 역할 이름
+        li.append(name, role); // 항목 구성
+        memberList.appendChild(li); // 항목 추가
+    }
+    $('ws-member-count').textContent = state.members.length + '명'; // 참여자 수
+
+    const order = { doing: 0, todo: 1, done: 2 }; // 진행 중 → 할 일 → 완료 순
+    const tasks = [...state.tasks.values()].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.task_id - b.task_id); // 정렬된 업무
+    const counts = { todo: 0, doing: 0, done: 0 }; // 상태별 개수
+    for (const t of tasks)
+    {
+        if (counts[t.status] !== undefined)
+        {
+            counts[t.status] += 1; // 개수 집계
+        }
+    }
+    $('ws-task-count').textContent = tasks.length === 0 ? '' : '할 일 ' + counts.todo + ' · 진행 중 ' + counts.doing + ' · 완료 ' + counts.done; // 요약
+    const taskList = $('ws-tasks'); // 업무 목록 요소
+    taskList.innerHTML = ''; // 초기화
+    if (tasks.length === 0)
+    {
+        const li = document.createElement('li'); // 빈 안내
+        li.className = 'empty'; // 흐린 글자
+        li.textContent = '아직 공유 업무가 없습니다.'; // 안내 문구
+        taskList.appendChild(li); // 추가
+        return;
+    }
+    for (const t of tasks.slice(0, 8))
+    {
+        const li = document.createElement('li'); // 항목
+        const status = document.createElement('span'); // 상태
+        const title = document.createElement('span'); // 제목
+        const meta = document.createElement('span'); // 담당·마감
+        status.className = 'chip ' + (counts[t.status] !== undefined ? t.status : ''); // 상태 색
+        status.textContent = TASK_STATUS_LABELS[t.status] ?? t.status; // 상태 이름
+        title.className = 'grow'; // 남는 폭 사용
+        title.textContent = t.title; // 업무 제목
+        meta.className = 'muted small'; // 보조 글자
+        meta.textContent = [t.assignee_name ? '담당 ' + t.assignee_name : '', t.due_at ? '마감 ' + t.due_at : ''].filter(Boolean).join(' · '); // 담당·마감
+        li.append(status, title, meta); // 항목 구성
+        taskList.appendChild(li); // 항목 추가
+    }
+    if (tasks.length > 8)
+    {
+        const li = document.createElement('li'); // 생략 안내
+        li.className = 'empty'; // 흐린 글자
+        li.textContent = '외 ' + (tasks.length - 8) + '건'; // 남은 개수
+        taskList.appendChild(li); // 추가
     }
 }
 
@@ -197,11 +312,11 @@ $('boards-leave').addEventListener('click', async () =>
     }
     catch (err)
     {
-        // 이미 만료된 세션이어도 입장 화면으로 이동
+        // 이미 만료된 세션이어도 소개 페이지로 이동
     }
     state.guest = null; // 게스트 비움
     state.project = null; // 프로젝트 비움
-    showView('join'); // 입장 화면
+    showIntro(); // 홈이 다시 소개 페이지로 구성됨
 });
 
 // ---------- 초대 코드 관리 (관리자) ----------
@@ -422,7 +537,7 @@ $('board-back').addEventListener('click', () =>
         realtime.leave(); // 연결 종료
     }
     state.board = null; // 보드 비움
-    openBoards(); // 보드 선택 화면
+    openWorkspace(); // 작업실로 돌아가기
 });
 
 function renderParticipants(list)
@@ -1081,7 +1196,10 @@ async function loadProjectData()
         state.tasks.set(t.task_id, t); // 업무 등록
     }
     fillAssigneeSelects(); // 담당자 목록 갱신
-    canvas.invalidate(); // 업무 블럭 다시 그리기
+    if (canvas)
+    {
+        canvas.invalidate(); // 업무 블럭 다시 그리기(작업실에서는 캔버스가 아직 없을 수 있음)
+    }
 }
 
 function fillAssigneeSelects()
