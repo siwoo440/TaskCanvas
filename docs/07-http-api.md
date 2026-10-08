@@ -15,10 +15,11 @@
 | GET | `/api/boards/{id}/snapshot` | 저장 완료 객체 전체 조회 | 참여자 |
 | POST | `/api/images` | PNG/JPG/WEBP(최대 10MB) 이미지 업로드 | 관리자·편집자 |
 | GET | `/api/images/{id}` | 프로젝트 권한 검증 후 이미지 반환 | 참여자 |
-| GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록 | 참여자 |
+| GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록(담당자 이름·버전 포함) | 참여자 |
+| GET | `/api/projects/{id}/members` | 프로젝트 참여자 목록(담당자 선택용) | 참여자 |
 | GET | `/api/health` | 서버·DB 상태 확인(개발용) | 공개 |
 
-**구현 상태(1·5단계):** `tasks` 를 제외한 위 엔드포인트는 `apps/php-api` 에 구현되어 있습니다. 모든 `POST` 는 `X-TaskCanvas: 1` 헤더를 요구하며, `/api/images` 는 `multipart/form-data`(`project_id`, `file`), 나머지는 `Content-Type: application/json` 입니다. 이미지 업로드 응답은 `{asset:{asset_id, url:'/api/images/{id}', mime_type, size_bytes, width, height}}` 이고, 조회는 참여자 세션 쿠키가 있어야 하며 `Cache-Control: private` 로 반환됩니다.
+**구현 상태(1·5·7단계):** 위 엔드포인트는 모두 `apps/php-api` 에 구현되어 있습니다. 업무 생성·수정은 모든 보드에 전파해야 하므로 HTTP 가 아니라 실시간 서버의 `task:create`/`task:update` 로 처리합니다. 모든 `POST` 는 `X-TaskCanvas: 1` 헤더를 요구하며, `/api/images` 는 `multipart/form-data`(`project_id`, `file`), 나머지는 `Content-Type: application/json` 입니다. 이미지 업로드 응답은 `{asset:{asset_id, url:'/api/images/{id}', mime_type, size_bytes, width, height}}` 이고, 조회는 참여자 세션 쿠키가 있어야 하며 `Cache-Control: private` 로 반환됩니다.
 
 ---
 

@@ -17,6 +17,7 @@ class BoardCanvas
         this.selectedId = null; // 선택한 객체 ID
         this.draft = null; // 지금 그리는 중인 내 초안
         this.images = new Map(); // 이미지 캐시 url → {img, failed}
+        this.tasks = new Map(); // 공유 업무 원본 task_id → task (app 이 채움)
         this.afterRender = null; // 렌더 후 콜백(영상 오버레이 동기화)
         this.frame = 0; // 예약된 애니메이션 프레임
         this.resize = this.resize.bind(this); // 크기 변경 핸들러
@@ -251,7 +252,7 @@ class BoardCanvas
                     }
                 }
             }
-            else if (o.type === 'rect' || o.type === 'image' || o.type === 'video')
+            else if (o.type === 'rect' || o.type === 'image' || o.type === 'video' || o.type === 'task')
             {
                 if (wx >= pos.x - tol && wx <= pos.x + o.width + tol && wy >= pos.y - tol && wy <= pos.y + o.height + tol)
                 {
@@ -485,6 +486,31 @@ class BoardCanvas
             ctx.font = '13px sans-serif'; // 막대 글꼴(월드 단위, 확대 시 함께 커짐)
             const label = o.payload && o.payload.provider ? ({ youtube: 'YouTube', vimeo: 'Vimeo' }[o.payload.provider] ?? o.payload.provider) : '영상'; // 서비스 이름
             ctx.fillText('▶ ' + label + (o.payload && o.payload.source_url ? ' · ' + o.payload.source_url : ''), o.x + 8, o.y + bar - 9, o.width - 16); // 제목 표시
+        }
+        else if (o.type === 'task')
+        {
+            const task = this.tasks.get(o.task_id); // 업무 원본
+            const colors = { todo: '#9ca3af', doing: '#2563eb', done: '#16a34a' }; // 상태 색
+            const labels = { todo: '할 일', doing: '진행 중', done: '완료' }; // 상태 이름
+            const accent = task ? (colors[task.status] ?? '#9ca3af') : '#9ca3af'; // 강조 색
+            ctx.fillStyle = '#ffffff'; // 카드 배경
+            ctx.fillRect(o.x, o.y, o.width, o.height); // 카드
+            ctx.fillStyle = accent; // 상태 띠 색
+            ctx.fillRect(o.x, o.y, 6, o.height); // 왼쪽 상태 띠
+            ctx.strokeStyle = accent; // 테두리 색
+            ctx.lineWidth = 1.5; // 테두리 굵기
+            ctx.strokeRect(o.x, o.y, o.width, o.height); // 테두리
+            ctx.fillStyle = '#111827'; // 제목 색
+            ctx.font = 'bold 15px sans-serif'; // 제목 글꼴
+            ctx.fillText(task ? task.title : '업무 #' + o.task_id, o.x + 14, o.y + 24, o.width - 24); // 제목
+            ctx.font = '12px sans-serif'; // 본문 글꼴
+            ctx.fillStyle = accent; // 상태 색
+            ctx.fillText(task ? (labels[task.status] ?? task.status) : '불러오는 중…', o.x + 14, o.y + 46); // 상태
+            ctx.fillStyle = '#6b7280'; // 보조 글자 색
+            ctx.fillText((task && task.assignee_name ? '담당 ' + task.assignee_name : '담당자 없음') + (task && task.due_at ? ' · 마감 ' + task.due_at : ''), o.x + 14, o.y + 66, o.width - 24); // 담당·마감
+            ctx.fillStyle = '#9ca3af'; // 안내 글자 색
+            ctx.font = '11px sans-serif'; // 안내 글꼴
+            ctx.fillText('공유 업무 #' + o.task_id, o.x + 14, o.y + o.height - 10); // 공유 표시
         }
         ctx.restore(); // 객체 변환 끝
     }

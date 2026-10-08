@@ -7,7 +7,7 @@ const presence = require('../presence'); // 방 이름
 const video = require('../video'); // 영상 URL 검증
 const { ok, fail, joinedBoard } = require('./reply'); // 응답 헬퍼
 
-const TYPES = ['rect', 'ellipse', 'image', 'video']; // 생성 허용 객체 유형
+const TYPES = ['rect', 'ellipse', 'image', 'video', 'task']; // 생성 허용 객체 유형
 
 function cleanNumber(value, fallback = 0)
 {
@@ -55,6 +55,7 @@ function register(io, socket)
             const y = cleanNumber(data.y); // Y 좌표
             let style = cleanShapeStyle(data.style); // 스타일 정리
             let payload = {}; // 도형은 본문 없음
+            let taskId = null; // 공유 업무 참조(task 유형만)
             if (data.type === 'image')
             {
                 const assetId = Number(data.payload?.asset_id); // 업로드된 이미지 ID
@@ -78,11 +79,23 @@ function register(io, socket)
                 payload = parsed; // provider, video_id, embed_url, source_url
                 style = {}; // 영상은 스타일 없음
             }
+            else if (data.type === 'task')
+            {
+                const id = Number(data.payload?.task_id); // 참조할 업무 ID
+                const task = Number.isInteger(id) && id > 0 ? await db.one('SELECT task_id FROM tasks WHERE task_id = ? AND project_id = ?', [id, socket.data.projectId]) : null; // 같은 프로젝트의 업무인지 확인
+                if (!task)
+                {
+                    return fail(ack, 'BAD_REQUEST', '이 프로젝트의 업무가 아닙니다.'); // 업무 검사
+                }
+                taskId = id; // 업무 참조 저장
+                payload = {}; // 업무 내용은 tasks 원본에서 가져옴
+                style = {}; // 업무 블럭은 스타일 없음
+            }
             const result = await db.query(
-                'INSERT INTO board_objects (board_id, type, x, y, width, height, payload_json, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [boardId, data.type, x, y, width, height, JSON.stringify(payload), JSON.stringify(style)]
+                'INSERT INTO board_objects (board_id, task_id, type, x, y, width, height, payload_json, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [boardId, taskId, data.type, x, y, width, height, JSON.stringify(payload), JSON.stringify(style)]
             ); // 객체 저장
-            const object = { object_id: result.insertId, task_id: null, type: data.type, x, y, width, height, payload, style, version: 1 }; // 저장된 객체
+            const object = { object_id: result.insertId, task_id: taskId, type: data.type, x, y, width, height, payload, style, version: 1 }; // 저장된 객체
             ok(ack, { request_id: data.request_id ?? null, object_id: object.object_id, new_version: 1, persisted: true, object }); // 저장 성공 응답
             socket.to(presence.roomName(boardId)).emit('object:created', { board_id: boardId, guest_id: socket.data.guestId, object }); // 다른 참여자에게 전송
         }

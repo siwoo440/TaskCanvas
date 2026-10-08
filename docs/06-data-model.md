@@ -38,7 +38,7 @@ erDiagram
 
 ## 데이터 동작 원칙
 
-- `board_objects`의 `type='task'`일 때만 `task_id`를 원본 업무에 연결(후속 P1).
+- `board_objects`의 `type='task'`일 때만 `task_id`를 원본 업무에 연결. (7단계 구현: 블럭 자체는 `payload={}` 이고 제목·상태·담당자·마감일은 `tasks` 원본에서 가져와 그림)
 - 두 보드에 같은 원본 업무를 배치해도 각 보드의 객체 좌표는 독립.
 - 한 보드에서 공유 업무 블럭을 삭제하면 해당 `board_objects`만 삭제.
 - 잠금은 실시간 서버의 TTL 상태로 관리하며 DB에 영구 보관하지 않음.

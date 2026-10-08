@@ -28,6 +28,7 @@ realtime/
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
 │       ├── object.js    # object:create 도형·이미지·영상 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
+│       ├── task.js      # task:create·update (공유 업무 원본, 프로젝트 방 전파)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
 ├── scripts/acceptance.js   # 수용 테스트 AC01~AC14 (서버를 직접 띄워 검사)
@@ -78,6 +79,9 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 | C→S (ack) | `object:delete` `{board_id, object_id, lock_token, version}` | 버전 검사 후 삭제·잠금 해제 |
 | C→S (ack) | `object:unlock` `{board_id, object_id, lock_token}` | 변경 없이 잠금 해제 |
 | S→C | `object:locked` / `object:unlocked` / `object:preview` / `object:updated` / `object:deleted` | 잠금·해제(reason)·이동 중·변경·삭제 전파 |
+| C→S (ack) | `task:create` `{board_id, title, status, assignee_id, due_at}` | 공유 업무 원본 생성. 응답 `{task}` |
+| C→S (ack) | `task:update` `{board_id, task_id, version, changes}` | 버전 검사 후 저장. 충돌 시 `VERSION_CONFLICT` + 최상위 `task` |
+| S→C | `task:created` / `task:updated` `{task, guest_id}` | 프로젝트 방(`project:{id}`)의 모든 보드 참여자에게 전파 |
 
 오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`, `OBJECT_LOCKED`, `LOCK_REQUIRED`, `VERSION_CONFLICT`, `NOT_FOUND`)를 씁니다.
 
@@ -92,4 +96,4 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 
 ## 아직 없는 것
 
-`task:update`(P1 공유 업무), 다중 선택 일괄 잠금(P1)
+다중 선택 일괄 잠금, 연결선(`board_links`) — P1 후순위

@@ -10,6 +10,7 @@ const cursorHandler = require('./handlers/cursor'); // 커서 중계
 const strokeHandler = require('./handlers/stroke'); // 펜 중계·저장
 const objectHandler = require('./handlers/object'); // 객체 생성
 const editHandler = require('./handlers/edit'); // 잠금·이동·삭제
+const taskHandler = require('./handlers/task'); // 공유 업무(P1)
 const locks = require('./locks'); // 잠금 만료 검사
 
 const httpServer = http.createServer((req, res) =>
@@ -36,6 +37,7 @@ io.on('connection', (socket) =>
     strokeHandler.register(io, socket); // stroke:preview·commit
     objectHandler.register(io, socket); // object:create
     editHandler.register(io, socket); // object:lock·preview·commit·delete·unlock
+    taskHandler.register(io, socket); // task:create·update
 });
 
 async function start()

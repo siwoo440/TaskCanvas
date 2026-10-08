@@ -62,6 +62,7 @@
             <hr>
             <button type="button" id="tool-image" title="이미지 추가 (버튼·드래그·Ctrl+V)">🖼</button>
             <button type="button" id="tool-video" title="영상 URL 추가 (YouTube·Vimeo)">▶</button>
+            <button type="button" id="tool-task" title="업무 블럭 추가 (T) — 여러 보드가 같은 업무를 공유">☑</button>
             <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
             <hr>
             <button type="button" id="fit-view" title="화면 맞춤">⤢</button>
@@ -80,10 +81,27 @@
             <label>굵기 <input id="prop-width" type="range" min="1" max="30" value="3"> <output id="prop-width-out">3</output></label>
             <label class="row"><input id="prop-fill-on" type="checkbox"> 채우기</label>
             <label>채우기 색 <input id="prop-fill" type="color" value="#fff59d" disabled></label>
+            <label class="row"><input id="prop-snap" type="checkbox"> 격자 맞춤 (10 단위)</label>
             <hr>
+            <section id="task-props" hidden>
+                <h2>공유 업무</h2>
+                <label>제목 <input id="task-title" type="text" maxlength="180"></label>
+                <label>상태
+                    <select id="task-status">
+                        <option value="todo">할 일</option>
+                        <option value="doing">진행 중</option>
+                        <option value="done">완료</option>
+                    </select>
+                </label>
+                <label>담당자 <select id="task-assignee"><option value="">없음</option></select></label>
+                <label>마감일 <input id="task-due" type="date"></label>
+                <button type="button" id="task-save" class="primary">업무 저장</button>
+                <p class="muted small">같은 업무를 참조하는 다른 보드의 블럭에도 함께 반영됩니다. 블럭을 지워도 업무 원본은 남습니다.</p>
+                <hr>
+            </section>
             <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
 
         <dialog id="video-dialog">
@@ -95,6 +113,32 @@
                 <p id="video-error" class="error" role="alert"></p>
                 <div class="row">
                     <button type="button" id="video-cancel">취소</button>
+                    <button type="submit" class="primary">보드에 추가</button>
+                </div>
+            </form>
+        </dialog>
+
+        <dialog id="task-dialog">
+            <form id="task-form" method="dialog">
+                <h2>업무 블럭 추가</h2>
+                <label class="row"><input type="radio" name="task-mode" id="task-mode-existing" value="existing" checked> 기존 업무 선택</label>
+                <select id="task-existing"></select>
+                <label class="row"><input type="radio" name="task-mode" id="task-mode-new" value="new"> 새 업무 만들기</label>
+                <label>제목 <input id="task-new-title" type="text" maxlength="180" placeholder="예: 로그인 화면 디자인"></label>
+                <div class="row">
+                    <label>상태
+                        <select id="task-new-status">
+                            <option value="todo">할 일</option>
+                            <option value="doing">진행 중</option>
+                            <option value="done">완료</option>
+                        </select>
+                    </label>
+                    <label>담당자 <select id="task-new-assignee"><option value="">없음</option></select></label>
+                    <label>마감일 <input id="task-new-due" type="date"></label>
+                </div>
+                <p id="task-error" class="error" role="alert"></p>
+                <div class="row">
+                    <button type="button" id="task-cancel">취소</button>
                     <button type="submit" class="primary">보드에 추가</button>
                 </div>
             </form>

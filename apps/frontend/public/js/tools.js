@@ -15,6 +15,11 @@ function attachTools(canvas, options)
         return { sx: e.clientX - rect.left, sy: e.clientY - rect.top }; // 화면 좌표
     }
 
+    function snap(w, state)
+    {
+        return state.snap ? { x: Math.round(w.x / 10) * 10, y: Math.round(w.y / 10) * 10 } : w; // 격자 맞춤이 켜지면 10 단위로 반올림
+    }
+
     function newStrokeId()
     {
         return 's-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); // 임시 획 ID
@@ -80,8 +85,9 @@ function attachTools(canvas, options)
         }
         else
         {
-            const draft = { type: state.tool, x: w.x, y: w.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
-            drag = { mode: 'shape', origin: w, draft }; // 도형 드래그
+            const origin = snap(w, state); // 시작점(격자 맞춤 반영)
+            const draft = { type: state.tool, x: origin.x, y: origin.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
+            drag = { mode: 'shape', origin, draft }; // 도형 드래그
             canvas.draft = draft; // 초안 표시
         }
         canvas.invalidate(); // 다시 그리기
@@ -120,10 +126,11 @@ function attachTools(canvas, options)
         }
         else if (drag.mode === 'shape')
         {
-            drag.draft.x = Math.min(drag.origin.x, w.x); // 왼쪽 위 X
-            drag.draft.y = Math.min(drag.origin.y, w.y); // 왼쪽 위 Y
-            drag.draft.width = Math.abs(w.x - drag.origin.x); // 너비
-            drag.draft.height = Math.abs(w.y - drag.origin.y); // 높이
+            const p = snap(w, options.getState()); // 현재 점(격자 맞춤 반영)
+            drag.draft.x = Math.min(drag.origin.x, p.x); // 왼쪽 위 X
+            drag.draft.y = Math.min(drag.origin.y, p.y); // 왼쪽 위 Y
+            drag.draft.width = Math.abs(p.x - drag.origin.x); // 너비
+            drag.draft.height = Math.abs(p.y - drag.origin.y); // 높이
             canvas.invalidate(); // 다시 그리기
         }
     });
@@ -196,7 +203,7 @@ function attachTools(canvas, options)
         }
         else
         {
-            const map = { v: 'select', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan' }; // 단축키
+            const map = { v: 'select', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan', t: 'task' }; // 단축키
             if (map[e.key.toLowerCase()])
             {
                 options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환

@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14 를 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC17 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -50,7 +50,7 @@ async function waitFor(url, tries = 50)
 
 function startServers()
 {
-    const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'] }); // PHP 내장 서버
+    const php = spawn(PHP, ['-S', '127.0.0.1:' + API_PORT, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RATE_LIMIT: '1000' } }); // PHP 내장 서버(테스트는 입장이 잦으므로 요청 제한 완화)
     const rt = spawn(process.execPath, ['src/server.js'], { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, PORT: String(RT_PORT), LOCK_TTL_MS: '1500', LOCK_SWEEP_MS: '300' } }); // 실시간 서버(짧은 잠금 TTL)
     php.stderr.on('data', (d) => { if (/PHP (Fatal|Parse|Warning)/.test(String(d))) { console.error('[php] ' + String(d).trim()); } }); // PHP 오류만 표시
     rt.stderr.on('data', (d) => console.error('[realtime] ' + String(d).trim())); // 실시간 서버 오류 표시
@@ -150,6 +150,10 @@ function until(socket, event, predicate, timeoutMs = 2500)
 async function enter(name, code, boardId)
 {
     const session = await join(name, code); // HTTP 입장
+    if (session.status !== 201)
+    {
+        throw new Error(name + ' 입장 실패: ' + JSON.stringify(session.json)); // 입장 오류를 그대로 보고
+    }
     const socket = await connect(); // 소켓 연결
     const reply = await ack(socket, 'board:join', { board_id: boardId, ticket: await ticket(session.cookie, boardId) }); // 보드 참여
     return { cookie: session.cookie, socket, reply, guestId: session.json.guest.guest_id }; // 참여자 묶음
@@ -286,6 +290,32 @@ async function run(envInfo)
     const vLock = await ack(V.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // 잠금 시도
     const vSnap = await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, V.cookie); // 열람은 허용
     record('AC14', '접근 권한', V.reply.ok && vBoard.status === 403 && vUpload.status === 403 && vStroke.ok === false && vStroke.error.code === 'FORBIDDEN' && vCreate.ok === false && vLock.ok === false && vSnap.status === 200, '열람자의 생성·업로드·확정·잠금 모두 서버가 거부, 조회는 허용');
+
+    // AC16 공유 업무: 보드 A 의 상태 변경이 보드 B 의 블럭에도 반영
+    const taskCreatedPromise = until(C.socket, 'task:created', (d) => d.task.title === 'AC shared task'); // 보드 B 참여자가 받을 생성 알림
+    const taskCreate = await ack(B.socket, 'task:create', { board_id: boardA, title: 'AC shared task', status: 'todo', assignee_id: B.guestId, due_at: '2026-10-20' }); // 보드 A 에서 업무 생성
+    const taskCreated = await taskCreatedPromise; // 수신
+    const taskId = taskCreate.ok ? taskCreate.task.task_id : 0; // 공유 업무 ID
+    const blockA = await ack(B.socket, 'object:create', { board_id: boardA, type: 'task', x: 0, y: 0, width: 240, height: 110, payload: { task_id: taskId } }); // 보드 A 블럭
+    const blockB = await ack(C.socket, 'object:create', { board_id: boardB, type: 'task', x: 50, y: 50, width: 240, height: 110, payload: { task_id: taskId } }); // 보드 B 블럭(같은 업무)
+    const taskUpdatedPromise = until(C.socket, 'task:updated', (d) => d.task.task_id === taskId && d.task.status === 'done'); // 보드 B 가 받을 상태 변경
+    const taskUpdate = await ack(B.socket, 'task:update', { board_id: boardA, task_id: taskId, version: 1, changes: { status: 'done' } }); // 보드 A 에서 상태 변경
+    const taskUpdated = await taskUpdatedPromise; // 수신
+    const staleUpdate = await ack(C.socket, 'task:update', { board_id: boardB, task_id: taskId, version: 1, changes: { title: 'stale' } }); // 이전 버전으로 수정 시도
+    const tasksList = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, B.cookie)).json; // 업무 목록
+    const listed = tasksList.tasks.find((t) => t.task_id === taskId); // 목록의 업무
+    record('AC16', '공유 업무', taskCreate.ok && taskCreated !== null && taskCreate.task.assignee_name === 'AC-B' && taskCreate.task.due_at === '2026-10-20'
+        && blockA.ok && blockB.ok && blockA.object.task_id === taskId && blockB.object.task_id === taskId && blockA.object.object_id !== blockB.object.object_id
+        && taskUpdate.ok && taskUpdate.task.version === 2 && taskUpdated !== null && staleUpdate.ok === false && staleUpdate.error.code === 'VERSION_CONFLICT'
+        && listed && listed.status === 'done' && listed.version === 2, '보드 A 상태 변경 → 보드 B 수신, 이전 버전 수정은 VERSION_CONFLICT');
+
+    // AC17 공유 업무 삭제: 한 보드의 블럭만 제거, 원본과 다른 보드 블럭 유지
+    const lockBlock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: blockA.object_id }); // 블럭 잠금
+    const delBlock = await ack(B.socket, 'object:delete', { board_id: boardA, object_id: blockA.object_id, lock_token: lockBlock.lock_token, version: 1 }); // 보드 A 블럭 삭제
+    const tasksAfter = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, B.cookie)).json; // 업무 목록
+    const snapBAfter = (await api('GET', '/api/boards/' + boardB + '/snapshot', undefined, B.cookie)).json; // 보드 B 스냅샷
+    const snapAAfter = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 보드 A 스냅샷
+    record('AC17', '공유 업무 삭제', delBlock.ok && tasksAfter.tasks.some((t) => t.task_id === taskId) && snapBAfter.objects.some((o) => o.type === 'task' && o.task_id === taskId) && !snapAAfter.objects.some((o) => o.object_id === blockA.object_id), '보드 A 블럭만 제거, tasks 원본과 보드 B 블럭 보존');
 
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');

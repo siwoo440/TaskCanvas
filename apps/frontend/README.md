@@ -57,6 +57,8 @@ node apps/realtime/src/server.js
 | 사각형 (R) / 원 (O) | 드래그로 생성, 놓으면 `object:create` |
 | 이미지 🖼 | 파일 선택·캔버스에 드래그 앤 드롭·Ctrl+V → `POST /api/images` → `object:create{type:'image'}`. 긴 변 400 단위로 맞춰 삽입 |
 | 영상 ▶ | URL 입력(YouTube·Vimeo) → `object:create{type:'video'}`. 서버가 만든 `embed_url` 을 오버레이 iframe 으로 표시, 제목 막대를 잡아 이동 |
+| 업무 블럭 ☑ (T) | 기존 업무 선택 또는 새 업무 생성(`task:create`) → `object:create{type:'task', payload:{task_id}}`. 블럭을 선택하면 오른쪽 패널에서 제목·상태·담당자·마감일을 수정(`task:update`)하며 같은 업무를 참조하는 모든 보드의 블럭이 함께 바뀜. 블럭 삭제는 보드 표시만 제거 |
+| 격자 맞춤 | 속성 패널 체크 시 도형 생성·이동 좌표를 10 단위로 맞춤 |
 | 이동 (H), Space+드래그, 가운데 버튼 | 화면 이동 |
 | 마우스 휠 | 커서 기준 확대·축소 (0.1~8배) |
 | ⤢ | 객체 전체가 보이도록 화면 맞춤 |
@@ -73,4 +75,4 @@ node apps/realtime/src/server.js
 
 ## 아직 없는 것
 
-- 다중 선택·크기 조절 핸들 — P1
+- 다중 선택·크기 조절 핸들·연결선 — P1 후순위

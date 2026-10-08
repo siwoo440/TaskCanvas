@@ -10,6 +10,9 @@ const state = {
     style: { color: '#222222', width: 3, fill: null }, // 그리기 스타일
     pendingSaves: 0, // 저장 응답 대기 수
     requestSeq: 0, // 요청 ID 일련번호
+    tasks: new Map(), // 공유 업무 원본 task_id → task
+    members: [], // 프로젝트 참여자(담당자 선택용)
+    snap: false, // 격자 맞춤
 }; // 전역 상태
 
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
@@ -191,12 +194,15 @@ async function openBoard(board)
         overlay = new VideoOverlay($('overlay')); // 영상 iframe 오버레이
         canvas.afterRender = () => overlay.sync(canvas); // 렌더마다 iframe 위치 동기화
         attachMediaInputs(); // 이미지·영상 입력 연결
+        canvas.tasks = state.tasks; // 업무 블럭 렌더링용 공유 Map
+        attachTaskInputs(); // 업무 블럭 입력 연결
     }
     canvas.reset(); // 화면 비움
     updateSelectionInfo(); // 선택 안내 초기화
     try
     {
         await loadSnapshot(); // 저장 상태 복원
+        await loadProjectData(); // 참여자·공유 업무 목록
         await Realtime.loadClient(window.TC_CONFIG.realtimeUrl); // Socket.IO 클라이언트 로드
         if (!realtime)
         {
@@ -293,6 +299,8 @@ function applyRole()
     $('board-canvas').classList.toggle('viewer', !editable); // 커서 모양
     $('tool-image').disabled = !editable; // 열람자는 이미지 추가 불가
     $('tool-video').disabled = !editable; // 열람자는 영상 추가 불가
+    $('tool-task').disabled = !editable; // 열람자는 업무 블럭 추가 불가
+    $('task-save').disabled = !editable; // 열람자는 업무 수정 불가
     $('props-role-note').textContent = editable ? '편집자: 그리거나 옮기면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
 }
 
@@ -341,7 +349,7 @@ $('prop-fill').addEventListener('change', () => restyleSelected()); // 선택 �
 function updateSelectionInfo()
 {
     const o = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
-    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원', image: '이미지', video: '영상' }; // 유형 이름
+    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원', image: '이미지', video: '영상', task: '업무 블럭' }; // 유형 이름
     $('selection-info').textContent = o ? '선택: ' + (names[o.type] ?? o.type) + ' #' + o.object_id + ' (v' + o.version + ') — Delete 키로 삭제' : ''; // 안내 문구
 }
 
@@ -350,6 +358,7 @@ function selectObject(id)
     canvas.selectedId = id; // 선택 저장
     canvas.invalidate(); // 다시 그리기
     updateSelectionInfo(); // 안내 갱신
+    refreshTaskProps(); // 업무 패널 갱신
 }
 
 function lockMessage(err)
@@ -445,7 +454,9 @@ async function finishMove(s)
         realtime.emit('object:unlock', { board_id: boardId(), object_id: id, lock_token: s.token }); // 변경 없음 → 잠금 해제
         return;
     }
-    await commitObject(s.object, s.token, { x: s.object.x + s.dx, y: s.object.y + s.dy }); // 이동 저장
+    const targetX = state.snap ? Math.round((s.object.x + s.dx) / 10) * 10 : s.object.x + s.dx; // 이동 후 X(격자 맞춤 반영)
+    const targetY = state.snap ? Math.round((s.object.y + s.dy) / 10) * 10 : s.object.y + s.dy; // 이동 후 Y
+    await commitObject(s.object, s.token, { x: targetX, y: targetY }); // 이동 저장
 }
 
 function cancelMove()
@@ -686,6 +697,185 @@ function attachMediaInputs()
     });
 }
 
+// ---------- 공유 업무 블럭 (P1) ----------
+
+const TASK_STATUS_LABELS = { todo: '할 일', doing: '진행 중', done: '완료' }; // 상태 이름
+
+async function loadProjectData()
+{
+    const [members, tasks] = await Promise.all([
+        window.api.get('/api/projects/' + state.project.project_id + '/members'), // 참여자 목록
+        window.api.get('/api/projects/' + state.project.project_id + '/tasks'), // 공유 업무 목록
+    ]); // 병렬 조회
+    state.members = members.members; // 참여자 저장
+    state.tasks.clear(); // 기존 업무 비움
+    for (const t of tasks.tasks)
+    {
+        state.tasks.set(t.task_id, t); // 업무 등록
+    }
+    fillAssigneeSelects(); // 담당자 목록 갱신
+    canvas.invalidate(); // 업무 블럭 다시 그리기
+}
+
+function fillAssigneeSelects()
+{
+    for (const id of ['task-assignee', 'task-new-assignee'])
+    {
+        const select = $(id); // 담당자 선택
+        const current = select.value; // 기존 선택
+        select.innerHTML = '<option value="">없음</option>'; // 초기화
+        for (const m of state.members)
+        {
+            const opt = document.createElement('option'); // 항목
+            opt.value = String(m.guest_id); // 게스트 ID
+            opt.textContent = m.display_name; // 이름
+            select.appendChild(opt); // 추가
+        }
+        select.value = current; // 기존 선택 유지
+    }
+}
+
+function selectedTaskObject()
+{
+    const o = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
+    return o && o.type === 'task' ? o : null; // 업무 블럭만
+}
+
+function refreshTaskProps()
+{
+    const o = selectedTaskObject(); // 선택한 업무 블럭
+    const task = o ? state.tasks.get(o.task_id) : null; // 업무 원본
+    $('task-props').hidden = !task; // 업무 패널 표시 여부
+    if (!task)
+    {
+        return;
+    }
+    $('task-title').value = task.title; // 제목
+    $('task-status').value = task.status; // 상태
+    $('task-assignee').value = task.assignee_id === null ? '' : String(task.assignee_id); // 담당자
+    $('task-due').value = task.due_at ?? ''; // 마감일
+}
+
+async function saveTask()
+{
+    const o = selectedTaskObject(); // 선택한 업무 블럭
+    const task = o ? state.tasks.get(o.task_id) : null; // 업무 원본
+    if (!task || !canEdit() || !realtime || !realtime.joined)
+    {
+        return; // 저장 대상 없음
+    }
+    const changes = {
+        title: $('task-title').value.trim(), // 제목
+        status: $('task-status').value, // 상태
+        assignee_id: $('task-assignee').value === '' ? null : Number($('task-assignee').value), // 담당자
+        due_at: $('task-due').value || null, // 마감일
+    }; // 변경 내용
+    state.pendingSaves += 1; // 대기 수 증가
+    setSaveStatus('saving'); // 저장 중 표시
+    try
+    {
+        const reply = await realtime.request('task:update', { board_id: boardId(), task_id: task.task_id, version: task.version, changes, request_id: nextRequestId() }); // 업무 원본 변경(버전 검사)
+        state.tasks.set(reply.task.task_id, reply.task); // 최신 업무 반영
+        canvas.invalidate(); // 블럭 다시 그리기
+        refreshTaskProps(); // 패널 갱신
+        state.pendingSaves -= 1; // 대기 수 감소
+        if (state.pendingSaves === 0)
+        {
+            setSaveStatus('saved'); // 모두 저장됨
+        }
+    }
+    catch (err)
+    {
+        state.pendingSaves -= 1; // 대기 수 감소
+        setSaveStatus('failed'); // 실패 표시
+        toast(err.message, 4000); // 안내
+        if (err.code === 'VERSION_CONFLICT' && err.task)
+        {
+            state.tasks.set(err.task.task_id, err.task); // 서버의 최신 업무로 교체
+            canvas.invalidate(); // 다시 그리기
+            refreshTaskProps(); // 패널 갱신
+        }
+    }
+}
+
+function openTaskDialog()
+{
+    if (!canEdit() || !realtime || !realtime.joined)
+    {
+        return toast('지금은 업무 블럭을 추가할 수 없습니다.'); // 권한·연결 확인
+    }
+    const select = $('task-existing'); // 기존 업무 목록
+    select.innerHTML = ''; // 초기화
+    for (const t of state.tasks.values())
+    {
+        const opt = document.createElement('option'); // 항목
+        opt.value = String(t.task_id); // 업무 ID
+        opt.textContent = '#' + t.task_id + ' ' + t.title + ' (' + (TASK_STATUS_LABELS[t.status] ?? t.status) + ')'; // 표시
+        select.appendChild(opt); // 추가
+    }
+    const hasTasks = state.tasks.size > 0; // 기존 업무 유무
+    $('task-mode-existing').disabled = !hasTasks; // 없으면 선택 불가
+    $('task-mode-existing').checked = hasTasks; // 기본 모드
+    $('task-mode-new').checked = !hasTasks; // 없으면 새 업무
+    $('task-new-title').value = ''; // 입력 초기화
+    $('task-new-status').value = 'todo'; // 상태 초기화
+    $('task-new-assignee').value = ''; // 담당자 초기화
+    $('task-new-due').value = ''; // 마감일 초기화
+    $('task-error').textContent = ''; // 오류 초기화
+    fillAssigneeSelects(); // 담당자 목록 갱신
+    $('task-dialog').showModal(); // 대화상자 열기
+}
+
+async function submitTaskDialog(e)
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    let taskId = null; // 참조할 업무
+    try
+    {
+        if ($('task-mode-new').checked)
+        {
+            const title = $('task-new-title').value.trim(); // 새 업무 제목
+            if (title === '')
+            {
+                $('task-error').textContent = '업무 제목을 입력하세요.'; // 필수값 안내
+                return;
+            }
+            const reply = await realtime.request('task:create', { board_id: boardId(), title, status: $('task-new-status').value, assignee_id: $('task-new-assignee').value === '' ? null : Number($('task-new-assignee').value), due_at: $('task-new-due').value || null, request_id: nextRequestId() }); // 업무 원본 생성
+            state.tasks.set(reply.task.task_id, reply.task); // 업무 등록
+            taskId = reply.task.task_id; // 새 업무 참조
+        }
+        else
+        {
+            taskId = Number($('task-existing').value); // 선택한 업무
+            if (!taskId)
+            {
+                $('task-error').textContent = '업무를 선택하세요.'; // 선택 안내
+                return;
+            }
+        }
+    }
+    catch (err)
+    {
+        $('task-error').textContent = err.message; // 생성 실패 안내
+        return;
+    }
+    $('task-dialog').close(); // 대화상자 닫기
+    const center = viewCenterWorld(); // 화면 중앙
+    const width = 240; // 블럭 너비
+    const height = 110; // 블럭 높이
+    const draft = { type: 'task', task_id: taskId, x: center.x - width / 2, y: center.y - height / 2, width, height, payload: {}, style: {} }; // 업무 블럭 초안
+    await createObject('object:create', { type: 'task', x: draft.x, y: draft.y, width, height, payload: { task_id: taskId } }, draft); // 보드 객체로 저장(블럭마다 object_id 다름, task_id 공유)
+}
+
+function attachTaskInputs()
+{
+    $('tool-task').addEventListener('click', openTaskDialog); // 업무 블럭 버튼
+    $('task-cancel').addEventListener('click', () => $('task-dialog').close()); // 취소
+    $('task-form').addEventListener('submit', submitTaskDialog); // 추가
+    $('task-save').addEventListener('click', saveTask); // 업무 저장
+    $('prop-snap').addEventListener('change', (e) => { state.snap = e.target.checked; }); // 격자 맞춤
+}
+
 // ---------- 도구 → 실시간 이벤트 ----------
 
 function nextRequestId()
@@ -722,8 +912,20 @@ async function createObject(event, data, draft)
 }
 
 const toolHandlers = {
-    getState: () => ({ tool: state.tool, style: state.style, canEdit: canEdit() && realtime && realtime.joined }), // 도구에 전달할 상태
-    onToolShortcut: (tool) => { if (canEdit()) { setTool(tool); } }, // 단축키
+    getState: () => ({ tool: state.tool, style: state.style, snap: state.snap, canEdit: canEdit() && realtime && realtime.joined }), // 도구에 전달할 상태(격자 맞춤 포함)
+    onToolShortcut: (tool) =>
+    {
+        if (!canEdit())
+        {
+            return; // 열람자 무시
+        }
+        if (tool === 'task')
+        {
+            openTaskDialog(); // T: 업무 블럭 대화상자
+            return;
+        }
+        setTool(tool); // 도구 전환
+    }, // 단축키
     onCursor: (x, y) => realtime && realtime.emit('cursor:move', { board_id: boardId(), x, y }), // 커서 공유
     onStrokePreview: (strokeId, delta, style) => realtime && realtime.emit('stroke:preview', { board_id: boardId(), stroke_id: strokeId, points_delta: delta, style }), // 미리보기 전송
     onStrokeCommit: (draft) =>
@@ -793,6 +995,7 @@ const realtimeHandlers = {
         {
             cancelMove(); // 끊긴 동안의 이동은 폐기
             await loadSnapshot(); // 재접속 시 서버의 마지막 저장 상태로 복원
+            await loadProjectData(); // 참여자·업무 목록도 다시 조회
             toast('재접속되었습니다. 마지막 저장 상태를 불러왔습니다.'); // 안내
         }
         canvas.setLocks(reply.locks); // 현재 잠금 표시
@@ -849,6 +1052,18 @@ const realtimeHandlers = {
         }
         canvas.removeObject(id); // 화면에서 제거
         updateSelectionInfo(); // 선택 안내 갱신
+        refreshTaskProps(); // 업무 패널 갱신
+    },
+    onTaskCreated: (task) =>
+    {
+        state.tasks.set(task.task_id, task); // 새 업무 등록
+        canvas.invalidate(); // 다시 그리기
+    },
+    onTaskUpdated: (task) =>
+    {
+        state.tasks.set(task.task_id, task); // 다른 보드·사용자의 변경 반영
+        canvas.invalidate(); // 블럭 다시 그리기
+        refreshTaskProps(); // 선택 중이면 패널 갱신
     },
 }; // 실시간 콜백
 

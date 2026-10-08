@@ -41,6 +41,14 @@ final class Env
             [$key, $value] = explode('=', $line, 2); // 키와 값 분리
             self::$values[trim($key)] = trim($value, " \t\"'"); // 따옴표 제거 후 저장
         }
+        foreach (array_keys(self::DEFAULTS) as $key)
+        {
+            $fromProcess = getenv($key); // 실행 환경 변수
+            if ($fromProcess !== false && $fromProcess !== '')
+            {
+                self::$values[$key] = $fromProcess; // 실행 환경 변수가 .env 보다 우선(테스트·배포용)
+            }
+        }
     }
 
     public static function get(string $key, string $default = ''): string

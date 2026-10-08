@@ -4,6 +4,7 @@
 const auth = require('../auth'); // 티켓 검증
 const presence = require('../presence'); // 참여자 관리
 const locks = require('../locks'); // 현재 잠금 목록
+const { projectRoom } = require('./task'); // 프로젝트 방 이름
 const { fail, ok } = require('./reply'); // 응답 헬퍼
 
 function register(io, socket)
@@ -36,6 +37,7 @@ function register(io, socket)
             const me = presence.add(boardId, socket.id, guest); // 참여자 등록
             socket.data.color = me.color; // 커서 색상
             socket.join(presence.roomName(boardId)); // Socket.IO 방 참여
+            socket.join(projectRoom(guest.project_id)); // 프로젝트 방 참여(공유 업무 변경 수신용)
             socket.to(presence.roomName(boardId)).emit('presence:update', { board_id: boardId, participants: presence.list(boardId) }); // 다른 참여자에게 목록 전송
             ok(ack, { board_id: boardId, you: { guest_id: me.guest_id, display_name: me.display_name, role: me.role, color: me.color }, participants: presence.list(boardId), locks: locks.listForBoard(boardId) }); // 참여 응답(현재 잠금 포함)
         }

@@ -13,6 +13,7 @@ const pool = mysql.createPool({
     charset: 'utf8mb4', // 한글 저장 문자셋
     connectionLimit: 10, // 동시 연결 수
     namedPlaceholders: false, // ? 바인딩 사용
+    dateStrings: true, // DATETIME 을 'YYYY-MM-DD HH:MM:SS' 문자열로 반환(시간대 변환 방지)
 }); // 풀 생성
 
 async function query(sql, params = [])
