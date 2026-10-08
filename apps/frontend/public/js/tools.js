@@ -1,4 +1,4 @@
-// 마우스·키보드 입력을 도구 동작으로 변환 (펜, 사각형, 원, 이동, 확대)
+// 마우스·키보드 입력을 도구 동작으로 변환 (선택·이동, 펜, 사각형, 원, 화면 이동, 확대)
 'use strict';
 
 function attachTools(canvas, options)
@@ -40,7 +40,7 @@ function attachTools(canvas, options)
 
     function cancel()
     {
-        if (drag && drag.mode !== 'pan')
+        if (drag && (drag.mode === 'pen' || drag.mode === 'shape'))
         {
             canvas.draft = null; // 초안 폐기
             canvas.invalidate(); // 다시 그리기
@@ -52,8 +52,9 @@ function attachTools(canvas, options)
     {
         const state = options.getState(); // 현재 도구·역할·스타일
         const { sx, sy } = position(e); // 화면 좌표
-        const panMode = state.tool === 'pan' || spaceHeld || e.button === 1 || !state.canEdit; // 이동 모드 조건
+        const w = canvas.toWorld(sx, sy); // 월드 좌표
         el.setPointerCapture(e.pointerId); // 포인터 고정
+        const panMode = state.tool === 'pan' || spaceHeld || e.button === 1 || !state.canEdit; // 이동 모드 조건
         if (panMode)
         {
             drag = { mode: 'pan', sx, sy }; // 이동 시작
@@ -63,7 +64,13 @@ function attachTools(canvas, options)
         {
             return; // 왼쪽 버튼만 그리기
         }
-        const w = canvas.toWorld(sx, sy); // 월드 좌표
+        if (state.tool === 'select')
+        {
+            const hit = canvas.hitTest(w.x, w.y); // 클릭한 객체
+            const started = options.onSelectDown(hit, w); // 선택·이동 시작(잠금 요청)
+            drag = started ? { mode: 'move' } : { mode: 'pan', sx, sy }; // 객체면 이동, 빈 곳이면 화면 이동
+            return;
+        }
         if (state.tool === 'pen')
         {
             const draft = { type: 'stroke', payload: { stroke_id: newStrokeId(), points: [[w.x, w.y]] }, style: { color: state.style.color, width: state.style.width } }; // 획 초안
@@ -100,6 +107,10 @@ function attachTools(canvas, options)
             drag.sx = sx; // 기준 X 갱신
             drag.sy = sy; // 기준 Y 갱신
         }
+        else if (drag.mode === 'move')
+        {
+            options.onSelectMove(w); // 객체 이동 중
+        }
         else if (drag.mode === 'pen')
         {
             drag.draft.payload.points.push([w.x, w.y]); // 좌표 추가
@@ -117,7 +128,7 @@ function attachTools(canvas, options)
         }
     });
 
-    el.addEventListener('pointerup', (e) =>
+    el.addEventListener('pointerup', () =>
     {
         if (!drag)
         {
@@ -125,6 +136,11 @@ function attachTools(canvas, options)
         }
         const finished = drag; // 완료된 드래그
         drag = null; // 드래그 종료
+        if (finished.mode === 'move')
+        {
+            options.onSelectUp(); // 객체 이동 확정
+            return;
+        }
         canvas.draft = null; // 초안 표시 해제
         if (finished.mode === 'pen')
         {
@@ -141,7 +157,14 @@ function attachTools(canvas, options)
         canvas.invalidate(); // 다시 그리기
     });
 
-    el.addEventListener('pointercancel', cancel); // 포인터 취소
+    el.addEventListener('pointercancel', () =>
+    {
+        if (drag && drag.mode === 'move')
+        {
+            options.onEscape(); // 이동 취소
+        }
+        cancel(); // 그리기 취소
+    });
     el.addEventListener('wheel', (e) =>
     {
         e.preventDefault(); // 페이지 스크롤 방지
@@ -164,10 +187,16 @@ function attachTools(canvas, options)
         else if (e.key === 'Escape')
         {
             cancel(); // 그리기 취소
+            options.onEscape(); // 이동 취소·선택 해제
+        }
+        else if (e.key === 'Delete' || e.key === 'Backspace')
+        {
+            e.preventDefault(); // 뒤로 가기 방지
+            options.onDeleteKey(); // 선택 객체 삭제
         }
         else
         {
-            const map = { p: 'pen', r: 'rect', o: 'ellipse', h: 'pan' }; // 단축키
+            const map = { v: 'select', p: 'pen', r: 'rect', o: 'ellipse', h: 'pan' }; // 단축키
             if (map[e.key.toLowerCase()])
             {
                 options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환

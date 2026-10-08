@@ -54,6 +54,7 @@
         </header>
 
         <aside class="toolbar" id="toolbar">
+            <button type="button" data-tool="select" title="선택·이동 (V)">↖</button>
             <button type="button" data-tool="pen" class="active" title="펜 (P)">✎</button>
             <button type="button" data-tool="rect" title="사각형 (R)">▭</button>
             <button type="button" data-tool="ellipse" title="원 (O)">◯</button>
@@ -74,8 +75,9 @@
             <label class="row"><input id="prop-fill-on" type="checkbox"> 채우기</label>
             <label>채우기 색 <input id="prop-fill" type="color" value="#fff59d" disabled></label>
             <hr>
+            <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 그리기 취소</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Delete: 선택 객체 삭제<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
     </section>
 

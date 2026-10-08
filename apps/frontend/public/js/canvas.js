@@ -1,4 +1,4 @@
-// 보드 캔버스 렌더링: 격자, 확정 객체, 미리보기, 커서, 뷰포트(확대·이동)
+// 보드 캔버스 렌더링: 격자, 확정 객체, 미리보기, 커서, 선택·잠금 표시, 뷰포트(확대·이동)
 'use strict';
 
 class BoardCanvas
@@ -9,9 +9,12 @@ class BoardCanvas
         this.ctx = el.getContext('2d'); // 2D 컨텍스트
         this.view = { scale: 1, x: 0, y: 0 }; // 화면 좌표 = 월드 좌표 * scale + (x, y)
         this.objects = []; // 저장 완료 객체
-        this.previews = new Map(); // 타인 미리보기 stroke_id → {points, style, at}
+        this.previews = new Map(); // 타인 펜 미리보기 stroke_id → {points, style, at}
         this.pending = new Map(); // 저장 응답 대기 중인 내 객체 request_id → 초안
         this.cursors = new Map(); // 타인 커서 guest_id → {x, y, display_name, color, at}
+        this.locks = new Map(); // 타인 잠금 object_id → {display_name, color}
+        this.moves = new Map(); // 이동 중 위치 object_id → {x, y} (내 드래그·타인 미리보기)
+        this.selectedId = null; // 선택한 객체 ID
         this.draft = null; // 지금 그리는 중인 내 초안
         this.frame = 0; // 예약된 애니메이션 프레임
         this.resize = this.resize.bind(this); // 크기 변경 핸들러
@@ -33,6 +36,11 @@ class BoardCanvas
     toWorld(sx, sy)
     {
         return { x: (sx - this.view.x) / this.view.scale, y: (sy - this.view.y) / this.view.scale }; // 화면 → 월드
+    }
+
+    toScreen(wx, wy)
+    {
+        return { x: wx * this.view.scale + this.view.x, y: wy * this.view.scale + this.view.y }; // 월드 → 화면
     }
 
     zoomAt(sx, sy, factor)
@@ -77,14 +85,39 @@ class BoardCanvas
         this.invalidate(); // 다시 그리기
     }
 
+    reset()
+    {
+        this.setObjects([]); // 객체 비움
+        this.locks.clear(); // 잠금 비움
+        this.cursors.clear(); // 커서 비움
+        this.selectedId = null; // 선택 해제
+        this.view = { scale: 1, x: 0, y: 0 }; // 뷰포트 초기화
+        this.invalidate(); // 다시 그리기
+    }
+
     setObjects(list)
     {
         this.objects = list.slice(); // 객체 목록 교체
         this.previews.clear(); // 미리보기 초기화
         this.pending.clear(); // 대기 초안 초기화
-        this.cursors.clear(); // 커서 초기화
+        this.moves.clear(); // 이동 미리보기 초기화
         this.draft = null; // 초안 초기화
         this.invalidate(); // 다시 그리기
+    }
+
+    setLocks(list)
+    {
+        this.locks.clear(); // 기존 잠금 비움
+        for (const l of list || [])
+        {
+            this.locks.set(l.object_id, l); // 현재 잠금 등록
+        }
+        this.invalidate(); // 다시 그리기
+    }
+
+    findObject(id)
+    {
+        return this.objects.find((o) => o.object_id === id) ?? null; // ID 로 객체 조회
     }
 
     addObject(object)
@@ -98,6 +131,33 @@ class BoardCanvas
         if (strokeId)
         {
             this.previews.delete(strokeId); // 확정된 미리보기 제거
+        }
+        this.invalidate(); // 다시 그리기
+    }
+
+    updateObject(object)
+    {
+        const index = this.objects.findIndex((o) => o.object_id === object.object_id); // 기존 위치
+        if (index >= 0)
+        {
+            this.objects[index] = object; // 객체 교체
+        }
+        else
+        {
+            this.objects.push(object); // 없으면 추가
+        }
+        this.moves.delete(object.object_id); // 이동 미리보기 제거
+        this.invalidate(); // 다시 그리기
+    }
+
+    removeObject(id)
+    {
+        this.objects = this.objects.filter((o) => o.object_id !== id); // 객체 제거
+        this.moves.delete(id); // 이동 미리보기 제거
+        this.locks.delete(id); // 잠금 표시 제거
+        if (this.selectedId === id)
+        {
+            this.selectedId = null; // 선택 해제
         }
         this.invalidate(); // 다시 그리기
     }
@@ -155,6 +215,73 @@ class BoardCanvas
         }
     }
 
+    // 현재 표시 위치(이동 미리보기 반영)
+    displayPosition(o)
+    {
+        const mv = this.moves.get(o.object_id); // 이동 중 위치
+        return mv ? { x: mv.x, y: mv.y } : { x: o.x, y: o.y }; // 미리보기 우선
+    }
+
+    hitTest(wx, wy)
+    {
+        const tol = 4 / this.view.scale; // 화면 4px 허용 오차
+        for (let i = this.objects.length - 1; i >= 0; i--)
+        {
+            const o = this.objects[i]; // 위에 그려진 객체부터
+            const pos = this.displayPosition(o); // 표시 위치
+            if (o.type === 'stroke')
+            {
+                const half = ((o.style && o.style.width) || 3) / 2 + tol; // 선 반경 + 오차
+                if (wx < pos.x - half || wx > pos.x + o.width + half || wy < pos.y - half || wy > pos.y + o.height + half)
+                {
+                    continue; // 경계 밖
+                }
+                const dx = pos.x - o.x; // 이동량 X
+                const dy = pos.y - o.y; // 이동량 Y
+                const points = (o.payload && o.payload.points) || []; // 획 좌표
+                for (let k = 0; k < points.length; k++)
+                {
+                    const a = [points[k][0] + dx, points[k][1] + dy]; // 현재 점
+                    const b = k + 1 < points.length ? [points[k + 1][0] + dx, points[k + 1][1] + dy] : a; // 다음 점
+                    if (BoardCanvas.segmentDistance(wx, wy, a, b) <= half)
+                    {
+                        return o; // 선 위
+                    }
+                }
+            }
+            else if (o.type === 'rect')
+            {
+                if (wx >= pos.x - tol && wx <= pos.x + o.width + tol && wy >= pos.y - tol && wy <= pos.y + o.height + tol)
+                {
+                    return o; // 사각형 안
+                }
+            }
+            else if (o.type === 'ellipse')
+            {
+                const rx = o.width / 2 + tol; // 가로 반지름
+                const ry = o.height / 2 + tol; // 세로 반지름
+                const nx = (wx - (pos.x + o.width / 2)) / rx; // 정규화 X
+                const ny = (wy - (pos.y + o.height / 2)) / ry; // 정규화 Y
+                if (nx * nx + ny * ny <= 1)
+                {
+                    return o; // 타원 안
+                }
+            }
+        }
+        return null; // 맞은 객체 없음
+    }
+
+    static segmentDistance(px, py, a, b)
+    {
+        const vx = b[0] - a[0]; // 선분 벡터 X
+        const vy = b[1] - a[1]; // 선분 벡터 Y
+        const len2 = vx * vx + vy * vy; // 길이 제곱
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - a[0]) * vx + (py - a[1]) * vy) / len2)); // 투영 비율
+        const cx = a[0] + t * vx; // 가장 가까운 점 X
+        const cy = a[1] + t * vy; // 가장 가까운 점 Y
+        return Math.hypot(px - cx, py - cy); // 거리
+    }
+
     invalidate()
     {
         if (!this.frame)
@@ -191,7 +318,30 @@ class BoardCanvas
         {
             this.drawObject(ctx, this.draft); // 내 초안
         }
+        for (const [id, lock] of this.locks)
+        {
+            const o = this.findObject(id); // 잠긴 객체
+            if (o)
+            {
+                this.drawOutline(ctx, o, lock.color || '#999999'); // 타인 잠금 테두리
+            }
+        }
+        const selected = this.selectedId !== null ? this.findObject(this.selectedId) : null; // 선택 객체
+        if (selected)
+        {
+            this.drawOutline(ctx, selected, '#2563eb'); // 선택 테두리
+        }
         ctx.restore(); // 뷰포트 변환 끝
+        for (const [id, lock] of this.locks)
+        {
+            const o = this.findObject(id); // 잠긴 객체
+            if (o)
+            {
+                const pos = this.displayPosition(o); // 표시 위치
+                const s = this.toScreen(pos.x, pos.y); // 화면 좌표
+                this.drawLabel(ctx, s.x, s.y - 22, lock.display_name + ' 편집 중', lock.color || '#999999'); // 잠금 이름표
+            }
+        }
         for (const c of this.cursors.values())
         {
             this.drawCursor(ctx, c); // 타인 커서(화면 좌표)
@@ -230,30 +380,35 @@ class BoardCanvas
 
     drawObject(ctx, o, alpha = 1)
     {
+        const mv = o.object_id !== undefined ? this.moves.get(o.object_id) : null; // 이동 미리보기
+        ctx.save(); // 객체 변환 시작
+        if (mv)
+        {
+            ctx.translate(mv.x - o.x, mv.y - o.y); // 이동 중 위치로 평행 이동
+        }
         ctx.globalAlpha = alpha; // 투명도
         const style = o.style || {}; // 스타일
         if (o.type === 'stroke')
         {
             const points = (o.payload && o.payload.points) || []; // 획 좌표
-            if (points.length === 0)
+            if (points.length > 0)
             {
-                return;
+                ctx.strokeStyle = style.color || '#222222'; // 선 색
+                ctx.lineWidth = style.width || 3; // 선 굵기
+                ctx.lineCap = 'round'; // 끝 모양
+                ctx.lineJoin = 'round'; // 꺾임 모양
+                ctx.beginPath(); // 경로 시작
+                ctx.moveTo(points[0][0], points[0][1]); // 첫 점
+                for (let i = 1; i < points.length; i++)
+                {
+                    ctx.lineTo(points[i][0], points[i][1]); // 다음 점
+                }
+                if (points.length === 1)
+                {
+                    ctx.lineTo(points[0][0] + 0.01, points[0][1]); // 점 하나도 표시
+                }
+                ctx.stroke(); // 획 그리기
             }
-            ctx.strokeStyle = style.color || '#222222'; // 선 색
-            ctx.lineWidth = style.width || 3; // 선 굵기
-            ctx.lineCap = 'round'; // 끝 모양
-            ctx.lineJoin = 'round'; // 꺾임 모양
-            ctx.beginPath(); // 경로 시작
-            ctx.moveTo(points[0][0], points[0][1]); // 첫 점
-            for (let i = 1; i < points.length; i++)
-            {
-                ctx.lineTo(points[i][0], points[i][1]); // 다음 점
-            }
-            if (points.length === 1)
-            {
-                ctx.lineTo(points[0][0] + 0.01, points[0][1]); // 점 하나도 표시
-            }
-            ctx.stroke(); // 획 그리기
         }
         else if (o.type === 'rect' || o.type === 'ellipse')
         {
@@ -275,26 +430,42 @@ class BoardCanvas
             }
             ctx.stroke(); // 테두리
         }
-        ctx.globalAlpha = 1; // 투명도 복원
+        ctx.restore(); // 객체 변환 끝
+    }
+
+    drawOutline(ctx, o, color)
+    {
+        const pos = this.displayPosition(o); // 표시 위치
+        const pad = 4 / this.view.scale; // 화면 4px 여백
+        ctx.save(); // 테두리 스타일 시작
+        ctx.strokeStyle = color; // 테두리 색
+        ctx.lineWidth = 1.5 / this.view.scale; // 화면 기준 1.5px
+        ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]); // 점선
+        ctx.strokeRect(pos.x - pad, pos.y - pad, o.width + pad * 2, o.height + pad * 2); // 경계 사각형
+        ctx.restore(); // 테두리 스타일 끝
+    }
+
+    drawLabel(ctx, sx, sy, text, color)
+    {
+        ctx.font = '12px sans-serif'; // 글꼴
+        const w = ctx.measureText(text).width + 10; // 라벨 너비
+        ctx.fillStyle = color; // 배경 색
+        ctx.fillRect(sx, sy, w, 18); // 배경
+        ctx.fillStyle = '#fff'; // 글자 색
+        ctx.fillText(text, sx + 5, sy + 13); // 글자
     }
 
     drawCursor(ctx, c)
     {
-        const sx = c.x * this.view.scale + this.view.x; // 화면 X
-        const sy = c.y * this.view.scale + this.view.y; // 화면 Y
+        const s = this.toScreen(c.x, c.y); // 화면 좌표
         ctx.fillStyle = c.color; // 커서 색
         ctx.beginPath(); // 화살표 경로
-        ctx.moveTo(sx, sy); // 꼭짓점
-        ctx.lineTo(sx + 12, sy + 5); // 오른쪽 아래
-        ctx.lineTo(sx + 5, sy + 12); // 왼쪽 아래
+        ctx.moveTo(s.x, s.y); // 꼭짓점
+        ctx.lineTo(s.x + 12, s.y + 5); // 오른쪽 아래
+        ctx.lineTo(s.x + 5, s.y + 12); // 왼쪽 아래
         ctx.closePath(); // 닫기
         ctx.fill(); // 화살표 채우기
-        ctx.font = '12px sans-serif'; // 이름 글꼴
-        const label = c.display_name || ''; // 이름
-        const w = ctx.measureText(label).width + 10; // 라벨 너비
-        ctx.fillRect(sx + 12, sy + 12, w, 18); // 라벨 배경
-        ctx.fillStyle = '#fff'; // 글자 색
-        ctx.fillText(label, sx + 17, sy + 25); // 이름 표시
+        this.drawLabel(ctx, s.x + 12, s.y + 12, c.display_name || '', c.color); // 이름표
     }
 }
 

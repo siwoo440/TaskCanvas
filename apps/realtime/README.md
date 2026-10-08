@@ -20,11 +20,13 @@ realtime/
 │   ├── db.js            # mysql2 커넥션 풀
 │   ├── auth.js          # 티켓 일회성 검증, 역할 재확인
 │   ├── presence.js      # 보드별 참여자·커서 색상(메모리)
+│   ├── locks.js         # 객체 선점 잠금(메모리, TTL·연결 종료 해제)
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
 │       ├── object.js    # object:create 도형 저장
+│       ├── edit.js      # object:lock·preview·commit·delete·unlock
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트
 └── .env.example
@@ -59,8 +61,14 @@ node apps/realtime/scripts/test-client.js <초대코드>
 | C→S (ack) | `stroke:commit` `{board_id, stroke_id, points, style, request_id}` | DB 저장. 응답 `{ok, request_id, object_id, new_version, persisted}` |
 | C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, request_id}` | 사각형·원 생성. 응답에 `object` 포함 |
 | S→C | `object:created` `{board_id, guest_id, object}` | 다른 참여자에게 확정 객체 전달 |
+| C→S (ack) | `object:lock` `{board_id, object_id}` | 선점 잠금. 응답 `{lock_token, expires_in}`, 실패 `OBJECT_LOCKED` + `error.locked_by` |
+| C→S | `object:preview` `{board_id, object_id, lock_token, x, y}` | 잠금 소유자의 이동 중 위치 중계 |
+| C→S (ack) | `object:commit` `{board_id, object_id, lock_token, version, changes, request_id}` | 버전 검사 후 저장·잠금 해제. `changes`: x, y, width, height(도형만), style |
+| C→S (ack) | `object:delete` `{board_id, object_id, lock_token, version}` | 버전 검사 후 삭제·잠금 해제 |
+| C→S (ack) | `object:unlock` `{board_id, object_id, lock_token}` | 변경 없이 잠금 해제 |
+| S→C | `object:locked` / `object:unlocked` / `object:preview` / `object:updated` / `object:deleted` | 잠금·해제(reason)·이동 중·변경·삭제 전파 |
 
-오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`)를 씁니다.
+오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`, `OBJECT_LOCKED`, `LOCK_REQUIRED`, `VERSION_CONFLICT`, `NOT_FOUND`)를 씁니다.
 
 ## 설계 메모
 
@@ -68,7 +76,9 @@ node apps/realtime/scripts/test-client.js <초대코드>
 - 티켓은 `UPDATE ... WHERE used_at IS NULL` 로 한 번만 소비되며 60초 뒤 만료됩니다.
 - `stroke:commit` 은 소켓에 저장된 역할을 믿지 않고 매번 `project_members` 를 다시 조회합니다.
 - 커서·미리보기는 메모리에서만 중계하고, 확정된 획만 `board_objects(type='stroke')` 에 저장합니다. 좌표는 `payload_json.points`, 경계 사각형은 `x/y/width/height` 입니다.
+- 잠금은 소켓 단위로 메모리에만 보관합니다(`LOCK_TTL_MS`, 기본 30초). 이동 미리보기·확정 때마다 연장되고, 연결 종료·만료·확정·삭제 시 해제되며 `object:unlocked` 로 알립니다.
+- `object:commit` 은 `SELECT ... FOR UPDATE` 트랜잭션 안에서 `version` 을 비교해 다르면 `VERSION_CONFLICT` 를 돌려주고 잠금을 해제합니다. 성공 시 `version+1` 로 저장합니다.
 
-## 아직 없는 것 (4단계)
+## 아직 없는 것
 
-`object:lock / preview / commit / delete / unlock`, 잠금 TTL, 버전 충돌 처리
+`task:update`(P1 공유 업무), 다중 선택 일괄 잠금(P1)

@@ -1,4 +1,4 @@
-// 화면 전환과 상태 관리: 입장 → 보드 선택 → 화이트보드(스냅샷 복원 + 실시간 연동)
+// 화면 전환과 상태 관리: 입장 → 보드 선택 → 화이트보드(스냅샷 복원 + 실시간 연동 + 선택·이동·삭제)
 'use strict';
 
 const state = {
@@ -15,6 +15,7 @@ const state = {
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
 let canvas = null; // BoardCanvas
 let realtime = null; // Realtime
+let move = null; // 진행 중인 객체 이동 {object, start, dx, dy, token, armed, finished, lastPreviewAt}
 
 function showView(name)
 {
@@ -50,6 +51,11 @@ function setSaveStatus(stateName)
 function canEdit()
 {
     return state.project !== null && (state.project.role === 'editor' || state.project.role === 'admin'); // 편집 가능 역할
+}
+
+function boardId()
+{
+    return state.board ? state.board.board_id : null; // 현재 보드 ID
 }
 
 // ---------- 입장 ----------
@@ -168,6 +174,7 @@ $('boards-leave').addEventListener('click', async () =>
 
 async function openBoard(board)
 {
+    cancelMove(); // 진행 중 이동 취소
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
     showView('board'); // 보드 화면
@@ -181,7 +188,8 @@ async function openBoard(board)
         canvas = new BoardCanvas($('board-canvas')); // 캔버스 생성
         attachTools(canvas, toolHandlers); // 입력 연결
     }
-    canvas.setObjects([]); // 화면 비움
+    canvas.reset(); // 화면 비움
+    updateSelectionInfo(); // 선택 안내 초기화
     try
     {
         await loadSnapshot(); // 저장 상태 복원
@@ -209,6 +217,7 @@ async function loadSnapshot()
         {
             canvas.fitAll(); // 첫 진입 시 전체 보기
         }
+        updateSelectionInfo(); // 선택 안내 갱신
     }
 }
 
@@ -237,6 +246,7 @@ $('board-switch').addEventListener('change', (e) =>
 
 $('board-back').addEventListener('click', () =>
 {
+    cancelMove(); // 진행 중 이동 취소
     if (realtime)
     {
         realtime.leave(); // 연결 종료
@@ -277,7 +287,7 @@ function applyRole()
         setTool('pan'); // 이동 도구 고정
     }
     $('board-canvas').classList.toggle('viewer', !editable); // 커서 모양
-    $('props-role-note').textContent = editable ? '편집자: 펜·도형을 그리면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
+    $('props-role-note').textContent = editable ? '편집자: 그리거나 옮기면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
 }
 
 function setTool(tool)
@@ -287,7 +297,8 @@ function setTool(tool)
     {
         btn.classList.toggle('active', btn.dataset.tool === tool); // 활성 표시
     }
-    $('board-canvas').classList.toggle('pan', tool === 'pan'); // 커서 모양
+    $('board-canvas').classList.toggle('pan', tool === 'pan'); // 손 모양 커서
+    $('board-canvas').classList.toggle('select', tool === 'select'); // 화살표 커서
 }
 
 for (const btn of document.querySelectorAll('#toolbar [data-tool]'))
@@ -297,15 +308,18 @@ for (const btn of document.querySelectorAll('#toolbar [data-tool]'))
 $('fit-view').addEventListener('click', () => canvas && canvas.fitAll()); // 화면 맞춤
 
 $('prop-color').addEventListener('input', (e) => { state.style.color = e.target.value; }); // 색상 변경
+$('prop-color').addEventListener('change', () => restyleSelected()); // 선택 객체에 색상 적용
 $('prop-width').addEventListener('input', (e) =>
 {
     state.style.width = Number(e.target.value); // 굵기 변경
     $('prop-width-out').value = e.target.value; // 표시 갱신
 });
+$('prop-width').addEventListener('change', () => restyleSelected()); // 선택 객체에 굵기 적용
 $('prop-fill-on').addEventListener('change', (e) =>
 {
     $('prop-fill').disabled = !e.target.checked; // 채우기 색 활성화
     state.style.fill = e.target.checked ? $('prop-fill').value : null; // 채우기 적용
+    restyleSelected(); // 선택 객체에 채우기 적용
 });
 $('prop-fill').addEventListener('input', (e) =>
 {
@@ -314,6 +328,238 @@ $('prop-fill').addEventListener('input', (e) =>
         state.style.fill = e.target.value; // 채우기 색 변경
     }
 });
+$('prop-fill').addEventListener('change', () => restyleSelected()); // 선택 객체에 채우기 색 적용
+
+// ---------- 선택·이동·삭제 ----------
+
+function updateSelectionInfo()
+{
+    const o = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
+    const names = { stroke: '펜 획', rect: '사각형', ellipse: '원' }; // 유형 이름
+    $('selection-info').textContent = o ? '선택: ' + (names[o.type] ?? o.type) + ' #' + o.object_id + ' (v' + o.version + ') — Delete 키로 삭제' : ''; // 안내 문구
+}
+
+function selectObject(id)
+{
+    canvas.selectedId = id; // 선택 저장
+    canvas.invalidate(); // 다시 그리기
+    updateSelectionInfo(); // 안내 갱신
+}
+
+function lockMessage(err)
+{
+    if (err.code === 'OBJECT_LOCKED')
+    {
+        return (err.locked_by ? err.locked_by.display_name : '다른 사용자') + ' 님이 편집 중인 객체입니다.'; // 타인 잠금 안내
+    }
+    return err.message; // 그 외 오류
+}
+
+async function beginMove(object, w)
+{
+    selectObject(object.object_id); // 선택 표시
+    const session = { object, start: w, dx: 0, dy: 0, token: null, armed: false, finished: false, lastPreviewAt: 0 }; // 이동 세션
+    move = session; // 현재 세션
+    try
+    {
+        const reply = await realtime.request('object:lock', { board_id: boardId(), object_id: object.object_id }); // 선점 잠금 요청
+        if (move !== session)
+        {
+            realtime.emit('object:unlock', { board_id: boardId(), object_id: object.object_id, lock_token: reply.lock_token }); // 그 사이 취소됨 → 해제
+            return;
+        }
+        session.token = reply.lock_token; // 잠금 토큰
+        session.armed = true; // 이동 허용
+        applyMovePreview(session); // 누적 이동 반영
+        if (session.finished)
+        {
+            finishMove(session); // 잠금 전에 놓았으면 바로 마무리
+        }
+    }
+    catch (err)
+    {
+        if (move === session)
+        {
+            move = null; // 세션 종료
+        }
+        toast(lockMessage(err)); // 잠금 실패 안내
+    }
+}
+
+function applyMovePreview(s)
+{
+    const x = s.object.x + s.dx; // 이동 후 X
+    const y = s.object.y + s.dy; // 이동 후 Y
+    canvas.moves.set(s.object.object_id, { x, y }); // 로컬 미리보기
+    canvas.invalidate(); // 다시 그리기
+    const now = Date.now(); // 현재 시각
+    if (now - s.lastPreviewAt >= window.TC_CONFIG.cursorIntervalMs)
+    {
+        s.lastPreviewAt = now; // 전송 시각 갱신
+        realtime.emit('object:preview', { board_id: boardId(), object_id: s.object.object_id, lock_token: s.token, x, y }); // 이동 중 위치 공유
+    }
+}
+
+function updateMove(w)
+{
+    if (!move)
+    {
+        return;
+    }
+    move.dx = w.x - move.start.x; // 누적 이동 X
+    move.dy = w.y - move.start.y; // 누적 이동 Y
+    if (move.armed)
+    {
+        applyMovePreview(move); // 잠금 확보 후에만 표시·전송
+    }
+}
+
+function endMove()
+{
+    if (!move)
+    {
+        return;
+    }
+    if (!move.armed)
+    {
+        move.finished = true; // 잠금 응답 후 마무리
+        return;
+    }
+    finishMove(move); // 이동 확정
+}
+
+async function finishMove(s)
+{
+    move = null; // 세션 종료
+    const id = s.object.object_id; // 대상 객체
+    if (Math.hypot(s.dx, s.dy) < 0.5)
+    {
+        canvas.moves.delete(id); // 미리보기 제거
+        canvas.invalidate(); // 다시 그리기
+        realtime.emit('object:unlock', { board_id: boardId(), object_id: id, lock_token: s.token }); // 변경 없음 → 잠금 해제
+        return;
+    }
+    await commitObject(s.object, s.token, { x: s.object.x + s.dx, y: s.object.y + s.dy }); // 이동 저장
+}
+
+function cancelMove()
+{
+    if (!move)
+    {
+        return;
+    }
+    const s = move; // 취소할 세션
+    move = null; // 세션 종료
+    canvas.moves.delete(s.object.object_id); // 미리보기 제거
+    canvas.invalidate(); // 다시 그리기
+    if (s.token && realtime)
+    {
+        realtime.emit('object:unlock', { board_id: boardId(), object_id: s.object.object_id, lock_token: s.token }); // 잠금 해제
+    }
+}
+
+async function commitObject(object, token, changes)
+{
+    state.pendingSaves += 1; // 대기 수 증가
+    setSaveStatus('saving'); // 저장 중 표시
+    try
+    {
+        const reply = await realtime.request('object:commit', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, changes, request_id: nextRequestId() }); // 변경 확정 요청
+        canvas.updateObject(reply.object); // 확정 결과 반영(미리보기 제거)
+        updateSelectionInfo(); // 버전 표시 갱신
+        state.pendingSaves -= 1; // 대기 수 감소
+        if (state.pendingSaves === 0)
+        {
+            setSaveStatus('saved'); // 모두 저장됨
+        }
+    }
+    catch (err)
+    {
+        state.pendingSaves -= 1; // 대기 수 감소
+        canvas.moves.delete(object.object_id); // 미리보기 제거
+        canvas.invalidate(); // 다시 그리기
+        setSaveStatus('failed'); // 저장 실패 표시
+        toast(err.code === 'VERSION_CONFLICT' ? err.message : '저장 실패: ' + err.message, 4000); // 안내
+        if (err.code === 'VERSION_CONFLICT' || err.code === 'NOT_FOUND')
+        {
+            await loadSnapshot(); // 최신 저장 상태 재동기화
+        }
+    }
+}
+
+async function withLock(object, action)
+{
+    const reply = await realtime.request('object:lock', { board_id: boardId(), object_id: object.object_id }); // 잠금 획득
+    try
+    {
+        return await action(reply.lock_token); // 잠금 상태에서 작업
+    }
+    catch (err)
+    {
+        realtime.emit('object:unlock', { board_id: boardId(), object_id: object.object_id, lock_token: reply.lock_token }); // 실패 시 해제(이미 해제되어도 무해)
+        throw err;
+    }
+}
+
+async function deleteSelected()
+{
+    const object = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
+    if (!object || !canEdit() || move)
+    {
+        return; // 선택 없음·권한 없음·이동 중
+    }
+    if (canvas.locks.has(object.object_id))
+    {
+        return toast(canvas.locks.get(object.object_id).display_name + ' 님이 편집 중인 객체입니다.'); // 타인 잠금
+    }
+    state.pendingSaves += 1; // 대기 수 증가
+    setSaveStatus('saving'); // 저장 중 표시
+    try
+    {
+        await withLock(object, (token) => realtime.request('object:delete', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, request_id: nextRequestId() })); // 잠금 후 삭제
+        canvas.removeObject(object.object_id); // 화면에서 제거
+        updateSelectionInfo(); // 안내 갱신
+        state.pendingSaves -= 1; // 대기 수 감소
+        if (state.pendingSaves === 0)
+        {
+            setSaveStatus('saved'); // 모두 저장됨
+        }
+    }
+    catch (err)
+    {
+        state.pendingSaves -= 1; // 대기 수 감소
+        setSaveStatus('failed'); // 실패 표시
+        toast(lockMessage(err), 4000); // 안내
+        if (err.code === 'VERSION_CONFLICT' || err.code === 'NOT_FOUND')
+        {
+            await loadSnapshot(); // 최신 저장 상태 재동기화
+        }
+    }
+}
+
+async function restyleSelected()
+{
+    const object = canvas && canvas.selectedId !== null ? canvas.findObject(canvas.selectedId) : null; // 선택 객체
+    if (!object || !canEdit() || move || !realtime || !realtime.joined)
+    {
+        return; // 적용 대상 없음
+    }
+    if (canvas.locks.has(object.object_id))
+    {
+        return toast(canvas.locks.get(object.object_id).display_name + ' 님이 편집 중인 객체입니다.'); // 타인 잠금
+    }
+    const style = object.type === 'stroke'
+        ? { color: state.style.color, width: state.style.width } // 획 스타일
+        : { stroke: state.style.color, fill: state.style.fill, width: state.style.width }; // 도형 스타일
+    try
+    {
+        await withLock(object, (token) => commitObject(object, token, { style })); // 잠금 후 스타일 저장
+    }
+    catch (err)
+    {
+        toast(lockMessage(err)); // 잠금 실패 안내
+    }
+}
 
 // ---------- 도구 → 실시간 이벤트 ----------
 
@@ -323,7 +569,7 @@ function nextRequestId()
     return 'req-' + Date.now().toString(36) + '-' + state.requestSeq; // 요청 ID
 }
 
-async function commit(event, data, draft)
+async function createObject(event, data, draft)
 {
     const requestId = nextRequestId(); // 요청 ID
     canvas.pending.set(requestId, draft); // 저장 대기 표시
@@ -331,7 +577,7 @@ async function commit(event, data, draft)
     setSaveStatus('saving'); // 저장 중 표시
     try
     {
-        const reply = await realtime.request(event, { ...data, board_id: state.board.board_id, request_id: requestId }); // 서버 확정 요청
+        const reply = await realtime.request(event, { ...data, board_id: boardId(), request_id: requestId }); // 서버 확정 요청
         canvas.pending.delete(requestId); // 대기 해제
         canvas.addObject(reply.object ?? { ...draft, object_id: reply.object_id, version: reply.new_version }); // 확정 객체 반영
         state.pendingSaves -= 1; // 대기 수 감소
@@ -353,14 +599,41 @@ async function commit(event, data, draft)
 const toolHandlers = {
     getState: () => ({ tool: state.tool, style: state.style, canEdit: canEdit() && realtime && realtime.joined }), // 도구에 전달할 상태
     onToolShortcut: (tool) => { if (canEdit()) { setTool(tool); } }, // 단축키
-    onCursor: (x, y) => realtime && realtime.emit('cursor:move', { board_id: state.board.board_id, x, y }), // 커서 공유
-    onStrokePreview: (strokeId, delta, style) => realtime && realtime.emit('stroke:preview', { board_id: state.board.board_id, stroke_id: strokeId, points_delta: delta, style }), // 미리보기 전송
+    onCursor: (x, y) => realtime && realtime.emit('cursor:move', { board_id: boardId(), x, y }), // 커서 공유
+    onStrokePreview: (strokeId, delta, style) => realtime && realtime.emit('stroke:preview', { board_id: boardId(), stroke_id: strokeId, points_delta: delta, style }), // 미리보기 전송
     onStrokeCommit: (draft) =>
     {
         const box = strokeBounds(draft.payload.points); // 경계 계산
-        commit('stroke:commit', { stroke_id: draft.payload.stroke_id, points: draft.payload.points, style: draft.style }, { ...draft, ...box }); // 획 저장
+        createObject('stroke:commit', { stroke_id: draft.payload.stroke_id, points: draft.payload.points, style: draft.style }, { ...draft, ...box }); // 획 저장
     },
-    onShapeCreate: (draft) => commit('object:create', { type: draft.type, x: draft.x, y: draft.y, width: draft.width, height: draft.height, style: draft.style }, draft), // 도형 저장
+    onShapeCreate: (draft) => createObject('object:create', { type: draft.type, x: draft.x, y: draft.y, width: draft.width, height: draft.height, style: draft.style }, draft), // 도형 저장
+    onSelectDown: (hit, w) =>
+    {
+        if (!hit)
+        {
+            selectObject(null); // 빈 곳 클릭 → 선택 해제
+            return false;
+        }
+        if (canvas.locks.has(hit.object_id))
+        {
+            toast(canvas.locks.get(hit.object_id).display_name + ' 님이 편집 중인 객체입니다.'); // 타인 잠금 안내
+            return false;
+        }
+        if (move)
+        {
+            return false; // 이전 이동 처리 중
+        }
+        beginMove(hit, w); // 잠금 요청 후 이동 시작
+        return true;
+    },
+    onSelectMove: (w) => updateMove(w), // 이동 중
+    onSelectUp: () => endMove(), // 이동 확정
+    onEscape: () =>
+    {
+        cancelMove(); // 이동 취소
+        selectObject(null); // 선택 해제
+    },
+    onDeleteKey: () => deleteSelected(), // 선택 객체 삭제
 }; // 도구 콜백
 
 function strokeBounds(points)
@@ -382,9 +655,9 @@ function strokeBounds(points)
 // ---------- 실시간 서버 → 화면 ----------
 
 const realtimeHandlers = {
-    getTicket: async (boardId) =>
+    getTicket: async (id) =>
     {
-        const data = await window.api.post('/api/realtime-ticket', { board_id: boardId }); // 티켓 발급
+        const data = await window.api.post('/api/realtime-ticket', { board_id: id }); // 티켓 발급
         return data.ticket; // 티켓 원문
     },
     onStatus: (name) => setConnection(name), // 연결 상태
@@ -393,9 +666,11 @@ const realtimeHandlers = {
         renderParticipants(reply.participants); // 참여자 표시
         if (rejoined)
         {
+            cancelMove(); // 끊긴 동안의 이동은 폐기
             await loadSnapshot(); // 재접속 시 서버의 마지막 저장 상태로 복원
             toast('재접속되었습니다. 마지막 저장 상태를 불러왔습니다.'); // 안내
         }
+        canvas.setLocks(reply.locks); // 현재 잠금 표시
     },
     onJoinError: (err) =>
     {
@@ -410,8 +685,46 @@ const realtimeHandlers = {
     },
     onPresence: (participants) => renderParticipants(participants), // 참여자 갱신
     onCursor: (data) => canvas.setCursor(data), // 타인 커서
-    onStrokePreview: (data) => canvas.applyPreview(data), // 타인 미리보기
+    onStrokePreview: (data) => canvas.applyPreview(data), // 타인 펜 미리보기
     onObjectCreated: (object) => canvas.addObject(object), // 타인 확정 객체
+    onObjectLocked: (lock) =>
+    {
+        canvas.locks.set(lock.object_id, lock); // 타인 잠금 표시
+        canvas.invalidate(); // 다시 그리기
+    },
+    onObjectUnlocked: (data) =>
+    {
+        if (move && move.object.object_id === data.object_id && data.reason === 'expired')
+        {
+            cancelMove(); // 내 잠금 만료 → 이동 취소
+            toast('잠금 시간이 지나 이동이 취소되었습니다.'); // 안내
+        }
+        canvas.locks.delete(data.object_id); // 잠금 표시 제거
+        if (!move || move.object.object_id !== data.object_id)
+        {
+            canvas.moves.delete(data.object_id); // 타인 이동 미리보기 제거
+        }
+        canvas.invalidate(); // 다시 그리기
+    },
+    onObjectPreview: (data) =>
+    {
+        canvas.moves.set(data.object_id, { x: data.x, y: data.y }); // 타인 이동 중 위치
+        canvas.invalidate(); // 다시 그리기
+    },
+    onObjectUpdated: (object) =>
+    {
+        canvas.updateObject(object); // 타인 변경 반영
+        updateSelectionInfo(); // 선택 안내 갱신
+    },
+    onObjectDeleted: (id) =>
+    {
+        if (move && move.object.object_id === id)
+        {
+            cancelMove(); // 이동 중이던 객체가 삭제됨
+        }
+        canvas.removeObject(id); // 화면에서 제거
+        updateSelectionInfo(); // 선택 안내 갱신
+    },
 }; // 실시간 콜백
 
 bootstrap(); // 시작

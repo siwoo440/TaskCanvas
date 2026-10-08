@@ -110,6 +110,54 @@ async function main()
     const badType = await emitAck(sa, 'object:create', { board_id: boardId, type: 'script', x: 0, y: 0, width: 10, height: 10 }); // 허용되지 않은 유형
     check('잘못된 객체 유형 거부', badType.ok === false && badType.error.code === 'BAD_REQUEST'); // 거부 확인
 
+    // ---- 잠금·이동·삭제 ----
+    const lockedPromise = waitFor(sb, 'object:locked'); // B 가 받을 잠금 알림
+    const lockA = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: shape.object_id }); // A 잠금
+    check('A 잠금 획득', lockA.ok === true && typeof lockA.lock_token === 'string', { expires_in: lockA.expires_in }); // 획득 확인
+    const lockedEvent = await lockedPromise; // 잠금 알림 수신
+    check('B 에게 잠금 알림 전달', lockedEvent !== null && lockedEvent.object_id === shape.object_id && lockedEvent.display_name === '실시간A'); // 전달 확인
+
+    const lockB = await emitAck(sb, 'object:lock', { board_id: boardId, object_id: shape.object_id }); // B 잠금 시도
+    check('B 잠금 거부(OBJECT_LOCKED)', lockB.ok === false && lockB.error.code === 'OBJECT_LOCKED' && lockB.error.locked_by.display_name === '실시간A'); // 거부 확인
+
+    const commitB = await emitAck(sb, 'object:commit', { board_id: boardId, object_id: shape.object_id, lock_token: 'fake', version: 1, changes: { x: 0 } }); // B 가 토큰 없이 수정
+    check('B 수정 요청 거부', commitB.ok === false && commitB.error.code === 'OBJECT_LOCKED'); // 거부 확인
+
+    const movePromise = waitFor(sb, 'object:preview'); // B 가 받을 이동 미리보기
+    sa.emit('object:preview', { board_id: boardId, object_id: shape.object_id, lock_token: lockA.lock_token, x: 100, y: 200 }); // A 이동 중
+    const movePreview = await movePromise; // 미리보기 수신
+    check('이동 미리보기 중계', movePreview !== null && movePreview.x === 100 && movePreview.y === 200, movePreview); // 중계 확인
+
+    const conflict = await emitAck(sa, 'object:commit', { board_id: boardId, object_id: shape.object_id, lock_token: lockA.lock_token, version: 99, changes: { x: 100, y: 200 } }); // 잘못된 버전
+    check('버전 불일치 거부(VERSION_CONFLICT)', conflict.ok === false && conflict.error.code === 'VERSION_CONFLICT' && conflict.object.version === 1); // 충돌 확인(최신 객체 포함)
+
+    const relock = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: shape.object_id }); // 충돌 후 재잠금
+    const updatedPromise = waitFor(sb, 'object:updated'); // B 가 받을 변경
+    const unlockedPromise = waitFor(sb, 'object:unlocked'); // B 가 받을 해제
+    const commitA = await emitAck(sa, 'object:commit', { board_id: boardId, object_id: shape.object_id, lock_token: relock.lock_token, version: 1, changes: { x: 100, y: 200, width: 60, style: { stroke: '#00ff00', fill: null, width: 3 } }, request_id: 'req-3' }); // A 확정
+    check('이동·크기·스타일 확정 저장', commitA.ok === true && commitA.new_version === 2 && commitA.object.x === 100 && commitA.object.width === 60 && commitA.object.style.stroke === '#00ff00', commitA.object); // 저장 확인
+    const updated = await updatedPromise; // 변경 수신
+    check('B 에게 변경 전달', updated !== null && updated.object.version === 2 && updated.object.y === 200); // 전달 확인
+    const unlocked = await unlockedPromise; // 해제 수신
+    check('확정 후 잠금 해제 알림', unlocked !== null && unlocked.object_id === shape.object_id); // 해제 확인
+
+    const strokeLock = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: commit.object_id }); // 획 잠금
+    const strokeMove = await emitAck(sa, 'object:commit', { board_id: boardId, object_id: commit.object_id, lock_token: strokeLock.lock_token, version: 1, changes: { x: 11, y: 21 } }); // 획 이동(+10, +20)
+    check('획 이동 시 좌표 평행 이동', strokeMove.ok === true && strokeMove.object.payload.points[0][0] === 11 && strokeMove.object.payload.points[0][1] === 21 && strokeMove.object.payload.points[2][1] === 110, strokeMove.object && strokeMove.object.payload.points); // 좌표 확인
+
+    const deletedPromise = waitFor(sb, 'object:deleted'); // B 가 받을 삭제
+    const lockDel = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: shape.object_id }); // 삭제용 잠금
+    const del = await emitAck(sa, 'object:delete', { board_id: boardId, object_id: shape.object_id, lock_token: lockDel.lock_token, version: 2 }); // 삭제
+    check('삭제 저장', del.ok === true && del.persisted === true); // 삭제 확인
+    const deleted = await deletedPromise; // 삭제 수신
+    check('B 에게 삭제 전달', deleted !== null && deleted.object_id === shape.object_id); // 전달 확인
+
+    const lockGone = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: shape.object_id }); // 삭제된 객체 잠금
+    check('삭제된 객체 잠금 거부(NOT_FOUND)', lockGone.ok === false && lockGone.error.code === 'NOT_FOUND'); // 거부 확인
+
+    const holdLock = await emitAck(sa, 'object:lock', { board_id: boardId, object_id: commit.object_id }); // A 가 획을 잠근 채 연결 종료 예정
+    const unlockOnDrop = waitFor(sb, 'object:unlocked', 3000); // B 가 받을 해제
+
     const wrongBoard = await emitAck(sa, 'stroke:commit', { board_id: boardId + 1, points: [[0, 0]] }); // 다른 보드로 전송
     check('다른 보드 이벤트 거부', wrongBoard.ok === false && wrongBoard.error.code === 'FORBIDDEN'); // 거부 확인
 
@@ -118,12 +166,14 @@ async function main()
 
     const snapshot = await api('/api/boards/' + boardId + '/snapshot', null, a.cookie); // 스냅샷 재조회
     const saved = snapshot.json.objects.find((o) => o.object_id === commit.object_id); // 저장된 획
-    check('스냅샷에 저장된 획 포함', saved !== undefined && saved.type === 'stroke' && saved.payload.points.length === 3 && saved.style.color === '#ff0000', saved); // 복원 확인
+    check('스냅샷에 저장된 획 포함(이동 반영)', saved !== undefined && saved.type === 'stroke' && saved.payload.points.length === 3 && saved.style.color === '#ff0000' && saved.version === 2 && saved.x === 11, saved); // 복원 확인
 
     const leavePromise = waitFor(sb, 'presence:update'); // B 가 받을 퇴장 갱신
     sa.disconnect(); // A 연결 종료
     const left = await leavePromise; // 갱신 수신
     check('연결 종료 시 참여자 갱신', left !== null && left.participants.length === 1 && left.participants[0].display_name === '실시간B'); // 퇴장 확인
+    const dropped = await unlockOnDrop; // 해제 수신
+    check('연결 종료 시 잠금 해제 알림', holdLock.ok === true && dropped !== null && dropped.object_id === commit.object_id && dropped.reason === 'disconnected'); // 해제 확인
 
     sb.disconnect(); // B 연결 종료
     console.log(failures === 0 ? '모든 테스트 통과' : failures + '개 실패'); // 결과 요약

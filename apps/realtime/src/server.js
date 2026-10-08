@@ -9,6 +9,8 @@ const boardHandler = require('./handlers/board'); // 보드 참여
 const cursorHandler = require('./handlers/cursor'); // 커서 중계
 const strokeHandler = require('./handlers/stroke'); // 펜 중계·저장
 const objectHandler = require('./handlers/object'); // 객체 생성
+const editHandler = require('./handlers/edit'); // 잠금·이동·삭제
+const locks = require('./locks'); // 잠금 만료 검사
 
 const httpServer = http.createServer((req, res) =>
 {
@@ -33,11 +35,13 @@ io.on('connection', (socket) =>
     cursorHandler.register(io, socket); // cursor:move
     strokeHandler.register(io, socket); // stroke:preview·commit
     objectHandler.register(io, socket); // object:create
+    editHandler.register(io, socket); // object:lock·preview·commit·delete·unlock
 });
 
 async function start()
 {
     await db.one('SELECT 1'); // DB 연결 확인
+    locks.startSweeper(io); // 만료 잠금 정리 시작
     const port = env.int('PORT'); // 수신 포트
     httpServer.listen(port, '0.0.0.0', () =>
     {

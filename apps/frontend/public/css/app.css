@@ -133,6 +133,7 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 .stage { grid-area: stage; position: relative; overflow: hidden; background: #fafafa; }
 #board-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 #board-canvas.pan { cursor: grab; }
+#board-canvas.select { cursor: default; }
 #board-canvas.viewer { cursor: default; }
 
 .props {

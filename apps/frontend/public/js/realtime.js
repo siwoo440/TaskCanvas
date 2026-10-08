@@ -47,6 +47,11 @@ class Realtime
         socket.on('cursor:move', (data) => this.handlers.onCursor(data)); // 타인 커서
         socket.on('stroke:preview', (data) => this.handlers.onStrokePreview(data)); // 타인 펜 미리보기
         socket.on('object:created', (data) => this.handlers.onObjectCreated(data.object, data.guest_id)); // 확정 객체
+        socket.on('object:locked', (data) => this.handlers.onObjectLocked(data)); // 타인 잠금
+        socket.on('object:unlocked', (data) => this.handlers.onObjectUnlocked(data)); // 잠금 해제
+        socket.on('object:preview', (data) => this.handlers.onObjectPreview(data)); // 타인 이동 중
+        socket.on('object:updated', (data) => this.handlers.onObjectUpdated(data.object, data.guest_id)); // 타인 변경 확정
+        socket.on('object:deleted', (data) => this.handlers.onObjectDeleted(data.object_id, data.guest_id)); // 타인 삭제
     }
 
     async authenticate(socket)
@@ -91,7 +96,7 @@ class Realtime
                 else
                 {
                     const error = reply && reply.error ? reply.error : { code: 'UNKNOWN', message: '알 수 없는 오류' }; // 오류 정보
-                    reject(Object.assign(new Error(error.message), { code: error.code })); // 실패
+                    reject(Object.assign(new Error(error.message), { code: error.code, locked_by: error.locked_by ?? null, object: reply && reply.object ? reply.object : null })); // 실패(잠금 소유자·최신 객체 포함)
                 }
             }); // ack 포함 전송
         });
