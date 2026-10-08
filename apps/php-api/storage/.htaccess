@@ -1,0 +1,3 @@
+# 업로드 저장 폴더는 웹에서 직접 접근 금지 (이미지는 /api/images/{id} 로만 제공)
+# 저장소를 통째로 Apache 문서 루트 아래에 둔 경우를 대비한 이중 방어
+Require all denied

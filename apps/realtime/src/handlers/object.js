@@ -1,4 +1,4 @@
-// object:create — 도형 등 새 객체 확정 생성 (이동·삭제·잠금은 4단계)
+// object:create — 도형·이미지·영상·업무 블럭 새 객체 확정 생성 (이동·크기·삭제·잠금은 edit.js)
 'use strict';
 
 const db = require('../db'); // DB 접근

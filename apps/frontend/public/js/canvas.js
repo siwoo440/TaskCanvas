@@ -13,7 +13,7 @@ class BoardCanvas
         this.pending = new Map(); // 저장 응답 대기 중인 내 객체 request_id → 초안
         this.cursors = new Map(); // 타인 커서 guest_id → {x, y, display_name, color, at}
         this.locks = new Map(); // 타인 잠금 object_id → {display_name, color}
-        this.moves = new Map(); // 이동 중 위치 object_id → {x, y} (내 드래그·타인 미리보기)
+        this.moves = new Map(); // 이동·크기 조절 중 상태 object_id → {x, y, width?, height?} (내 드래그·타인 미리보기)
         this.selectedIds = new Set(); // 선택한 객체 ID 집합(다중 선택)
         this.selectedLinkId = null; // 선택한 연결선 ID
         this.links = []; // 연결선 목록 {link_id, from_object_id, to_object_id, label}
@@ -231,6 +231,49 @@ class BoardCanvas
         return mv ? { x: mv.x, y: mv.y } : { x: o.x, y: o.y }; // 미리보기 우선
     }
 
+    // 현재 표시 사각형(이동·크기 조절 미리보기 반영)
+    displayRect(o)
+    {
+        const mv = this.moves.get(o.object_id); // 이동·크기 조절 중 상태
+        if (!mv)
+        {
+            return { x: o.x, y: o.y, width: o.width, height: o.height }; // 저장된 값
+        }
+        const resized = mv.width !== undefined && o.type !== 'stroke'; // 크기 조절 중 여부(획은 크기 변경 없음)
+        return { x: mv.x, y: mv.y, width: resized ? mv.width : o.width, height: resized ? mv.height : o.height }; // 미리보기 우선
+    }
+
+    // 크기 조절 핸들: 하나만 선택한 도형·이미지·영상·업무 블럭의 네 모서리
+    resizeTarget()
+    {
+        const o = this.primarySelected(); // 단일 선택 객체
+        return o && BoardCanvas.RESIZABLE.includes(o.type) && !this.locks.has(o.object_id) ? o : null; // 타인 잠금·획은 제외
+    }
+
+    handlePoints(o)
+    {
+        const r = this.displayRect(o); // 표시 사각형
+        return { nw: [r.x, r.y], ne: [r.x + r.width, r.y], se: [r.x + r.width, r.y + r.height], sw: [r.x, r.y + r.height] }; // 모서리 좌표
+    }
+
+    hitHandle(wx, wy)
+    {
+        const o = this.resizeTarget(); // 핸들을 가진 객체
+        if (!o)
+        {
+            return null;
+        }
+        const tol = 8 / this.view.scale; // 화면 8px 허용 오차
+        for (const [corner, [hx, hy]] of Object.entries(this.handlePoints(o)))
+        {
+            if (Math.abs(wx - hx) <= tol && Math.abs(wy - hy) <= tol)
+            {
+                return { object: o, corner }; // 잡힌 모서리
+            }
+        }
+        return null; // 핸들 아님
+    }
+
     hitTest(wx, wy)
     {
         const tol = 4 / this.view.scale; // 화면 4px 허용 오차
@@ -260,17 +303,19 @@ class BoardCanvas
             }
             else if (o.type === 'rect' || o.type === 'image' || o.type === 'video' || o.type === 'task')
             {
-                if (wx >= pos.x - tol && wx <= pos.x + o.width + tol && wy >= pos.y - tol && wy <= pos.y + o.height + tol)
+                const r = this.displayRect(o); // 표시 사각형(크기 조절 중 반영)
+                if (wx >= r.x - tol && wx <= r.x + r.width + tol && wy >= r.y - tol && wy <= r.y + r.height + tol)
                 {
                     return o; // 경계 사각형 안(영상은 iframe 영역을 제외한 제목 막대만 캔버스에 도달)
                 }
             }
             else if (o.type === 'ellipse')
             {
-                const rx = o.width / 2 + tol; // 가로 반지름
-                const ry = o.height / 2 + tol; // 세로 반지름
-                const nx = (wx - (pos.x + o.width / 2)) / rx; // 정규화 X
-                const ny = (wy - (pos.y + o.height / 2)) / ry; // 정규화 Y
+                const r = this.displayRect(o); // 표시 사각형(크기 조절 중 반영)
+                const rx = r.width / 2 + tol; // 가로 반지름
+                const ry = r.height / 2 + tol; // 세로 반지름
+                const nx = (wx - (r.x + r.width / 2)) / rx; // 정규화 X
+                const ny = (wy - (r.y + r.height / 2)) / ry; // 정규화 Y
                 if (nx * nx + ny * ny <= 1)
                 {
                     return o; // 타원 안
@@ -364,10 +409,10 @@ class BoardCanvas
         {
             return null; // 끝 객체 없음
         }
-        const pa = this.displayPosition(a); // 출발 표시 위치
-        const pb = this.displayPosition(b); // 도착 표시 위치
-        const ca = { x: pa.x + a.width / 2, y: pa.y + a.height / 2 }; // 출발 중심
-        const cb = { x: pb.x + b.width / 2, y: pb.y + b.height / 2 }; // 도착 중심
+        const ra = this.displayRect(a); // 출발 표시 사각형
+        const rb = this.displayRect(b); // 도착 표시 사각형
+        const ca = { x: ra.x + ra.width / 2, y: ra.y + ra.height / 2 }; // 출발 중심
+        const cb = { x: rb.x + rb.width / 2, y: rb.y + rb.height / 2 }; // 도착 중심
         const len = Math.hypot(cb.x - ca.x, cb.y - ca.y); // 중심 거리
         if (len < 1)
         {
@@ -380,8 +425,8 @@ class BoardCanvas
             const t = Math.min(dx !== 0 ? (w / 2) / Math.abs(dx) : Infinity, dy !== 0 ? (h / 2) / Math.abs(dy) : Infinity); // 경계까지 거리
             return { x: c.x + dx * t, y: c.y + dy * t }; // 경계 위 점
         };
-        const p1 = clip(ca, a.width, a.height, ux, uy); // 출발 가장자리
-        const p2 = clip(cb, b.width, b.height, -ux, -uy); // 도착 가장자리
+        const p1 = clip(ca, ra.width, ra.height, ux, uy); // 출발 가장자리
+        const p2 = clip(cb, rb.width, rb.height, -ux, -uy); // 도착 가장자리
         return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, ux, uy }; // 선분과 방향
     }
 
@@ -529,6 +574,21 @@ class BoardCanvas
                 this.drawOutline(ctx, selected, '#2563eb'); // 선택 테두리
             }
         }
+        const resizable = this.resizeTarget(); // 크기 조절 가능한 단일 선택 객체
+        if (resizable)
+        {
+            const size = 8 / this.view.scale; // 화면 기준 8px 핸들
+            ctx.save(); // 핸들 스타일 시작
+            ctx.fillStyle = '#ffffff'; // 핸들 배경
+            ctx.strokeStyle = '#2563eb'; // 핸들 테두리
+            ctx.lineWidth = 1.5 / this.view.scale; // 화면 기준 1.5px
+            for (const [hx, hy] of Object.values(this.handlePoints(resizable)))
+            {
+                ctx.fillRect(hx - size / 2, hy - size / 2, size, size); // 핸들 채우기
+                ctx.strokeRect(hx - size / 2, hy - size / 2, size, size); // 핸들 테두리
+            }
+            ctx.restore(); // 핸들 스타일 끝
+        }
         ctx.restore(); // 뷰포트 변환 끝
         for (const [id, lock] of this.locks)
         {
@@ -582,9 +642,14 @@ class BoardCanvas
 
     drawObject(ctx, o, alpha = 1)
     {
-        const mv = o.object_id !== undefined ? this.moves.get(o.object_id) : null; // 이동 미리보기
+        const mv = o.object_id !== undefined ? this.moves.get(o.object_id) : null; // 이동·크기 조절 미리보기
+        const resized = mv && mv.width !== undefined && o.type !== 'stroke'; // 크기 조절 중 여부
+        if (resized)
+        {
+            o = { ...o, x: mv.x, y: mv.y, width: mv.width, height: mv.height }; // 미리보기 크기로 그릴 복사본
+        }
         ctx.save(); // 객체 변환 시작
-        if (mv)
+        if (mv && !resized)
         {
             ctx.translate(mv.x - o.x, mv.y - o.y); // 이동 중 위치로 평행 이동
         }
@@ -693,13 +758,13 @@ class BoardCanvas
 
     drawOutline(ctx, o, color)
     {
-        const pos = this.displayPosition(o); // 표시 위치
+        const r = this.displayRect(o); // 표시 사각형(이동·크기 조절 반영)
         const pad = 4 / this.view.scale; // 화면 4px 여백
         ctx.save(); // 테두리 스타일 시작
         ctx.strokeStyle = color; // 테두리 색
         ctx.lineWidth = 1.5 / this.view.scale; // 화면 기준 1.5px
         ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]); // 점선
-        ctx.strokeRect(pos.x - pad, pos.y - pad, o.width + pad * 2, o.height + pad * 2); // 경계 사각형
+        ctx.strokeRect(r.x - pad, r.y - pad, r.width + pad * 2, r.height + pad * 2); // 경계 사각형
         ctx.restore(); // 테두리 스타일 끝
     }
 
@@ -728,5 +793,6 @@ class BoardCanvas
 }
 
 BoardCanvas.VIDEO_BAR = 28; // 영상 카드 제목 막대 높이(월드 단위)
+BoardCanvas.RESIZABLE = ['rect', 'ellipse', 'image', 'video', 'task']; // 크기 조절 핸들을 표시할 객체 유형
 
 window.BoardCanvas = BoardCanvas; // 전역 노출

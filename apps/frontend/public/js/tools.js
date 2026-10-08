@@ -1,4 +1,4 @@
-// 마우스·키보드 입력을 도구 동작으로 변환 (선택·이동, 펜, 사각형, 원, 화면 이동, 확대)
+// 마우스·키보드 입력을 도구 동작으로 변환 (선택·이동·크기 조절, 연결선, 펜, 사각형, 원, 화면 이동, 확대)
 'use strict';
 
 function attachTools(canvas, options)
@@ -73,6 +73,13 @@ function attachTools(canvas, options)
         }
         if (state.tool === 'select')
         {
+            const handle = e.shiftKey ? null : canvas.hitHandle(w.x, w.y); // 크기 조절 핸들(객체 판정보다 먼저)
+            if (handle)
+            {
+                const started = options.onResizeDown(handle.object, handle.corner, w); // 잠금 요청 후 크기 조절 시작
+                drag = started ? { mode: 'resize' } : null; // 크기 조절 시작 여부
+                return;
+            }
             const hit = canvas.hitTest(w.x, w.y); // 클릭한 객체
             if (!hit)
             {
@@ -131,6 +138,8 @@ function attachTools(canvas, options)
         }
         if (!drag)
         {
+            const handle = options.getState().tool === 'select' ? canvas.hitHandle(w.x, w.y) : null; // 핸들 위 여부
+            el.style.cursor = handle ? (handle.corner === 'nw' || handle.corner === 'se' ? 'nwse-resize' : 'nesw-resize') : ''; // 대각선 커서 표시
             return;
         }
         if (drag.mode === 'pan')
@@ -142,6 +151,10 @@ function attachTools(canvas, options)
         else if (drag.mode === 'move')
         {
             options.onSelectMove(w); // 객체 이동 중
+        }
+        else if (drag.mode === 'resize')
+        {
+            options.onResizeMove(w, e.shiftKey); // 크기 조절 중(Shift: 비율 유지)
         }
         else if (drag.mode === 'marquee')
         {
@@ -179,9 +192,9 @@ function attachTools(canvas, options)
         }
         const finished = drag; // 완료된 드래그
         drag = null; // 드래그 종료
-        if (finished.mode === 'move')
+        if (finished.mode === 'move' || finished.mode === 'resize')
         {
-            options.onSelectUp(); // 객체 이동 확정
+            options.onSelectUp(); // 객체 이동·크기 조절 확정
             return;
         }
         if (finished.mode === 'marquee')
@@ -226,9 +239,9 @@ function attachTools(canvas, options)
 
     el.addEventListener('pointercancel', () =>
     {
-        if (drag && drag.mode === 'move')
+        if (drag && (drag.mode === 'move' || drag.mode === 'resize'))
         {
-            options.onEscape(); // 이동 취소
+            options.onEscape(); // 이동·크기 조절 취소
         }
         cancel(); // 그리기 취소
     });

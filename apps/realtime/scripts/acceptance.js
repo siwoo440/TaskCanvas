@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC19 를 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC21 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -67,9 +67,10 @@ function setupProject()
     const out = phpCli('create-project.php', ['AC Project ' + Date.now(), 'Board A', 'Board B']); // 프로젝트·보드 생성
     const boards = [...out.matchAll(/board_id=(\d+)/g)].map((m) => Number(m[1])); // 보드 ID
     const projectId = Number(/project_id=(\d+)/.exec(out)[1]); // 프로젝트 ID
+    const adminCode = /관리자 초대 코드: (\S+)/.exec(out)[1]; // create-project 가 한 번 출력하는 최초 관리자 코드
     const editorCode = /초대 코드: (\S+)/.exec(phpCli('create-invite.php', [String(projectId), 'editor', '1']))[1]; // 편집자 코드
     const viewerCode = /초대 코드: (\S+)/.exec(phpCli('create-invite.php', [String(projectId), 'viewer', '1']))[1]; // 열람자 코드
-    return { projectId, boardA: boards[0], boardB: boards[1], editorCode, viewerCode }; // 테스트 환경
+    return { projectId, boardA: boards[0], boardB: boards[1], adminCode, editorCode, viewerCode }; // 테스트 환경
 }
 
 // ---------- 호출 도우미 ----------
@@ -171,7 +172,7 @@ function imageForm(projectId, file, type, name)
 
 async function run(envInfo)
 {
-    const { projectId, boardA, boardB, editorCode, viewerCode } = envInfo; // 테스트 환경
+    const { projectId, boardA, boardB, adminCode, editorCode, viewerCode } = envInfo; // 테스트 환경
 
     // AC01 게스트 참여
     const bad = await join('AC-Bad', 'WRONG-CODE-0000'); // 잘못된 코드
@@ -359,6 +360,40 @@ async function run(envInfo)
         ack(B.socket, 'object:commit', { board_id: boardA, object_id: m2.object_id, lock_token: lockBoth2.lock_token, version: 1, changes: { x: 120, y: 50 } }), // 함께 이동 2
     ]); // 동시 확정
     record('AC19', '다중 선택 이동', otherLock.ok && lockM1.ok && lockM2.ok === false && lockM2.error.code === 'OBJECT_LOCKED' && otherLockM1.ok && lockBoth1.ok && lockBoth2.ok && mv1.ok && mv2.ok && mv1.object.x === 100 && mv2.object.x === 120, '타인 잠금 포함 시 전체 취소·반납, 모두 잠그면 동시 이동 저장');
+
+    // AC20 초대 코드 관리: 관리자만 목록·발급·취소, 발급한 코드로 입장, 취소 후에는 거부
+    const invitesPath = '/api/projects/' + projectId + '/invites'; // 초대 API 경로
+    const admin = await join('AC-Admin', adminCode); // create-project 가 출력한 최초 관리자 코드로 입장
+    const inviteList = await api('GET', invitesPath, undefined, admin.cookie); // 관리자 목록 조회
+    const editorList = await api('GET', invitesPath, undefined, B.cookie); // 편집자 목록 조회 시도
+    const editorIssue = await api('POST', invitesPath, { role: 'viewer', days: 1 }, B.cookie); // 편집자 발급 시도
+    const issued = await api('POST', invitesPath, { role: 'viewer', days: 3 }, admin.cookie); // 관리자 발급
+    const badDays = await api('POST', invitesPath, { role: 'viewer', days: 31 }, admin.cookie); // 허용 범위 밖 기간
+    const badRole = await api('POST', invitesPath, { role: 'owner', days: 1 }, admin.cookie); // 없는 역할
+    const viaIssued = await join('AC-Invited', issued.json.code); // 발급한 코드로 입장
+    const revoked = await api('POST', '/api/invites/' + issued.json.invite.invite_id + '/revoke', {}, admin.cookie); // 취소
+    const afterRevoke = await join('AC-Late', issued.json.code); // 취소된 코드로 입장 시도
+    const stillMember = await api('GET', '/api/me', undefined, viaIssued.cookie); // 이미 입장한 사람은 유지
+    record('AC20', '초대 코드 관리', admin.status === 201 && admin.json.role === 'admin' && inviteList.status === 200 && inviteList.json.invites.length >= 3
+        && inviteList.json.invites.every((i) => i.code === undefined && i.code_hash === undefined) && editorList.status === 403 && editorIssue.status === 403
+        && issued.status === 201 && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(issued.json.code) && issued.json.invite.status === 'active' && badDays.status === 400 && badRole.status === 400
+        && viaIssued.status === 201 && viaIssued.json.role === 'viewer' && revoked.status === 200 && revoked.json.invite.status === 'revoked'
+        && afterRevoke.status === 401 && afterRevoke.json.error.code === 'INVALID_INVITE' && stillMember.status === 200, '관리자만 목록·발급·취소(편집자 403), 발급 코드 입장, 취소 후 거부, 목록에 코드 원문 없음');
+
+    // AC21 크기 조절: 미리보기에 크기 포함, 확정 저장, 너무 작은 크기 거부, 펜 획은 크기 변경 무시
+    const rz = await ack(B.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 40, height: 20 }); // 크기 조절 대상
+    const rzLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: rz.object_id }); // 잠금
+    const rzPreviewPromise = until(C2.socket, 'object:preview', (d) => d.object_id === rz.object_id && d.width !== undefined); // 크기 포함 미리보기 수신
+    B.socket.emit('object:preview', { board_id: boardA, object_id: rz.object_id, lock_token: rzLock.lock_token, x: -10, y: -5, width: 80, height: 50 }); // 크기 조절 중
+    const rzPreview = await rzPreviewPromise; // 수신
+    const rzSmall = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: rz.object_id, lock_token: rzLock.lock_token, version: 1, changes: { width: 0, height: 50 } }); // 0 크기 시도
+    const rzCommit = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: rz.object_id, lock_token: rzLock.lock_token, version: 1, changes: { x: -10, y: -5, width: 80, height: 50 } }); // 크기 확정
+    const strokeLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: strokeCommit.object_id }); // 펜 획 잠금
+    const strokeResize = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: strokeCommit.object_id, lock_token: strokeLock.lock_token, version: 1, changes: { width: 999, height: 999 } }); // 획 크기 변경 시도
+    const snapRz = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json.objects.find((o) => o.object_id === rz.object_id); // 저장된 결과
+    record('AC21', '크기 조절', rzLock.ok && rzPreview !== null && rzPreview.width === 80 && rzPreview.height === 50 && rzSmall.ok === false && rzSmall.error.code === 'BAD_REQUEST'
+        && rzCommit.ok && rzCommit.object.width === 80 && rzCommit.object.x === -10 && snapRz && snapRz.width === 80 && snapRz.height === 50 && snapRz.version === 2
+        && strokeResize.ok && strokeResize.object.width === 2 && strokeResize.object.height === 2, '미리보기·확정에 크기 반영, 0 크기 거부, 펜 획 크기는 유지');
 
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');

@@ -19,7 +19,7 @@ const $ = (id) => document.getElementById(id); // 요소 조회 단축
 let canvas = null; // BoardCanvas
 let realtime = null; // Realtime
 let overlay = null; // VideoOverlay
-let move = null; // 진행 중인 객체 이동 {object, start, dx, dy, token, armed, finished, lastPreviewAt}
+let move = null; // 진행 중인 이동·크기 조절 세션 {kind, objects, tokens, start, dx, dy, corner?, shift?, armed, finished, lastPreviewAt}
 
 function showView(name)
 {
@@ -64,6 +64,20 @@ function boardId()
 
 // ---------- 입장 ----------
 
+// 초대 링크(http://서버:8080/#code=XXXX-XXXX-XXXX)의 코드를 꺼내고 주소창·방문 기록에서 지운다
+function takeInviteCodeFromUrl()
+{
+    const match = /^#code=([A-Za-z0-9-]{4,120})$/.exec(location.hash); // # 뒤의 초대 코드
+    if (!match)
+    {
+        return null; // 초대 링크 아님
+    }
+    history.replaceState(null, '', location.pathname + location.search); // 주소에서 코드 제거
+    return match[1]; // 코드 원문
+}
+
+let pendingInviteCode = takeInviteCodeFromUrl(); // 초대 링크로 들어온 코드(입장 화면에 한 번만 채움)
+
 async function bootstrap()
 {
     try
@@ -73,6 +87,7 @@ async function bootstrap()
         state.project = me.projects[0] ?? null; // 첫 프로젝트 선택(MVP: 초대 코드당 프로젝트 1개)
         if (state.project)
         {
+            pendingInviteCode = null; // 이미 입장한 상태면 링크의 코드는 쓰지 않음
             return openBoards(); // 보드 선택 화면
         }
     }
@@ -81,6 +96,12 @@ async function bootstrap()
         // 세션 없음 → 입장 화면
     }
     showView('join'); // 입장 화면
+    if (pendingInviteCode)
+    {
+        $('join-code').value = pendingInviteCode; // 초대 링크의 코드 자동 입력
+        $('join-hint').textContent = '초대 링크의 코드가 입력되었습니다. 이름만 입력하고 입장하세요.'; // 안내
+        pendingInviteCode = null; // 한 번만 사용
+    }
     $('join-name').focus(); // 이름 입력 포커스
 }
 
@@ -92,6 +113,7 @@ $('join-form').addEventListener('submit', async (e) =>
     {
         await window.api.post('/api/guest/join', { display_name: $('join-name').value.trim(), invite_code: $('join-code').value.trim() }); // 게스트 입장
         $('join-code').value = ''; // 코드 입력 비움
+        $('join-hint').textContent = ''; // 초대 링크 안내 비움
         await bootstrap(); // 세션 기준으로 다시 진입
     }
     catch (err)
@@ -110,6 +132,14 @@ async function openBoards()
     $('boards-role').textContent = { admin: '관리자', editor: '편집자', viewer: '열람자' }[state.project.role] ?? state.project.role; // 역할 표시
     $('board-create-form').hidden = !canEdit(); // 열람자는 생성 불가
     $('boards-error').textContent = ''; // 오류 초기화
+    const isAdmin = state.project.role === 'admin'; // 관리자 여부
+    $('invite-admin').hidden = !isAdmin; // 초대 코드 관리는 관리자에게만 표시(서버도 관리자만 허용)
+    $('invite-result').hidden = true; // 이전 발급 결과 숨김
+    $('invite-error').textContent = ''; // 오류 초기화
+    if (isAdmin)
+    {
+        loadInvites(); // 초대 목록 조회
+    }
     try
     {
         const data = await window.api.get('/api/projects/' + state.project.project_id + '/boards'); // 보드 목록 조회
@@ -173,6 +203,134 @@ $('boards-leave').addEventListener('click', async () =>
     state.project = null; // 프로젝트 비움
     showView('join'); // 입장 화면
 });
+
+// ---------- 초대 코드 관리 (관리자) ----------
+
+const ROLE_LABELS = { admin: '관리자', editor: '편집자', viewer: '열람자' }; // 역할 이름
+const INVITE_STATUS_LABELS = { active: '사용 가능', expired: '만료', revoked: '취소됨' }; // 초대 상태 이름
+const COPY_LABELS = { 'invite-copy-code': '코드 복사', 'invite-copy-link': '링크 복사' }; // 복사 버튼 기본 문구
+
+async function loadInvites()
+{
+    try
+    {
+        const data = await window.api.get('/api/projects/' + state.project.project_id + '/invites'); // 초대 목록 조회(관리자만 허용)
+        renderInvites(data.invites); // 목록 표시
+    }
+    catch (err)
+    {
+        $('invite-error').textContent = err.message; // 오류 표시
+    }
+}
+
+function renderInvites(invites)
+{
+    const tbody = $('invite-list'); // 목록 본문
+    tbody.innerHTML = ''; // 초기화
+    for (const invite of invites)
+    {
+        const tr = document.createElement('tr'); // 행
+        for (const text of [ROLE_LABELS[invite.role] ?? invite.role, invite.expires_at.slice(0, 16), INVITE_STATUS_LABELS[invite.status] ?? invite.status])
+        {
+            const td = document.createElement('td'); // 칸
+            td.textContent = text; // 서버 값은 textContent 로만 표시
+            tr.appendChild(td); // 칸 추가
+        }
+        const action = document.createElement('td'); // 동작 칸
+        if (invite.status === 'active')
+        {
+            const btn = document.createElement('button'); // 취소 버튼
+            btn.type = 'button'; // 제출 방지
+            btn.textContent = '취소'; // 버튼 문구
+            btn.addEventListener('click', () => revokeInvite(invite.invite_id)); // 초대 취소
+            action.appendChild(btn); // 버튼 추가
+        }
+        tr.appendChild(action); // 동작 칸 추가
+        tbody.appendChild(tr); // 행 추가
+    }
+}
+
+async function revokeInvite(inviteId)
+{
+    $('invite-error').textContent = ''; // 오류 초기화
+    try
+    {
+        await window.api.post('/api/invites/' + inviteId + '/revoke'); // 초대 취소(이미 입장한 참여자는 유지)
+        await loadInvites(); // 목록 갱신
+    }
+    catch (err)
+    {
+        $('invite-error').textContent = err.message; // 오류 표시
+    }
+}
+
+function inviteLink(code)
+{
+    return location.origin + location.pathname + '#code=' + code; // # 뒤 값은 서버로 전송되지 않아 접속 로그에 남지 않음
+}
+
+async function copyText(text)
+{
+    try
+    {
+        if (navigator.clipboard && window.isSecureContext)
+        {
+            await navigator.clipboard.writeText(text); // HTTPS·localhost 에서만 동작하는 표준 방식
+            return true;
+        }
+    }
+    catch (err)
+    {
+        // 아래 대체 방식으로 진행
+    }
+    const area = document.createElement('textarea'); // LAN 의 http 접속용 대체 방식
+    area.value = text; // 복사할 글
+    area.style.position = 'fixed'; // 화면 흔들림 방지
+    area.style.opacity = '0'; // 보이지 않게
+    document.body.appendChild(area); // 문서에 추가
+    area.select(); // 전체 선택
+    let ok = false; // 복사 성공 여부
+    try
+    {
+        ok = document.execCommand('copy'); // 선택 영역 복사
+    }
+    catch (err)
+    {
+        ok = false; // 복사 실패
+    }
+    area.remove(); // 임시 요소 제거
+    return ok; // 결과
+}
+
+$('invite-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 기본 제출 방지
+    $('invite-error').textContent = ''; // 오류 초기화
+    try
+    {
+        const data = await window.api.post('/api/projects/' + state.project.project_id + '/invites', { role: $('invite-role').value, days: Number($('invite-days').value) }); // 초대 코드 발급
+        const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname); // 서버 PC 자신으로 접속 중인지
+        $('invite-code').textContent = data.code; // 코드 원문(이 응답에서만 받음)
+        $('invite-link').textContent = inviteLink(data.code); // 초대 링크
+        $('invite-link-note').textContent = (local ? '지금은 localhost 로 접속 중입니다. 다른 PC 에 보낼 때는 링크의 localhost 를 이 PC 의 IP 주소로 바꾸세요. ' : '') + '링크를 열면 초대 코드가 자동으로 입력되고 주소창에서는 바로 지워집니다.'; // 안내
+        $('invite-result').hidden = false; // 발급 결과 표시
+        await loadInvites(); // 목록 갱신
+    }
+    catch (err)
+    {
+        $('invite-error').textContent = err.message; // 오류 표시
+    }
+});
+
+for (const [buttonId, sourceId] of [['invite-copy-code', 'invite-code'], ['invite-copy-link', 'invite-link']])
+{
+    $(buttonId).addEventListener('click', async () =>
+    {
+        const copied = await copyText($(sourceId).textContent); // 클립보드 복사
+        $(buttonId).textContent = copied ? '복사됨' : '복사 실패: 직접 선택해 복사하세요'; // 결과 표시
+        setTimeout(() => { $(buttonId).textContent = COPY_LABELS[buttonId]; }, 1500); // 기본 문구 복원
+    });
+}
 
 // ---------- 화이트보드 ----------
 
@@ -361,7 +519,7 @@ function updateSelectionInfo()
     let text = ''; // 안내 문구
     if (list.length === 1)
     {
-        text = '선택: ' + (names[list[0].type] ?? list[0].type) + ' #' + list[0].object_id + ' (v' + list[0].version + ') — Delete 키로 삭제'; // 단일 선택
+        text = '선택: ' + (names[list[0].type] ?? list[0].type) + ' #' + list[0].object_id + ' (v' + list[0].version + ') — Delete 키로 삭제' + (BoardCanvas.RESIZABLE.includes(list[0].type) ? ', 모서리를 끌어 크기 조절' : ''); // 단일 선택
     }
     else if (list.length > 1)
     {
@@ -421,9 +579,20 @@ function releaseTokens(s)
     s.tokens.clear(); // 토큰 비움
 }
 
-async function beginMove(objects, w)
+function beginMove(objects, w)
 {
-    const session = { objects, tokens: new Map(), start: w, dx: 0, dy: 0, armed: false, finished: false, lastPreviewAt: 0 }; // 이동 세션(여러 객체)
+    return startSession({ kind: 'move', objects, start: w }); // 이동 세션(여러 객체)
+}
+
+function beginResize(object, corner, w)
+{
+    return startSession({ kind: 'resize', objects: [object], start: w, corner, shift: false }); // 크기 조절 세션(객체 하나)
+}
+
+async function startSession(base)
+{
+    const session = { ...base, tokens: new Map(), dx: 0, dy: 0, armed: false, finished: false, lastPreviewAt: 0 }; // 잠금 토큰과 누적 이동량을 가진 세션
+    const objects = session.objects; // 대상 객체
     move = session; // 현재 세션
     try
     {
@@ -455,11 +624,46 @@ async function beginMove(objects, w)
     }
 }
 
+// 크기 조절 결과 사각형: 잡은 모서리의 반대편 모서리를 고정하고 최소 크기·비율·격자 맞춤을 적용
+function resizedRect(o, corner, dx, dy, keepRatio)
+{
+    const MIN = 10; // 최소 변 길이
+    const west = corner.includes('w'); // 왼쪽 모서리를 잡았는지
+    const north = corner.includes('n'); // 위쪽 모서리를 잡았는지
+    const anchorX = west ? o.x + o.width : o.x; // 고정되는 X
+    const anchorY = north ? o.y + o.height : o.y; // 고정되는 Y
+    let px = (west ? o.x : o.x + o.width) + dx; // 움직이는 모서리 X
+    let py = (north ? o.y : o.y + o.height) + dy; // 움직이는 모서리 Y
+    if (state.snap)
+    {
+        px = Math.round(px / 10) * 10; // 격자 맞춤 X
+        py = Math.round(py / 10) * 10; // 격자 맞춤 Y
+    }
+    let width = Math.max(MIN, west ? anchorX - px : px - anchorX); // 새 너비(뒤집힘 방지)
+    let height = Math.max(MIN, north ? anchorY - py : py - anchorY); // 새 높이
+    if (keepRatio)
+    {
+        const scale = Math.max(width / o.width, height / o.height, MIN / o.width, MIN / o.height); // 더 많이 늘린 축 기준 배율
+        width = o.width * scale; // 비율 유지 너비
+        height = o.height * scale; // 비율 유지 높이
+    }
+    return { x: west ? anchorX - width : anchorX, y: north ? anchorY - height : anchorY, width, height }; // 결과 사각형
+}
+
+function previewOf(s, o)
+{
+    if (s.kind === 'resize')
+    {
+        return resizedRect(o, s.corner, s.dx, s.dy, s.shift || o.type === 'image' || o.type === 'video'); // 이미지·영상은 항상 비율 유지
+    }
+    return { x: o.x + s.dx, y: o.y + s.dy }; // 이동
+}
+
 function applyMovePreview(s)
 {
     for (const o of s.objects)
     {
-        canvas.moves.set(o.object_id, { x: o.x + s.dx, y: o.y + s.dy }); // 로컬 미리보기
+        canvas.moves.set(o.object_id, previewOf(s, o)); // 로컬 미리보기
     }
     canvas.invalidate(); // 다시 그리기
     const now = Date.now(); // 현재 시각
@@ -468,17 +672,18 @@ function applyMovePreview(s)
         s.lastPreviewAt = now; // 전송 시각 갱신
         for (const o of s.objects)
         {
-            realtime.emit('object:preview', { board_id: boardId(), object_id: o.object_id, lock_token: s.tokens.get(o.object_id), x: o.x + s.dx, y: o.y + s.dy }); // 이동 중 위치 공유
+            realtime.emit('object:preview', { board_id: boardId(), object_id: o.object_id, lock_token: s.tokens.get(o.object_id), ...previewOf(s, o) }); // 이동·크기 조절 중 상태 공유
         }
     }
 }
 
-function updateMove(w)
+function updateMove(w, shift = false)
 {
     if (!move)
     {
         return;
     }
+    move.shift = shift; // Shift: 크기 조절 시 비율 유지
     move.dx = w.x - move.start.x; // 누적 이동 X
     move.dy = w.y - move.start.y; // 누적 이동 Y
     if (move.armed)
@@ -512,6 +717,12 @@ async function finishMove(s)
         }
         canvas.invalidate(); // 다시 그리기
         releaseTokens(s); // 변경 없음 → 잠금 해제
+        return;
+    }
+    if (s.kind === 'resize')
+    {
+        const target = s.objects[0]; // 크기 조절 대상
+        await commitObject(target, s.tokens.get(target.object_id), previewOf(s, target)); // 위치·크기 저장
         return;
     }
     await Promise.all(s.objects.map((o) =>
@@ -1138,7 +1349,17 @@ const toolHandlers = {
     onLinkSelect: (link) => setSelection([], link.link_id), // 연결선 선택
     onLinkCreate: (from, to) => createLink(from, to), // 연결선 생성
     onSelectMove: (w) => updateMove(w), // 이동 중
-    onSelectUp: () => endMove(), // 이동 확정
+    onResizeDown: (object, corner, w) =>
+    {
+        if (move || canvas.locks.has(object.object_id))
+        {
+            return false; // 다른 작업 처리 중이거나 타인이 잠근 객체
+        }
+        beginResize(object, corner, w); // 잠금 요청 후 크기 조절 시작
+        return true;
+    },
+    onResizeMove: (w, shift) => updateMove(w, shift), // 크기 조절 중
+    onSelectUp: () => endMove(), // 이동·크기 조절 확정
     onEscape: () =>
     {
         cancelMove(); // 이동 취소
@@ -1220,7 +1441,13 @@ const realtimeHandlers = {
     },
     onObjectPreview: (data) =>
     {
-        canvas.moves.set(data.object_id, { x: data.x, y: data.y }); // 타인 이동 중 위치
+        const preview = { x: data.x, y: data.y }; // 타인 이동 중 위치
+        if (data.width !== undefined && data.height !== undefined)
+        {
+            preview.width = data.width; // 타인 크기 조절 중 너비
+            preview.height = data.height; // 타인 크기 조절 중 높이
+        }
+        canvas.moves.set(data.object_id, preview); // 미리보기 반영
         canvas.invalidate(); // 다시 그리기
     },
     onObjectUpdated: (object) =>

@@ -40,7 +40,7 @@ final class ImageController
             throw new ApiException(415, 'INVALID_FILE', 'PNG, JPG, WEBP 이미지만 업로드할 수 있습니다.'); // 형식 검사
         }
 
-        $dir = self::uploadDir() . DIRECTORY_SEPARATOR . $projectId; // 프로젝트별 저장 폴더
+        $dir = Storage::uploadDir() . DIRECTORY_SEPARATOR . $projectId; // 프로젝트별 저장 폴더
         if (!is_dir($dir) && !mkdir($dir, 0750, true) && !is_dir($dir))
         {
             throw new ApiException(500, 'SAVE_FAILED', '저장 폴더를 만들 수 없습니다.'); // 폴더 생성 실패
@@ -79,7 +79,7 @@ final class ImageController
             throw new ApiException(404, 'NOT_FOUND', '이미지를 찾을 수 없습니다.'); // 없음
         }
         Auth::requireRole((int) $guest['guest_id'], (int) $asset['project_id'], 'viewer'); // 프로젝트 참여자 확인
-        $path = self::uploadDir() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $asset['stored_path']); // 실제 파일 경로
+        $path = Storage::uploadDir() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $asset['stored_path']); // 실제 파일 경로
         if (!is_file($path))
         {
             throw new ApiException(404, 'NOT_FOUND', '이미지 파일이 없습니다.'); // 파일 유실
@@ -98,12 +98,5 @@ final class ImageController
         header('Cache-Control: private, max-age=86400'); // 참여자 브라우저 캐시
         header('ETag: ' . $etag); // 변경 감지 태그
         readfile($path); // 파일 전송
-    }
-
-    private static function uploadDir(): string
-    {
-        $configured = Env::get('UPLOAD_DIR', 'storage/uploads'); // 설정 경로
-        $isAbsolute = preg_match('#^([a-zA-Z]:[\\\\/]|/)#', $configured) === 1; // 절대 경로 여부
-        return $isAbsolute ? $configured : dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $configured); // php-api 기준 상대 경로 변환
     }
 }

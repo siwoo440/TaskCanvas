@@ -21,16 +21,26 @@
 
 ## 보안 체크리스트
 
-- [ ] 세션/초대 코드는 난수 기반으로 생성하고 해시만 저장.
-- [ ] 프로젝트 멤버십·역할을 모든 HTTP/Socket 수정 요청에서 재검사.
-- [ ] `board_id`가 현재 게스트 프로젝트에 속하는지 확인.
-- [ ] 파일이 이미지인지 서버 측에서 검사, 10MB 제한.
-- [ ] 업로드 저장 경로는 웹 문서 루트 밖, 파일 직접 실행 금지.
-- [ ] PHP SQL은 PDO 바인딩, HTML 텍스트는 출력 이스케이프.
-- [ ] CSRF 방어 및 세션 쿠키 HttpOnly / SameSite / HTTPS에서 Secure.
-- [ ] 외부 영상은 허용된 서비스의 안전한 임베드 URL만 사용.
-- [ ] 저장·삭제·잠금은 서버 권한·버전·소유자 검증.
-- [ ] `.env`, 실제 초대 코드, 학교 PC IP·비공개 자료, 데이터베이스 덤프 업로드 금지.
+구현과 대조한 결과입니다(9단계, 2026-10-08). 괄호 안은 근거 위치입니다.
+
+- [x] 세션/초대 코드는 난수 기반으로 생성하고 해시만 저장. (`Auth::newSecret` 의 `random_bytes`, `Invite::generateCode` 의 `random_int`, DB 에는 SHA-256 해시만. 초대 목록 API 도 원문·해시를 반환하지 않음 — AC20)
+- [x] 프로젝트 멤버십·역할을 모든 HTTP/Socket 수정 요청에서 재검사. (HTTP 는 `Auth::requireRole`, Socket 은 확정·생성·잠금·삭제·업무·연결선 이벤트마다 `auth.hasRole` 로 DB 재조회 — AC14)
+- [x] `board_id`가 현재 게스트 프로젝트에 속하는지 확인. (티켓이 보드에 묶이고, 소켓은 참여한 보드와 다른 `board_id` 이벤트를 거부 — AC02)
+- [x] 파일이 이미지인지 서버 측에서 검사, 10MB 제한. (`finfo` 내용 MIME + `getimagesize` — AC08·AC09)
+- [x] 업로드 저장 경로는 웹 문서 루트 밖, 파일 직접 실행 금지. (`apps/php-api/storage/uploads`, 랜덤 파일명·고정 확장자, `storage/.htaccess` 로 직접 접근 차단, 조회는 `/api/images/{id}` 만)
+- [x] PHP SQL은 PDO 바인딩, HTML 텍스트는 출력 이스케이프. (모든 쿼리 `Database::run` 바인딩. 프론트엔드는 서버 값을 `textContent`·캔버스 `fillText` 로만 표시하고 `innerHTML` 에는 고정 문자열만 사용)
+- [x] CSRF 방어 및 세션 쿠키 HttpOnly / SameSite / HTTPS에서 Secure. (`X-TaskCanvas` 헤더 검사, `SameSite=Strict`·`HttpOnly`, `COOKIE_SECURE=1` 로 Secure)
+- [x] 외부 영상은 허용된 서비스의 안전한 임베드 URL만 사용. (서버 `video.js` 가 YouTube·Vimeo ID 를 검사해 임베드 URL 을 직접 생성, iframe `sandbox` — AC11)
+- [x] 저장·삭제·잠금은 서버 권한·버전·소유자 검증. (잠금 토큰·`version` 비교·`SELECT … FOR UPDATE` — AC06·AC07·AC19)
+- [x] `.env`, 실제 초대 코드, 학교 PC IP·비공개 자료, 데이터베이스 덤프 업로드 금지. (`.gitignore` 로 `.env`·업로드·덤프 제외. 저장소에는 `.env.example` 과 `schema.sql` 만 있음)
+
+### 알고 있는 한계 (시연 범위에서 수용)
+
+- 학교 LAN 시연은 HTTP 입니다. 같은 네트워크에서 트래픽을 볼 수 있는 사람은 세션 쿠키와 초대 코드를 볼 수 있으므로 공개망에 그대로 올리지 않습니다.
+- 초대 링크(`#code=…`)는 서버 로그에는 남지 않지만(# 뒤는 전송되지 않음) 링크를 전달한 메신저·화면에는 남습니다. 입장 직후 주소창에서는 지워집니다. 시연이 끝나면 관리자 화면에서 코드를 취소합니다.
+- Socket.IO `CORS_ORIGIN` 기본값은 `*` 입니다. 접속에는 일회용 티켓이 필요하지만, 운영 시에는 `http://서버IP:포트` 로 제한합니다.
+- 요청 제한은 입장(`/api/guest/join`)에만 있습니다. 실시간 이벤트는 커서(약 30Hz)와 이벤트 크기(1MB)만 제한합니다.
+- 초대 코드는 만료·취소만 지원하고 사용 횟수 제한은 없습니다.
 
 ---
 

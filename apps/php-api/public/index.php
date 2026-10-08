@@ -21,6 +21,9 @@ $router->add('POST', '/api/projects/{id}/boards', [BoardController::class, 'crea
 $router->add('GET', '/api/boards/{id}/snapshot', [BoardController::class, 'snapshot']); // 보드 스냅샷
 $router->add('GET', '/api/projects/{id}/members', [ProjectController::class, 'members']); // 참여자 목록
 $router->add('GET', '/api/projects/{id}/tasks', [ProjectController::class, 'tasks']); // 공유 업무 목록(P1)
+$router->add('GET', '/api/projects/{id}/invites', [InviteController::class, 'list']); // 초대 코드 목록(관리자)
+$router->add('POST', '/api/projects/{id}/invites', [InviteController::class, 'create']); // 초대 코드 발급(관리자)
+$router->add('POST', '/api/invites/{id}/revoke', [InviteController::class, 'revoke']); // 초대 코드 취소(관리자)
 $router->add('POST', '/api/images', [ImageController::class, 'upload']); // 이미지 업로드
 $router->add('GET', '/api/images/{id}', [ImageController::class, 'show']); // 이미지 반환
 

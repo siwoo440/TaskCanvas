@@ -181,7 +181,15 @@ function register(io, socket)
         {
             return; // 잠금 없음·좌표 오류 무시
         }
-        socket.to(presence.roomName(boardId)).volatile.emit('object:preview', { object_id: lock.object_id, guest_id: socket.data.guestId, x, y }); // 이동 중 위치 중계
+        const preview = { object_id: lock.object_id, guest_id: socket.data.guestId, x, y }; // 이동 중 위치
+        const width = Number(data.width); // 크기 조절 중 너비(선택)
+        const height = Number(data.height); // 크기 조절 중 높이(선택)
+        if (Number.isFinite(width) && Number.isFinite(height) && width >= 1 && height >= 1)
+        {
+            preview.width = width; // 크기 조절 미리보기 너비
+            preview.height = height; // 크기 조절 미리보기 높이
+        }
+        socket.to(presence.roomName(boardId)).volatile.emit('object:preview', preview); // 이동·크기 조절 중 상태 중계
     });
 
     socket.on('object:commit', async (data, ack) =>

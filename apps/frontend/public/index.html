@@ -18,6 +18,7 @@
             <label>초대 코드
                 <input id="join-code" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
             </label>
+            <p id="join-hint" class="muted small"></p>
             <button type="submit" class="primary">입장</button>
             <p id="join-error" class="error" role="alert"></p>
         </form>
@@ -39,6 +40,32 @@
                 <button type="submit" class="primary">보드 만들기</button>
             </form>
             <p id="boards-error" class="error" role="alert"></p>
+            <section id="invite-admin" hidden>
+                <hr>
+                <h2>초대 코드 관리 <span class="muted small">관리자 전용</span></h2>
+                <form id="invite-form" class="row">
+                    <label>역할
+                        <select id="invite-role">
+                            <option value="editor">편집자</option>
+                            <option value="viewer">열람자</option>
+                            <option value="admin">관리자</option>
+                        </select>
+                    </label>
+                    <label>유효 기간(일) <input id="invite-days" type="number" min="1" max="30" step="1" value="7" required></label>
+                    <button type="submit" class="primary">초대 코드 발급</button>
+                </form>
+                <div id="invite-result" class="invite-result" hidden>
+                    <p><strong>새 초대 코드</strong> <span class="muted small">지금만 표시됩니다. 다시 볼 수 없으니 바로 전달하세요.</span></p>
+                    <p class="row"><code id="invite-code"></code> <button type="button" id="invite-copy-code">코드 복사</button></p>
+                    <p class="row"><code id="invite-link"></code> <button type="button" id="invite-copy-link">링크 복사</button></p>
+                    <p class="muted small" id="invite-link-note"></p>
+                </div>
+                <table class="invite-table">
+                    <thead><tr><th>역할</th><th>만료</th><th>상태</th><th></th></tr></thead>
+                    <tbody id="invite-list"></tbody>
+                </table>
+                <p id="invite-error" class="error" role="alert"></p>
+            </section>
         </div>
     </section>
 
@@ -111,7 +138,7 @@
             </section>
             <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>모서리 핸들: 크기 조절 (이미지·영상은 비율 유지, Shift: 비율 유지)<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
 
         <dialog id="video-dialog">

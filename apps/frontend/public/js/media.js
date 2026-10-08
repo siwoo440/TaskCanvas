@@ -113,10 +113,10 @@ class VideoOverlay
                 this.container.appendChild(frame); // 오버레이에 추가
                 this.frames.set(o.object_id, frame); // 등록
             }
-            const pos = canvas.displayPosition(o); // 표시 위치(이동 중 반영)
+            const pos = canvas.displayRect(o); // 표시 사각형(이동·크기 조절 중 반영)
             const s = canvas.toScreen(pos.x, pos.y + BoardCanvas.VIDEO_BAR); // 재생 영역 화면 좌표
-            const w = o.width * canvas.view.scale; // 화면 너비
-            const h = (o.height - BoardCanvas.VIDEO_BAR) * canvas.view.scale; // 화면 높이
+            const w = pos.width * canvas.view.scale; // 화면 너비
+            const h = (pos.height - BoardCanvas.VIDEO_BAR) * canvas.view.scale; // 화면 높이
             const offscreen = s.x + w < 0 || s.y + h < 0 || s.x > width || s.y > height || h <= 0; // 화면 밖 여부
             frame.style.display = offscreen ? 'none' : ''; // 화면 밖이면 숨김
             frame.style.transform = 'translate(' + s.x + 'px, ' + s.y + 'px)'; // 위치

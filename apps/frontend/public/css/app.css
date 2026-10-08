@@ -13,6 +13,9 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 속성은 항상 숨김: .row·#task-props 처럼 display 를 지정한 규칙이 hidden 을 덮어쓰지 않게 한다 */
+[hidden] { display: none !important; }
+
 html, body {
     margin: 0;
     height: 100%;
@@ -40,6 +43,8 @@ h2 { margin: 0 0 12px; font-size: 15px; }
     justify-content: center;
     padding: 24px;
 }
+/* 보드 선택 화면은 초대 관리 표가 길어질 수 있으므로 위에서부터 배치하고 문서 스크롤 허용 */
+#view-boards { align-items: flex-start; height: auto; min-height: 100%; }
 .card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -84,8 +89,10 @@ button.primary { background: var(--primary); border-color: var(--primary); color
 /* 화이트보드 레이아웃: 상단바 / 좌측 툴바 / 캔버스 / 우측 속성 */
 .board-layout {
     display: grid;
+    height: 100vh; /* 창 높이에 고정: 패널이 길어져도 문서 전체가 스크롤되지 않게 한다 */
+    overflow: hidden;
     grid-template-columns: 56px 1fr 220px;
-    grid-template-rows: 48px 1fr;
+    grid-template-rows: 48px minmax(0, 1fr);
     grid-template-areas:
         "top top top"
         "tools stage props";
@@ -125,6 +132,8 @@ button.primary { background: var(--primary); border-color: var(--primary); color
     padding: 10px 6px;
     background: var(--panel);
     border-right: 1px solid var(--line);
+    min-height: 0;
+    overflow-y: auto; /* 낮은 화면에서는 도구 막대만 스크롤 */
 }
 .toolbar button { width: 42px; height: 42px; padding: 0; font-size: 20px; }
 .toolbar button.active { background: #dbeafe; border-color: var(--primary); }
@@ -163,6 +172,19 @@ dialog select, dialog input[type="text"], dialog input[type="date"] { padding: 8
 .props select, .props input[type="text"], .props input[type="date"] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 #task-props { display: flex; flex-direction: column; gap: 8px; }
 #link-props { display: flex; flex-direction: column; gap: 8px; }
+
+/* 초대 코드 관리(관리자 전용) */
+#invite-admin { display: flex; flex-direction: column; gap: 10px; }
+#invite-admin hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+#invite-form { align-items: flex-end; }
+#invite-form label { flex: 1; }
+#invite-form select, #invite-form input[type="number"] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+.invite-result { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px; }
+.invite-result p { margin: 4px 0; }
+.invite-result code { font-size: 15px; background: #fff; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); word-break: break-all; user-select: all; }
+.invite-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.invite-table th, .invite-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.invite-table td button { padding: 4px 10px; font-size: 12px; }
 #board-canvas.link { cursor: crosshair; }
 #board-canvas.viewer { cursor: default; }
 
@@ -174,7 +196,10 @@ dialog select, dialog input[type="text"], dialog input[type="date"] { padding: 8
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-height: 0;
+    overflow-y: auto; /* 속성·업무·연결선 패널이 길어지면 이 영역만 스크롤 */
 }
+.props > * { flex-shrink: 0; } /* 스크롤 영역 안에서 항목이 눌려 겹치지 않게 한다 */
 .props hr { width: 100%; border: 0; border-top: 1px solid var(--line); }
 .props input[type="color"] { width: 48px; height: 28px; padding: 0; border: 1px solid var(--line); }
 .props input[type="range"] { width: 100%; }

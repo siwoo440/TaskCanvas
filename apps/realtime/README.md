@@ -26,13 +26,13 @@ realtime/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
-│       ├── object.js    # object:create 도형·이미지·영상 저장
+│       ├── object.js    # object:create 도형·이미지·영상·업무 블럭 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
 │       ├── task.js      # task:create·update (공유 업무 원본, 프로젝트 방 전파)
 │       ├── link.js      # link:create·update·delete (관계 연결선)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC21 (서버를 직접 띄워 검사)
 ├── scripts/fixtures/       # 업로드 표본 이미지(png/jpg/webp/gif/위장 파일)
 └── .env.example
 ```
@@ -61,7 +61,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14 를 검사해 마크다운 표로 출력합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC21 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 이벤트 요약
 
@@ -72,10 +72,10 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 | C→S | `cursor:move` `{board_id, x, y}` | 커서 중계. S→C 로 `{guest_id, display_name, color, x, y}` |
 | C→S | `stroke:preview` `{board_id, stroke_id, points_delta, style}` | 그리는 중 중계 (DB 기록 없음) |
 | C→S (ack) | `stroke:commit` `{board_id, stroke_id, points, style, request_id}` | DB 저장. 응답 `{ok, request_id, object_id, new_version, persisted}` |
-| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, payload, request_id}` | `rect`·`ellipse`·`image`(payload.asset_id)·`video`(payload.source_url) 생성. 응답에 `object` 포함 |
+| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, payload, request_id}` | `rect`·`ellipse`·`image`(payload.asset_id)·`video`(payload.source_url)·`task`(payload.task_id) 생성. 응답에 `object` 포함 |
 | S→C | `object:created` `{board_id, guest_id, object}` | 다른 참여자에게 확정 객체 전달 |
 | C→S (ack) | `object:lock` `{board_id, object_id}` | 선점 잠금. 응답 `{lock_token, expires_in}`, 실패 `OBJECT_LOCKED` + `error.locked_by` |
-| C→S | `object:preview` `{board_id, object_id, lock_token, x, y}` | 잠금 소유자의 이동 중 위치 중계 |
+| C→S | `object:preview` `{board_id, object_id, lock_token, x, y, width?, height?}` | 잠금 소유자의 이동·크기 조절 중 상태 중계(크기는 조절 중일 때만) |
 | C→S (ack) | `object:commit` `{board_id, object_id, lock_token, version, changes, request_id}` | 버전 검사 후 저장·잠금 해제. `changes`: x, y, width, height(도형만), style |
 | C→S (ack) | `object:delete` `{board_id, object_id, lock_token, version}` | 버전 검사 후 삭제·잠금 해제 |
 | C→S (ack) | `object:unlock` `{board_id, object_id, lock_token}` | 변경 없이 잠금 해제 |
@@ -98,4 +98,4 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 
 ## 아직 없는 것
 
-초대 링크 편의 기능(P1 후순위), 고급 체크리스트·댓글·표(P2)
+고급 체크리스트·댓글·표·흐름도 자동 정렬(P2)
