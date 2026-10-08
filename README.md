@@ -57,7 +57,7 @@
 | `presentation/` | 실제 제작한 12장 PPT, 10장 디자인 PPT, 미리보기 이미지 |
 | `assets/design/` | 생성한 콘셉트 슬라이드 10장과 제공된 화면 참고 이미지 |
 | `assets/components/` | PPT 내부에 포함된 UI·역할 이미지 안내(개별 크롭 파일 미첨부) |
-| `apps/` | 구현 코드. `php-api/`(1단계 완료: 입장·세션·보드·스냅샷·티켓), `realtime/`·`frontend/`(예정) |
+| `apps/` | 구현 코드. `php-api/`(1단계: 입장·세션·보드·스냅샷·티켓), `realtime/`(2단계: 보드 참여·커서·펜 중계·저장), `frontend/`(예정) |
 | `PUSH_GUIDE.md` | GitHub 업로드 및 권한 복구 안내 |
 
 - [전체 문서 목차](docs/README.md)

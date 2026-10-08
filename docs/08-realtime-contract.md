@@ -17,6 +17,10 @@
 | `object:unlock` | object_id, lock_token | 잠금 해제 | X |
 | `task:update` (P1) | task_id, version, changes | 동일 원본 업무의 모든 참조 보드 갱신 | O |
 
+서버→클라이언트 이벤트: `presence:update`(참여자 목록), `cursor:move`(타인 커서), `stroke:preview`(타인 미리보기), `object:created`(확정 객체).
+
+**구현 상태(2단계):** `board:join`, `cursor:move`, `stroke:preview`, `stroke:commit` 과 위 서버 이벤트가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식입니다. 객체 잠금·확정·삭제는 4단계입니다.
+
 ---
 
 ## 객체 확정 예시(JSON)
