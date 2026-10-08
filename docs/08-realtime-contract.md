@@ -10,6 +10,7 @@
 | `cursor:move` | board_id, x, y | 커서 위치 중계, 전송 빈도 제한 | X |
 | `stroke:preview` | stroke_id, points_delta | 마우스 움직이는 동안 중계 | X |
 | `stroke:commit` | stroke_id, points, style, request_id | 완성 획 확정·저장 | O |
+| `object:create` | type(rect·ellipse), x, y, width, height, style, request_id | 새 도형 확정 생성(잠금 불필요) | O |
 | `object:lock` | object_id | 객체별 임시 잠금 획득 | X |
 | `object:preview` | object_id, x, y | 잠금 소유자만 이동 중 중계 | X |
 | `object:commit` | object_id, lock_token, version, changes, request_id | 변경 승인·저장·다른 참여자 중계 | O |
@@ -19,7 +20,7 @@
 
 서버→클라이언트 이벤트: `presence:update`(참여자 목록), `cursor:move`(타인 커서), `stroke:preview`(타인 미리보기), `object:created`(확정 객체).
 
-**구현 상태(2단계):** `board:join`, `cursor:move`, `stroke:preview`, `stroke:commit` 과 위 서버 이벤트가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식입니다. 객체 잠금·확정·삭제는 4단계입니다.
+**구현 상태(2·3단계):** `board:join`, `cursor:move`, `stroke:preview`, `stroke:commit`, `object:create` 와 위 서버 이벤트가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식입니다. 객체 잠금·확정·삭제는 4단계입니다.
 
 ---
 

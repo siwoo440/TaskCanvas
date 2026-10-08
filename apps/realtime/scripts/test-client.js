@@ -101,6 +101,15 @@ async function main()
     const created = await createdPromise; // 확정 객체 수신
     check('확정 객체 전달', created !== null && created.object.object_id === commit.object_id && created.object.width === 49 && created.object.height === 89, created && created.object); // 경계 계산 확인
 
+    const shapePromise = waitFor(sb, 'object:created'); // B 가 받을 도형
+    const shape = await emitAck(sa, 'object:create', { board_id: boardId, type: 'rect', x: 10, y: 20, width: -30, height: 40, style: { stroke: '#0000ff', fill: '#ffff00', width: 2 }, request_id: 'req-2' }); // A 도형 생성(음수 너비 보정 확인)
+    check('도형 생성 저장 응답', shape.ok === true && shape.object.type === 'rect' && shape.object.width === 30 && shape.object.style.fill === '#ffff00', shape.object); // 저장 응답
+    const shapeCreated = await shapePromise; // 도형 수신
+    check('도형 객체 전달', shapeCreated !== null && shapeCreated.object.object_id === shape.object_id); // 전달 확인
+
+    const badType = await emitAck(sa, 'object:create', { board_id: boardId, type: 'script', x: 0, y: 0, width: 10, height: 10 }); // 허용되지 않은 유형
+    check('잘못된 객체 유형 거부', badType.ok === false && badType.error.code === 'BAD_REQUEST'); // 거부 확인
+
     const wrongBoard = await emitAck(sa, 'stroke:commit', { board_id: boardId + 1, points: [[0, 0]] }); // 다른 보드로 전송
     check('다른 보드 이벤트 거부', wrongBoard.ok === false && wrongBoard.error.code === 'FORBIDDEN'); // 거부 확인
 

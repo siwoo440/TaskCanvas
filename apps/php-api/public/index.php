@@ -2,6 +2,11 @@
 // TaskCanvas PHP API 프런트 컨트롤러
 declare(strict_types=1);
 
+if (PHP_SAPI === 'cli-server' && !str_starts_with(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/', '/api/'))
+{
+    return false; // 내장 서버 개발 모드: /api 가 아니면 문서 루트(프론트엔드)의 정적 파일 제공
+}
+
 require __DIR__ . '/../src/bootstrap.php'; // 공통 초기화 로드
 
 $router = new Router(); // 라우터 생성

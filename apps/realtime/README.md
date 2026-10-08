@@ -24,6 +24,7 @@ realtime/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
+│       ├── object.js    # object:create 도형 저장
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트
 └── .env.example
@@ -56,6 +57,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 | C→S | `cursor:move` `{board_id, x, y}` | 커서 중계. S→C 로 `{guest_id, display_name, color, x, y}` |
 | C→S | `stroke:preview` `{board_id, stroke_id, points_delta, style}` | 그리는 중 중계 (DB 기록 없음) |
 | C→S (ack) | `stroke:commit` `{board_id, stroke_id, points, style, request_id}` | DB 저장. 응답 `{ok, request_id, object_id, new_version, persisted}` |
+| C→S (ack) | `object:create` `{board_id, type, x, y, width, height, style, request_id}` | 사각형·원 생성. 응답에 `object` 포함 |
 | S→C | `object:created` `{board_id, guest_id, object}` | 다른 참여자에게 확정 객체 전달 |
 
 오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`)를 씁니다.

@@ -7,6 +7,7 @@
 
 # IDE 및 로컬 환경 제외
 .vscode/
+.claude/
 .idea/
 .DS_Store
 Thumbs.db

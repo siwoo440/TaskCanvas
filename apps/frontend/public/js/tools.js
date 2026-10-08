@@ -1,0 +1,186 @@
+// 마우스·키보드 입력을 도구 동작으로 변환 (펜, 사각형, 원, 이동, 확대)
+'use strict';
+
+function attachTools(canvas, options)
+{
+    const el = canvas.el; // canvas 요소
+    let drag = null; // 진행 중인 드래그 {mode, ...}
+    let spaceHeld = false; // Space 키 상태
+    let lastCursorAt = 0; // 커서 전송 시각
+    let previewTimer = 0; // 미리보기 전송 타이머
+
+    function position(e)
+    {
+        const rect = el.getBoundingClientRect(); // 캔버스 위치
+        return { sx: e.clientX - rect.left, sy: e.clientY - rect.top }; // 화면 좌표
+    }
+
+    function newStrokeId()
+    {
+        return 's-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); // 임시 획 ID
+    }
+
+    function flushPreview()
+    {
+        previewTimer = 0; // 타이머 해제
+        if (drag && drag.mode === 'pen' && drag.unsent.length > 0)
+        {
+            options.onStrokePreview(drag.draft.payload.stroke_id, drag.unsent, drag.draft.style); // 미전송 좌표 전송
+            drag.unsent = []; // 전송 큐 비움
+        }
+    }
+
+    function schedulePreview()
+    {
+        if (!previewTimer)
+        {
+            previewTimer = setTimeout(flushPreview, window.TC_CONFIG.previewIntervalMs); // 묶음 전송 예약
+        }
+    }
+
+    function cancel()
+    {
+        if (drag && drag.mode !== 'pan')
+        {
+            canvas.draft = null; // 초안 폐기
+            canvas.invalidate(); // 다시 그리기
+        }
+        drag = null; // 드래그 종료
+    }
+
+    el.addEventListener('pointerdown', (e) =>
+    {
+        const state = options.getState(); // 현재 도구·역할·스타일
+        const { sx, sy } = position(e); // 화면 좌표
+        const panMode = state.tool === 'pan' || spaceHeld || e.button === 1 || !state.canEdit; // 이동 모드 조건
+        el.setPointerCapture(e.pointerId); // 포인터 고정
+        if (panMode)
+        {
+            drag = { mode: 'pan', sx, sy }; // 이동 시작
+            return;
+        }
+        if (e.button !== 0)
+        {
+            return; // 왼쪽 버튼만 그리기
+        }
+        const w = canvas.toWorld(sx, sy); // 월드 좌표
+        if (state.tool === 'pen')
+        {
+            const draft = { type: 'stroke', payload: { stroke_id: newStrokeId(), points: [[w.x, w.y]] }, style: { color: state.style.color, width: state.style.width } }; // 획 초안
+            drag = { mode: 'pen', draft, unsent: [[w.x, w.y]] }; // 펜 드래그
+            canvas.draft = draft; // 초안 표시
+            schedulePreview(); // 첫 좌표 전송 예약
+        }
+        else
+        {
+            const draft = { type: state.tool, x: w.x, y: w.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
+            drag = { mode: 'shape', origin: w, draft }; // 도형 드래그
+            canvas.draft = draft; // 초안 표시
+        }
+        canvas.invalidate(); // 다시 그리기
+    });
+
+    el.addEventListener('pointermove', (e) =>
+    {
+        const { sx, sy } = position(e); // 화면 좌표
+        const w = canvas.toWorld(sx, sy); // 월드 좌표
+        const now = Date.now(); // 현재 시각
+        if (now - lastCursorAt >= window.TC_CONFIG.cursorIntervalMs)
+        {
+            lastCursorAt = now; // 전송 시각 갱신
+            options.onCursor(w.x, w.y); // 커서 위치 공유
+        }
+        if (!drag)
+        {
+            return;
+        }
+        if (drag.mode === 'pan')
+        {
+            canvas.panBy(sx - drag.sx, sy - drag.sy); // 화면 이동
+            drag.sx = sx; // 기준 X 갱신
+            drag.sy = sy; // 기준 Y 갱신
+        }
+        else if (drag.mode === 'pen')
+        {
+            drag.draft.payload.points.push([w.x, w.y]); // 좌표 추가
+            drag.unsent.push([w.x, w.y]); // 전송 큐 추가
+            schedulePreview(); // 전송 예약
+            canvas.invalidate(); // 다시 그리기
+        }
+        else if (drag.mode === 'shape')
+        {
+            drag.draft.x = Math.min(drag.origin.x, w.x); // 왼쪽 위 X
+            drag.draft.y = Math.min(drag.origin.y, w.y); // 왼쪽 위 Y
+            drag.draft.width = Math.abs(w.x - drag.origin.x); // 너비
+            drag.draft.height = Math.abs(w.y - drag.origin.y); // 높이
+            canvas.invalidate(); // 다시 그리기
+        }
+    });
+
+    el.addEventListener('pointerup', (e) =>
+    {
+        if (!drag)
+        {
+            return;
+        }
+        const finished = drag; // 완료된 드래그
+        drag = null; // 드래그 종료
+        canvas.draft = null; // 초안 표시 해제
+        if (finished.mode === 'pen')
+        {
+            flushPreview(); // 남은 미리보기 전송
+            options.onStrokeCommit(finished.draft); // 획 확정
+        }
+        else if (finished.mode === 'shape')
+        {
+            if (finished.draft.width >= 2 && finished.draft.height >= 2)
+            {
+                options.onShapeCreate(finished.draft); // 도형 확정
+            }
+        }
+        canvas.invalidate(); // 다시 그리기
+    });
+
+    el.addEventListener('pointercancel', cancel); // 포인터 취소
+    el.addEventListener('wheel', (e) =>
+    {
+        e.preventDefault(); // 페이지 스크롤 방지
+        const { sx, sy } = position(e); // 화면 좌표
+        canvas.zoomAt(sx, sy, e.deltaY < 0 ? 1.1 : 1 / 1.1); // 휠 방향에 따른 확대·축소
+    }, { passive: false });
+    el.addEventListener('contextmenu', (e) => e.preventDefault()); // 우클릭 메뉴 방지
+
+    window.addEventListener('keydown', (e) =>
+    {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')
+        {
+            return; // 입력 중에는 무시
+        }
+        if (e.code === 'Space')
+        {
+            spaceHeld = true; // Space 누름
+            e.preventDefault(); // 스크롤 방지
+        }
+        else if (e.key === 'Escape')
+        {
+            cancel(); // 그리기 취소
+        }
+        else
+        {
+            const map = { p: 'pen', r: 'rect', o: 'ellipse', h: 'pan' }; // 단축키
+            if (map[e.key.toLowerCase()])
+            {
+                options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환
+            }
+        }
+    });
+    window.addEventListener('keyup', (e) =>
+    {
+        if (e.code === 'Space')
+        {
+            spaceHeld = false; // Space 해제
+        }
+    });
+}
+
+window.attachTools = attachTools; // 전역 노출
