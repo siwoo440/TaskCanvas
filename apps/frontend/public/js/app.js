@@ -338,6 +338,7 @@ async function returnToWorkspace(notice)
 {
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 메모 편집 취소(잠금 반납)
+    clearUndo(); // 실행 취소 기록 비움
     if (realtime)
     {
         realtime.leave(); // 연결 종료
@@ -580,6 +581,7 @@ async function openBoard(board)
 {
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
+    clearUndo(); // 실행 취소 기록은 보드마다 따로
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
     showView('board'); // 보드 화면
@@ -699,6 +701,7 @@ function applyRole()
     $('tool-image').disabled = !editable; // 열람자는 이미지 추가 불가
     $('tool-video').disabled = !editable; // 열람자는 영상 추가 불가
     $('tool-task').disabled = !editable; // 열람자는 업무 블럭 추가 불가
+    updateUndoButton(); // 열람자는 실행 취소 불가
     $('task-save').disabled = !editable; // 열람자는 업무 수정 불가
     $('props-role-note').textContent = editable ? '편집자: 그리거나 옮기면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
 }
@@ -1035,12 +1038,16 @@ async function finishMove(s)
         await commitObject(target, s.tokens.get(target.object_id), previewOf(s, target)); // 위치·크기 저장
         return;
     }
-    await Promise.all(s.objects.map((o) =>
+    const items = (await Promise.all(s.objects.map((o) =>
     {
         const targetX = state.snap ? Math.round((o.x + s.dx) / 10) * 10 : o.x + s.dx; // 이동 후 X(격자 맞춤 반영)
         const targetY = state.snap ? Math.round((o.y + s.dy) / 10) * 10 : o.y + s.dy; // 이동 후 Y
-        return commitObject(o, s.tokens.get(o.object_id), { x: targetX, y: targetY }); // 객체마다 이동 저장
-    })); // 선택한 객체 전부 확정
+        return commitObject(o, s.tokens.get(o.object_id), { x: targetX, y: targetY }, false); // 객체마다 이동 저장(실행 취소 기록은 아래에서 묶음)
+    }))).filter(Boolean); // 저장된 항목
+    if (items.length > 0)
+    {
+        pushUndo({ kind: 'update', items }); // 함께 옮긴 객체는 한 번에 되돌림
+    }
 }
 
 function cancelMove()
@@ -1062,7 +1069,8 @@ function cancelMove()
     }
 }
 
-async function commitObject(object, token, changes)
+// 변경 확정. 성공하면 되돌리기 정보({id, before})를 돌려주고, record 가 참이면 실행 취소 기록에도 쌓는다. 실패하면 null
+async function commitObject(object, token, changes, record = true)
 {
     state.pendingSaves += 1; // 대기 수 증가
     busyOps += 1; // 확정 진행 중(끝나야 같은 객체를 다시 잠글 수 있음)
@@ -1070,13 +1078,20 @@ async function commitObject(object, token, changes)
     try
     {
         const reply = await realtime.request('object:commit', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, changes, request_id: nextRequestId() }); // 변경 확정 요청
+        const item = { id: object.object_id, before: previousValues(object, changes) }; // 되돌릴 때 다시 보낼 이전 값
         canvas.updateObject(reply.object); // 확정 결과 반영(미리보기 제거)
+        myVersions.set(reply.object.object_id, reply.object.version); // 내가 바꾼 직후 버전
+        if (record)
+        {
+            pushUndo({ kind: 'update', items: [item] }); // 실행 취소 기록
+        }
         updateSelectionInfo(); // 버전 표시 갱신
         state.pendingSaves -= 1; // 대기 수 감소
         if (state.pendingSaves === 0)
         {
             setSaveStatus('saved'); // 모두 저장됨
         }
+        return item; // 되돌리기 정보
     }
     catch (err)
     {
@@ -1089,6 +1104,7 @@ async function commitObject(object, token, changes)
         {
             await loadSnapshot(); // 최신 저장 상태 재동기화
         }
+        return null; // 저장 실패
     }
     finally
     {
@@ -1139,6 +1155,8 @@ async function deleteSelected()
     {
         return toast(canvas.locks.get(lockedByOther.object_id).display_name + ' 님이 편집 중인 객체가 포함되어 있습니다.'); // 안내
     }
+    const removed = []; // 지운 객체(실행 취소용)
+    const removedLinks = new Map(); // 함께 사라진 연결선 link_id → 연결선
     for (const object of list)
     {
         state.pendingSaves += 1; // 대기 수 증가
@@ -1146,6 +1164,14 @@ async function deleteSelected()
         try
         {
             await withLock(object, (token) => realtime.request('object:delete', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, request_id: nextRequestId() })); // 잠금 후 삭제
+            for (const l of canvas.links)
+            {
+                if (l.from_object_id === object.object_id || l.to_object_id === object.object_id)
+                {
+                    removedLinks.set(l.link_id, { ...l }); // 객체와 함께 지워지는 연결선 기억
+                }
+            }
+            removed.push(object); // 지운 객체 기억
             canvas.removeObject(object.object_id); // 화면에서 제거(연결선 포함)
             state.pendingSaves -= 1; // 대기 수 감소
             if (state.pendingSaves === 0)
@@ -1164,6 +1190,10 @@ async function deleteSelected()
             }
         }
     }
+    if (removed.length > 0)
+    {
+        pushUndo({ kind: 'delete', objects: removed, links: [...removedLinks.values()] }); // 한 번에 지운 것은 한 번에 되살림
+    }
     setSelection([]); // 선택 해제
 }
 
@@ -1174,6 +1204,7 @@ async function restyleSelected()
     {
         return; // 적용 대상 없음
     }
+    const items = []; // 실행 취소용 이전 스타일
     for (const object of list)
     {
         if (canvas.locks.has(object.object_id))
@@ -1192,14 +1223,378 @@ async function restyleSelected()
         }
         try
         {
-            await withLock(object, (token) => commitObject(object, token, { style })); // 잠금 후 스타일 저장
+            const item = await withLock(object, (token) => commitObject(object, token, { style }, false)); // 잠금 후 스타일 저장
+            if (item)
+            {
+                items.push(item); // 이전 스타일 기억
+            }
         }
         catch (err)
         {
             toast(lockMessage(err)); // 잠금 실패 안내
         }
     }
+    if (items.length > 0)
+    {
+        pushUndo({ kind: 'update', items }); // 함께 바꾼 스타일은 한 번에 되돌림
+    }
 }
+
+// ---------- 실행 취소·복제·내보내기 ----------
+
+const UNDO_LIMIT = 50; // 기억할 작업 수
+const undoStack = []; // 이 보드에서 내가 한 작업(최근 것이 뒤). 보드를 바꾸거나 재접속하면 비움
+const myVersions = new Map(); // object_id → 내가 만들거나 바꾼 직후의 버전. 지금 버전과 다르면 그 뒤에 다른 사람이 고친 것
+const idAlias = new Map(); // 삭제를 되돌려 다시 만든 객체의 예전 ID → 새 ID
+const linkAlias = new Map(); // 다시 만든 연결선의 예전 ID → 새 ID
+let undoRunning = false; // 되돌리는 중(이 동안 일어나는 저장은 새 기록으로 쌓지 않음)
+
+function resolveAlias(map, id)
+{
+    let current = id; // 따라갈 ID
+    while (map.has(current))
+    {
+        current = map.get(current); // 다시 만들어진 최신 ID
+    }
+    return current; // 지금 유효한 ID
+}
+
+function updateUndoButton()
+{
+    $('tool-undo').disabled = undoStack.length === 0 || !canEdit(); // 되돌릴 작업이 있을 때만 활성화
+}
+
+function pushUndo(entry)
+{
+    if (undoRunning)
+    {
+        return; // 되돌리기 자체는 기록하지 않음
+    }
+    undoStack.push(entry); // 작업 기록
+    if (undoStack.length > UNDO_LIMIT)
+    {
+        undoStack.shift(); // 오래된 기록부터 버림
+    }
+    updateUndoButton(); // 버튼 상태 갱신
+}
+
+function clearUndo()
+{
+    undoStack.length = 0; // 기록 비움
+    myVersions.clear(); // 버전 기록 비움
+    idAlias.clear(); // ID 대응 비움
+    linkAlias.clear(); // 연결선 ID 대응 비움
+    updateUndoButton(); // 버튼 상태 갱신
+}
+
+// 방금 만든 객체의 생성 기록을 지운다(비워 둔 새 메모가 자동 삭제될 때)
+function dropCreateEntry(objectId)
+{
+    for (let i = undoStack.length - 1; i >= 0; i--)
+    {
+        const entry = undoStack[i]; // 기록
+        if (entry.kind === 'create' && entry.ids.length === 1 && entry.ids[0] === objectId)
+        {
+            undoStack.splice(i, 1); // 해당 기록 제거
+            break;
+        }
+    }
+    updateUndoButton(); // 버튼 상태 갱신
+}
+
+// 바꾸려는 항목들의 지금 값(되돌릴 때 다시 보낼 값)
+function previousValues(object, changes)
+{
+    const before = {}; // 이전 값
+    for (const key of ['x', 'y', 'width', 'height'])
+    {
+        if (changes[key] !== undefined)
+        {
+            before[key] = object[key]; // 위치·크기
+        }
+    }
+    if (changes.style !== undefined)
+    {
+        before.style = { ...(object.style || {}) }; // 스타일
+    }
+    if (changes.text !== undefined)
+    {
+        before.text = object.payload && typeof object.payload.text === 'string' ? object.payload.text : ''; // 메모 글
+    }
+    return before; // 이전 값 묶음
+}
+
+// 되돌려도 되는 객체인지 확인: 없어졌거나, 누가 잡고 있거나, 내 작업 뒤에 버전이 달라졌으면(다른 사람이 수정) null
+function undoTarget(id)
+{
+    const object = canvas.findObject(resolveAlias(idAlias, id)); // 지금 객체
+    if (!object || canvas.locks.has(object.object_id) || myVersions.get(object.object_id) !== object.version)
+    {
+        return null; // 되돌리지 않음
+    }
+    return object; // 되돌릴 대상
+}
+
+// 저장해 둔 내용으로 같은 객체를 새로 만든다(삭제 되돌리기·복제 공용). dx·dy 는 복제할 때 옆으로 옮기는 거리
+async function recreateObject(o, dx = 0, dy = 0)
+{
+    const base = { board_id: boardId(), request_id: nextRequestId() }; // 공통 필드
+    let created = null; // 새 객체
+    if (o.type === 'stroke')
+    {
+        const points = ((o.payload && o.payload.points) || []).map(([x, y]) => [x + dx, y + dy]); // 획 좌표
+        const strokeId = 'r-' + Date.now().toString(36) + '-' + state.requestSeq; // 임시 획 ID
+        const reply = await realtime.request('stroke:commit', { ...base, stroke_id: strokeId, points, style: o.style }); // 획 다시 저장
+        created = { object_id: reply.object_id, task_id: null, type: 'stroke', ...strokeBounds(points), payload: { stroke_id: strokeId, points }, style: { ...o.style }, version: reply.new_version }; // 서버가 저장한 것과 같은 모양
+    }
+    else
+    {
+        const payloads = {
+            image: () => ({ asset_id: o.payload.asset_id }), // 업로드된 이미지 참조
+            video: () => ({ source_url: o.payload.source_url }), // 영상 원본 URL(서버가 다시 검증)
+            task: () => ({ task_id: o.task_id }), // 공유 업무 참조
+            note: () => ({ text: o.payload && typeof o.payload.text === 'string' ? o.payload.text : '' }), // 메모 글
+        }; // 유형별 본문
+        const reply = await realtime.request('object:create', { ...base, type: o.type, x: o.x + dx, y: o.y + dy, width: o.width, height: o.height, style: o.style, payload: payloads[o.type] ? payloads[o.type]() : undefined }); // 같은 내용으로 다시 생성
+        created = reply.object; // 서버가 돌려준 객체
+    }
+    canvas.addObject(created); // 화면에 추가
+    myVersions.set(created.object_id, created.version); // 내가 만든 직후 버전
+    return created; // 새 객체
+}
+
+async function restoreLink(link)
+{
+    const from = resolveAlias(idAlias, link.from_object_id); // 출발 객체의 지금 ID
+    const to = resolveAlias(idAlias, link.to_object_id); // 도착 객체의 지금 ID
+    if (!canvas.findObject(from) || !canvas.findObject(to))
+    {
+        return false; // 끝 객체가 없으면 연결선을 되살릴 수 없음
+    }
+    try
+    {
+        const reply = await realtime.request('link:create', { board_id: boardId(), from_object_id: from, to_object_id: to, label: link.label ?? '', request_id: nextRequestId() }); // 연결선 다시 생성
+        canvas.addLink(reply.link); // 화면에 추가
+        linkAlias.set(link.link_id, reply.link.link_id); // 예전 ID → 새 ID
+        return true;
+    }
+    catch (err)
+    {
+        return false; // 복원 실패
+    }
+}
+
+// 기록 하나를 되돌린다. done: 되돌린 항목 수, skipped: 다른 사람이 손대서(또는 실패해서) 그대로 둔 항목 수
+async function applyUndo(entry)
+{
+    const result = { done: 0, skipped: 0 }; // 결과
+    if (entry.kind === 'create')
+    {
+        for (const id of entry.ids)
+        {
+            if (!canvas.findObject(resolveAlias(idAlias, id)))
+            {
+                continue; // 이미 없어진 객체는 되돌릴 것이 없음
+            }
+            const object = undoTarget(id); // 되돌릴 대상
+            if (!object)
+            {
+                result.skipped += 1; // 다른 사람이 수정·편집 중
+                continue;
+            }
+            try
+            {
+                await withLock(object, (token) => realtime.request('object:delete', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, request_id: nextRequestId() })); // 만든 객체 삭제
+                canvas.removeObject(object.object_id); // 화면에서 제거
+                result.done += 1;
+            }
+            catch (err)
+            {
+                result.skipped += 1; // 삭제 실패
+            }
+        }
+    }
+    else if (entry.kind === 'update')
+    {
+        for (const item of entry.items)
+        {
+            const object = undoTarget(item.id); // 되돌릴 대상
+            if (!object)
+            {
+                result.skipped += 1; // 없어졌거나 다른 사람이 수정
+                continue;
+            }
+            try
+            {
+                const restored = await withLock(object, (token) => commitObject(object, token, item.before, false)); // 이전 값으로 다시 저장
+                result[restored ? 'done' : 'skipped'] += 1;
+            }
+            catch (err)
+            {
+                result.skipped += 1; // 잠금 실패
+            }
+        }
+    }
+    else if (entry.kind === 'delete')
+    {
+        for (const o of entry.objects)
+        {
+            try
+            {
+                const created = await recreateObject(o); // 지운 객체 다시 생성(새 ID)
+                idAlias.set(o.object_id, created.object_id); // 예전 ID → 새 ID
+                result.done += 1;
+            }
+            catch (err)
+            {
+                result.skipped += 1; // 다시 만들지 못함
+            }
+        }
+        for (const link of entry.links)
+        {
+            await restoreLink(link); // 함께 사라졌던 연결선 복원(끝 객체가 없으면 건너뜀)
+        }
+    }
+    else if (entry.kind === 'link-create')
+    {
+        const id = resolveAlias(linkAlias, entry.id); // 지금 연결선 ID
+        if (canvas.links.some((l) => l.link_id === id))
+        {
+            try
+            {
+                await realtime.request('link:delete', { board_id: boardId(), link_id: id, request_id: nextRequestId() }); // 만든 연결선 삭제
+                canvas.removeLink(id); // 화면에서 제거
+                result.done += 1;
+            }
+            catch (err)
+            {
+                result.skipped += 1; // 삭제 실패
+            }
+        }
+    }
+    else if (entry.kind === 'link-delete')
+    {
+        result[(await restoreLink(entry.link)) ? 'done' : 'skipped'] += 1; // 지운 연결선 복원
+    }
+    else if (entry.kind === 'link-label')
+    {
+        const id = resolveAlias(linkAlias, entry.id); // 지금 연결선 ID
+        try
+        {
+            const reply = await realtime.request('link:update', { board_id: boardId(), link_id: id, label: entry.before, request_id: nextRequestId() }); // 이전 라벨로
+            canvas.updateLink(reply.link); // 반영
+            refreshLinkProps(); // 패널 갱신
+            result.done += 1;
+        }
+        catch (err)
+        {
+            result.skipped += 1; // 연결선이 없어졌거나 실패
+        }
+    }
+    return result; // 결과
+}
+
+async function undoLast()
+{
+    if (undoRunning || move || noteEdit || !canEdit() || !realtime || !realtime.joined)
+    {
+        return; // 다른 작업 중·권한 없음·미연결
+    }
+    const entry = undoStack.pop(); // 가장 최근 작업
+    if (!entry)
+    {
+        updateUndoButton(); // 버튼 상태 갱신
+        return toast('되돌릴 작업이 없습니다.'); // 안내
+    }
+    let result = { done: 0, skipped: 0 }; // 결과
+    undoRunning = true; // 되돌리는 중
+    state.pendingSaves += 1; // 저장 대기 표시
+    setSaveStatus('saving'); // 저장 중
+    try
+    {
+        result = await applyUndo(entry); // 되돌리기 실행
+    }
+    catch (err)
+    {
+        result.skipped += 1; // 예상하지 못한 실패
+    }
+    finally
+    {
+        undoRunning = false; // 종료
+        state.pendingSaves -= 1; // 대기 수 감소
+        if (state.pendingSaves === 0 && $('save-status').dataset.state !== 'failed')
+        {
+            setSaveStatus('saved'); // 모두 저장됨
+        }
+        updateUndoButton(); // 버튼 상태 갱신
+        setSelection([...canvas.selectedIds].filter((id) => canvas.findObject(id))); // 사라진 객체는 선택에서 제외
+    }
+    if (result.skipped === 0)
+    {
+        toast('실행 취소했습니다.'); // 모두 되돌림
+    }
+    else if (result.done === 0)
+    {
+        toast('다른 사용자가 이후에 수정했거나 편집 중이라 되돌리지 않았습니다.', 4000); // 되돌리지 않음
+    }
+    else
+    {
+        toast('일부만 되돌렸습니다. 다른 사용자가 이후에 수정한 항목은 그대로 둡니다.', 4000); // 일부만
+    }
+}
+
+async function duplicateSelected()
+{
+    const list = selectedObjects(); // 복제 대상
+    if (list.length === 0 || undoRunning || move || noteEdit || !canEdit() || !realtime || !realtime.joined)
+    {
+        return; // 대상 없음·다른 작업 중
+    }
+    const ids = []; // 새로 만든 객체
+    state.pendingSaves += 1; // 저장 대기 표시
+    setSaveStatus('saving'); // 저장 중
+    for (const o of list)
+    {
+        try
+        {
+            ids.push((await recreateObject(o, 20, 20)).object_id); // 오른쪽 아래로 20 옮긴 사본
+        }
+        catch (err)
+        {
+            toast('복제 실패: ' + err.message, 4000); // 안내
+        }
+    }
+    state.pendingSaves -= 1; // 대기 수 감소
+    if (state.pendingSaves === 0)
+    {
+        setSaveStatus(ids.length === list.length ? 'saved' : 'failed'); // 결과 표시
+    }
+    if (ids.length > 0)
+    {
+        pushUndo({ kind: 'create', ids }); // 복제도 한 번에 되돌릴 수 있게 기록
+        setSelection(ids); // 사본을 선택(바로 옮길 수 있게)
+    }
+}
+
+function exportBoard()
+{
+    const url = canvas ? canvas.exportDataUrl() : null; // PNG 데이터
+    if (!url)
+    {
+        return toast('내보낼 객체가 없습니다.'); // 빈 보드
+    }
+    const title = (state.board ? state.board.title : 'board').replace(/[\\/:*?"<>|]/g, '_').trim() || 'board'; // 파일 이름에 쓸 수 없는 문자 치환
+    const link = document.createElement('a'); // 내려받기 링크
+    link.href = url; // 그림 데이터
+    link.download = 'TaskCanvas_' + title + '.png'; // 파일 이름
+    document.body.appendChild(link); // 문서에 추가
+    link.click(); // 내려받기 시작
+    link.remove(); // 임시 링크 제거
+    toast('보드를 PNG 로 저장했습니다. 영상은 자리 표시만 그려집니다.'); // 안내
+}
+
+$('tool-undo').addEventListener('click', () => undoLast()); // 실행 취소 버튼
+$('tool-export').addEventListener('click', exportBoard); // PNG 내보내기 버튼
 
 // ---------- 메모 글 편집 ----------
 
@@ -1301,6 +1696,7 @@ async function finishNoteEdit(save)
         {
             await realtime.request('object:delete', { ...lockRef, version: o.version, request_id: nextRequestId() }); // 방금 만든 메모를 비워 둔 채 끝내면 삭제
             canvas.removeObject(o.object_id); // 화면에서 제거
+            dropCreateEntry(o.object_id); // 만들자마자 사라진 메모는 실행 취소 기록에 남기지 않음
             setSelection([]); // 선택 해제
         }
         catch (err)
@@ -1324,7 +1720,7 @@ async function finishNoteEdit(save)
     {
         changes.height = needed; // 글이 넘치면 메모를 아래로 늘림
     }
-    await commitObject(o, edit.token, changes); // 저장(성공하면 잠금 해제)
+    await commitObject(o, edit.token, changes, !edit.isNew); // 저장(성공하면 잠금 해제). 새 메모의 첫 글은 생성 기록에 포함되어 한 번에 되돌려짐
 }
 
 function attachNoteEditor()
@@ -1376,6 +1772,7 @@ async function createLink(from, to)
     {
         const reply = await realtime.request('link:create', { board_id: boardId(), from_object_id: from.object_id, to_object_id: to.object_id, label: '', request_id: nextRequestId() }); // 연결선 생성
         canvas.addLink(reply.link); // 화면에 추가
+        pushUndo({ kind: 'link-create', id: reply.link.link_id }); // 실행 취소 기록
         setSelection([], reply.link.link_id); // 새 연결선 선택(라벨 입력 유도)
         $('link-label').focus(); // 라벨 입력 포커스
     }
@@ -1392,10 +1789,16 @@ async function saveLinkLabel()
     {
         return;
     }
+    const previous = canvas.links.find((l) => l.link_id === linkId); // 바꾸기 전 연결선
+    const before = previous && previous.label ? previous.label : ''; // 이전 라벨
     try
     {
         const reply = await realtime.request('link:update', { board_id: boardId(), link_id: linkId, label: $('link-label').value.trim(), request_id: nextRequestId() }); // 라벨 저장
         canvas.updateLink(reply.link); // 반영
+        if ((reply.link.label ?? '') !== before)
+        {
+            pushUndo({ kind: 'link-label', id: linkId, before }); // 실행 취소 기록
+        }
         toast('연결선 라벨을 저장했습니다.'); // 안내
     }
     catch (err)
@@ -1410,10 +1813,15 @@ async function deleteLink(linkId)
     {
         return;
     }
+    const removedLink = canvas.links.find((l) => l.link_id === linkId); // 지우기 전 연결선
     try
     {
         await realtime.request('link:delete', { board_id: boardId(), link_id: linkId, request_id: nextRequestId() }); // 연결선 삭제
         canvas.removeLink(linkId); // 화면에서 제거
+        if (removedLink)
+        {
+            pushUndo({ kind: 'link-delete', link: { ...removedLink } }); // 실행 취소 기록
+        }
         setSelection([]); // 선택 해제
     }
     catch (err)
@@ -1737,7 +2145,7 @@ function nextRequestId()
     return 'req-' + Date.now().toString(36) + '-' + state.requestSeq; // 요청 ID
 }
 
-async function createObject(event, data, draft)
+async function createObject(event, data, draft, record = true)
 {
     const requestId = nextRequestId(); // 요청 ID
     canvas.pending.set(requestId, draft); // 저장 대기 표시
@@ -1749,6 +2157,11 @@ async function createObject(event, data, draft)
         const created = reply.object ?? { ...draft, object_id: reply.object_id, version: reply.new_version }; // 확정 객체
         canvas.pending.delete(requestId); // 대기 해제
         canvas.addObject(created); // 확정 객체 반영
+        myVersions.set(created.object_id, created.version); // 내가 만든 직후 버전
+        if (record)
+        {
+            pushUndo({ kind: 'create', ids: [created.object_id] }); // 실행 취소 기록
+        }
         state.pendingSaves -= 1; // 대기 수 감소
         if (state.pendingSaves === 0)
         {
@@ -1871,6 +2284,8 @@ const toolHandlers = {
         setSelection([]); // 선택 해제
     },
     onDeleteKey: () => deleteSelected(), // 선택 객체 삭제
+    onUndo: () => undoLast(), // Ctrl+Z
+    onDuplicate: () => duplicateSelected(), // Ctrl+D
 }; // 도구 콜백
 
 function strokeBounds(points)
@@ -1909,6 +2324,7 @@ const realtimeHandlers = {
         {
             cancelMove(); // 끊긴 동안의 이동은 폐기
             finishNoteEdit(false); // 끊긴 동안의 메모 편집도 폐기(잠금은 서버에서 이미 해제됨)
+            clearUndo(); // 다시 불러온 상태와 맞지 않을 수 있는 기록은 버림
             await loadSnapshot(); // 재접속 시 서버의 마지막 저장 상태로 복원
             await loadProjectData(); // 참여자·업무 목록도 다시 조회
             toast('재접속되었습니다. 마지막 저장 상태를 불러왔습니다.'); // 안내

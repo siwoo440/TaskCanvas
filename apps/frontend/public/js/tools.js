@@ -301,9 +301,19 @@ function attachTools(canvas, options)
             e.preventDefault(); // 뒤로 가기 방지
             options.onDeleteKey(); // 선택 객체 삭제
         }
-        else
+        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')
         {
-            const map = { v: 'select', l: 'link', p: 'pen', r: 'rect', o: 'ellipse', n: 'note', x: 'text', h: 'pan', t: 'task' }; // 단축키
+            e.preventDefault(); // 브라우저 기본 동작 방지
+            options.onUndo(); // 실행 취소
+        }
+        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd')
+        {
+            e.preventDefault(); // 북마크 추가 방지
+            options.onDuplicate(); // 선택 객체 복제
+        }
+        else if (!e.ctrlKey && !e.metaKey && !e.altKey)
+        {
+            const map = { v: 'select', l: 'link', p: 'pen', r: 'rect', o: 'ellipse', n: 'note', x: 'text', h: 'pan', t: 'task' }; // 단축키(Ctrl+V 붙여넣기 같은 조합키에는 반응하지 않음)
             if (map[e.key.toLowerCase()])
             {
                 options.onToolShortcut(map[e.key.toLowerCase()]); // 도구 전환

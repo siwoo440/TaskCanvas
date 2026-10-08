@@ -95,6 +95,7 @@ button.danger { background: var(--danger); border-color: var(--danger); color: #
     background: var(--panel);
     border-bottom: 1px solid var(--line);
 }
+.topbar button { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
 .topbar select { padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); font-size: 14px; }
 .participants { list-style: none; display: flex; gap: 6px; margin: 0; padding: 0; }
 .participants li {

@@ -560,6 +560,61 @@ class BoardCanvas
         return this.wrapText(text, Math.max(10, width - n.pad * 2)).length * n.line + n.pad * 2; // 줄 수 × 줄 높이 + 위아래 여백
     }
 
+    // 보드 전체를 PNG 로 내보내기: 모든 객체가 들어가는 범위를 흰 배경에 그린다(격자·커서·선택 표시는 제외, 영상은 자리 표시만)
+    exportDataUrl(padding = 40, maxSide = 4096)
+    {
+        if (this.objects.length === 0)
+        {
+            return null; // 내보낼 객체 없음
+        }
+        let minX = Infinity; // 최소 X
+        let minY = Infinity; // 최소 Y
+        let maxX = -Infinity; // 최대 X
+        let maxY = -Infinity; // 최대 Y
+        for (const o of this.objects)
+        {
+            minX = Math.min(minX, o.x); // 최소 X 갱신
+            minY = Math.min(minY, o.y); // 최소 Y 갱신
+            maxX = Math.max(maxX, o.x + o.width); // 최대 X 갱신
+            maxY = Math.max(maxY, o.y + o.height); // 최대 Y 갱신
+        }
+        const width = maxX - minX + padding * 2; // 그림 너비(여백 포함)
+        const height = maxY - minY + padding * 2; // 그림 높이
+        const scale = Math.min(1, maxSide / Math.max(width, height)); // 너무 큰 보드는 긴 변이 maxSide 가 되게 축소
+        const off = document.createElement('canvas'); // 내보내기용 캔버스
+        off.width = Math.max(1, Math.round(width * scale)); // 픽셀 너비
+        off.height = Math.max(1, Math.round(height * scale)); // 픽셀 높이
+        const ctx = off.getContext('2d'); // 내보내기용 컨텍스트
+        ctx.fillStyle = '#ffffff'; // 흰 배경
+        ctx.fillRect(0, 0, off.width, off.height); // 배경 채우기
+        ctx.scale(scale, scale); // 축소 배율
+        ctx.translate(padding - minX, padding - minY); // 객체 범위를 그림 안으로 이동
+        const saved = { ctx: this.ctx, view: this.view, moves: this.moves, editingId: this.editingId }; // 화면용 상태 보관
+        this.ctx = ctx; // 그리기·글 측정을 내보내기용 컨텍스트로
+        this.view = { scale, x: 0, y: 0 }; // 선 굵기 보정용 배율
+        this.moves = new Map(); // 이동 미리보기 제외
+        this.editingId = null; // 편집 중인 메모도 글 포함
+        try
+        {
+            for (const l of this.links)
+            {
+                this.drawLink(ctx, l, false); // 연결선
+            }
+            for (const o of this.objects)
+            {
+                this.drawObject(ctx, o); // 객체
+            }
+        }
+        finally
+        {
+            this.ctx = saved.ctx; // 화면용 상태 복원
+            this.view = saved.view;
+            this.moves = saved.moves;
+            this.editingId = saved.editingId;
+        }
+        return off.toDataURL('image/png'); // PNG 데이터 URL
+    }
+
     static segmentDistance(px, py, a, b)
     {
         const vx = b[0] - a[0]; // 선분 벡터 X
