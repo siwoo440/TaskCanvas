@@ -7,6 +7,11 @@ final class Auth
     public const ROLES = ['admin', 'editor', 'viewer']; // 허용 역할 목록
     private const RANK = ['viewer' => 1, 'editor' => 2, 'admin' => 3]; // 역할 우선순위
 
+    public static function rank(string $role): int
+    {
+        return self::RANK[$role] ?? 0; // 역할의 높낮이(모르는 역할은 0)
+    }
+
     public static function hash(string $secret): string
     {
         return hash('sha256', $secret); // 토큰·코드 해시(원문 저장 금지)

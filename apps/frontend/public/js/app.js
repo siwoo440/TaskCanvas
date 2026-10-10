@@ -168,6 +168,7 @@ function takeInviteCodeFromUrl()
 }
 
 let pendingInviteCode = takeInviteCodeFromUrl(); // 초대 링크로 들어온 코드(입장 화면에 한 번만 채움)
+let ownerCode = null; // 방금 만든 작업실의 재입장 코드 {code, days}. 만든 직후에만 받고, 확인하거나 나가면 지움(저장하지 않음)
 
 async function bootstrap()
 {
@@ -221,8 +222,37 @@ function showJoin()
     $('join-name').focus(); // 이름 입력 포커스
 }
 
+function showCreate()
+{
+    showView('create'); // 작업실 만들기 화면
+    $('create-error').textContent = ''; // 오류 초기화
+    $('create-name').focus(); // 이름 입력 포커스
+}
+
 $('home-enter-top').addEventListener('click', showJoin); // 상단 "입장하기"
 $('home-enter').addEventListener('click', showJoin); // 소개의 "초대 코드로 입장"
+$('home-create-top').addEventListener('click', showCreate); // 상단 "작업실 만들기"
+$('home-create').addEventListener('click', showCreate); // 소개의 "새 작업실 만들기"
+$('join-to-create').addEventListener('click', showCreate); // 입장 화면에서 만들기로
+$('create-to-join').addEventListener('click', showJoin); // 만들기 화면에서 입장으로
+$('create-back').addEventListener('click', showIntro); // 만들기 화면에서 소개로 돌아가기
+
+$('create-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 기본 제출 방지
+    $('create-error').textContent = ''; // 오류 초기화
+    try
+    {
+        const data = await window.api.post('/api/projects', { display_name: $('create-name').value.trim(), title: $('create-title').value.trim() }); // 작업실 만들기(만든 사람이 관리자로 입장한 상태가 됨)
+        ownerCode = { code: data.owner_code, days: data.owner_code_days }; // 재입장 코드(이 응답에서만 받음)
+        $('create-title').value = ''; // 입력 비움
+        await bootstrap(); // 세션 기준으로 다시 진입 → 방금 만든 작업실
+    }
+    catch (err)
+    {
+        $('create-error').textContent = err.message; // 오류 표시
+    }
+});
 $('home-more').addEventListener('click', () => $('home-features').scrollIntoView({ behavior: 'smooth' })); // 기능 소개로 스크롤
 $('join-back').addEventListener('click', showIntro); // 입장 화면에서 소개로 돌아가기
 
@@ -251,10 +281,14 @@ async function openWorkspace()
     showView('home'); // 홈 화면
     window.scrollTo(0, 0); // 맨 위부터 표시
     $('ws-notice').hidden = true; // 이전 알림 숨김
+    $('ws-task-error').textContent = ''; // 현황판 오류 초기화
+    setWorkspaceConnection('connecting'); // 아래에서 새로 연결할 때까지 현황판은 보기만(지난번 연결 상태가 화면에 남지 않게 먼저 바꿈)
     $('boards-project-title').textContent = state.project.title; // 프로젝트 이름
     $('boards-guest-name').textContent = state.guest.display_name; // 게스트 이름
     $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
     $('ws-summary').textContent = state.guest.display_name + (canEdit() ? ' 님, 보드를 골라 작업을 이어가세요.' : ' 님은 열람자로 입장했습니다. 보드를 열어 볼 수 있습니다.'); // 안내 문구
+    $('ws-rename').hidden = state.project.role !== 'admin'; // 작업실 이름 변경은 관리자만
+    renderOwnerCode(); // 방금 만든 작업실이면 재입장 코드 안내
     $('board-create-form').hidden = !canEdit(); // 열람자는 생성 불가
     $('boards-error').textContent = ''; // 오류 초기화
     const isAdmin = state.project.role === 'admin'; // 관리자 여부
@@ -275,8 +309,6 @@ async function openWorkspace()
     {
         $('boards-error').textContent = err.message; // 오류 표시
     }
-    $('ws-task-error').textContent = ''; // 현황판 오류 초기화
-    setWorkspaceConnection('connecting'); // 연결 전
     try
     {
         await loadProjectData(); // 참여자·공유 업무 조회
@@ -288,6 +320,55 @@ async function openWorkspace()
     }
     connectWorkspace(); // 업무 현황판용 실시간 연결(기다리지 않음: 연결 전에도 작업실은 쓸 수 있음)
 }
+
+// 방금 만든 작업실의 재입장 코드 카드: 확인 버튼을 누르거나 나갈 때까지 작업실에 보인다
+function renderOwnerCode()
+{
+    $('ws-owner').hidden = ownerCode === null; // 만든 직후에만 표시
+    if (ownerCode === null)
+    {
+        return;
+    }
+    $('ws-owner-name').textContent = state.guest.display_name; // 다시 들어올 때 써야 하는 이름
+    $('ws-owner-code').textContent = ownerCode.code; // 코드 원문(서버에는 해시만 있어 다시 볼 수 없음)
+    $('ws-owner-note').textContent = '지금만 표시되고 다시 볼 수 없습니다. ' + ownerCode.days + '일 동안 쓸 수 있습니다. 이 코드로는 새 사람이 들어올 수 없으니 팀원에게는 아래 초대 코드 관리에서 따로 발급해 주세요. 코드를 잃어버렸다면 나가기 전에 초대 코드 관리에서 관리자 코드를 새로 발급하세요.'; // 안내
+}
+
+$('ws-owner-copy').addEventListener('click', async () =>
+{
+    const copied = await copyText($('ws-owner-code').textContent); // 클립보드 복사
+    $('ws-owner-copy').textContent = copied ? '복사됨' : '복사 실패: 직접 선택해 복사하세요'; // 결과 표시
+    setTimeout(() => { $('ws-owner-copy').textContent = '코드 복사'; }, 1500); // 기본 문구 복원
+});
+$('ws-owner-done').addEventListener('click', () =>
+{
+    ownerCode = null; // 화면에서 지움
+    renderOwnerCode(); // 카드 숨김
+});
+
+$('ws-rename').addEventListener('click', () =>
+{
+    $('project-rename-title').value = state.project.title; // 현재 이름
+    $('project-rename-error').textContent = ''; // 오류 초기화
+    $('project-rename-dialog').showModal(); // 대화상자 열기
+    $('project-rename-title').select(); // 바로 고칠 수 있게 전체 선택
+});
+$('project-rename-cancel').addEventListener('click', () => $('project-rename-dialog').close()); // 이름 변경 취소
+$('project-rename-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    try
+    {
+        const data = await window.api.post('/api/projects/' + state.project.project_id + '/rename', { title: $('project-rename-title').value.trim() }); // 작업실 이름 변경(관리자만)
+        state.project.title = data.project.title; // 새 이름 반영
+        $('boards-project-title').textContent = data.project.title; // 작업실 제목
+        $('project-rename-dialog').close(); // 닫기
+    }
+    catch (err)
+    {
+        $('project-rename-error').textContent = err.message; // 오류 표시
+    }
+});
 
 function renderBoardList()
 {
@@ -512,7 +593,7 @@ function disconnectWorkspace()
     {
         workspaceLink.leave(); // 연결 종료
     }
-    workspaceOnline = false; // 편집 불가 상태로
+    setWorkspaceConnection('connecting'); // 편집 불가 상태로 바꾸고 카드도 그에 맞게 다시 그림(다음에 작업실을 열 때 새로 연결)
     if ($('ws-task-dialog').open)
     {
         $('ws-task-dialog').close(); // 열려 있던 업무 대화상자 닫기
@@ -672,6 +753,7 @@ $('boards-leave').addEventListener('click', async () =>
         // 이미 만료된 세션이어도 소개 페이지로 이동
     }
     disconnectWorkspace(); // 작업실 연결 종료
+    ownerCode = null; // 재입장 코드는 화면에서 지움
     state.guest = null; // 게스트 비움
     state.project = null; // 프로젝트 비움
     showIntro(); // 홈이 다시 소개 페이지로 구성됨
@@ -703,7 +785,7 @@ function renderInvites(invites)
     for (const invite of invites)
     {
         const tr = document.createElement('tr'); // 행
-        const uses = invite.used_count + '명' + (invite.max_uses === null ? '' : ' / ' + invite.max_uses + '명'); // 이 코드로 새로 입장한 인원(제한이 있으면 한도와 함께)
+        const uses = invite.reentry_only ? '재입장 전용' : invite.used_count + '명' + (invite.max_uses === null ? '' : ' / ' + invite.max_uses + '명'); // 이 코드로 새로 입장한 인원(제한이 있으면 한도와 함께). 재입장 전용 코드는 새 사람을 받지 않음
         for (const text of [ROLE_LABELS[invite.role] ?? invite.role, invite.expires_at.slice(0, 16), uses, INVITE_STATUS_LABELS[invite.status] ?? invite.status])
         {
             const td = document.createElement('td'); // 칸

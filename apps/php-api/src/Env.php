@@ -17,6 +17,7 @@ final class Env
         'TICKET_TTL' => '60',
         'RATE_LIMIT' => '20',
         'RATE_WINDOW' => '600',
+        'ALLOW_WORKSPACE_CREATE' => '1',
         'COOKIE_SECURE' => '0',
         'APP_DEBUG' => '0',
         'UPLOAD_DIR' => 'storage/uploads',

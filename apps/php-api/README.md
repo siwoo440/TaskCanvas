@@ -31,7 +31,7 @@ php-api/
 │   └── controllers/   # Guest / Board / Project / Ticket / Image / Invite / System
 ├── bin/
 │   ├── create-project.php  # 프로젝트 + 보드 생성, 최초 관리자 초대 코드 출력
-│   ├── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력)
+│   ├── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력, 인원 제한 0 은 재입장 전용)
 │   ├── check-env.php       # 사전 점검(PHP 버전·확장·업로드 한도·DB·스키마·업로드 폴더)
 │   ├── migrate.php         # 예전에 만든 DB 에 나중에 바뀐 컬럼 반영(데이터는 그대로)
 │   ├── clean-uploads.php   # 어느 보드에서도 쓰지 않는 이미지 정리(기본은 미리보기)
@@ -93,17 +93,19 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 - 입장 성공 시 세션 토큰은 **HttpOnly·SameSite=Strict 쿠키(`tc_session`)** 로만 전달됩니다. 응답 JSON에는 토큰이 없습니다.
 - 실시간 티켓(`POST /api/realtime-ticket`)은 60초 유효·일회용이며 DB에는 해시만 저장됩니다. Node.js 서버가 `realtime_tickets` 테이블로 검증합니다. `{board_id}` 를 보내면 그 보드에 참여하는 티켓, `{project_id}` 를 보내면 작업실의 업무 현황판이 쓰는 작업실 연결용 티켓이 나옵니다. 둘 중 하나만 보내야 하고, 두 티켓은 서로 바꿔 쓸 수 없습니다.
 - 같은 프로젝트에 같은 표시 이름으로 다시 입장하면 기존 게스트와 역할을 재사용합니다(MVP 단순화).
-- 입장 요청은 같은 IP 에서 10분에 20회(`RATE_LIMIT`, `RATE_WINDOW`)로 제한됩니다. 입장 요청 20번 중 1번꼴로 만료 세션·티켓·시도 기록을 정리합니다.
+- 작업실 직접 만들기(`POST /api/projects`)는 초대 코드 없이 게스트·작업실·첫 보드를 만들고 만든 사람을 관리자로 입장시킵니다. 응답의 `owner_code` 는 만든 사람의 재입장 전용 코드(90일)이며 이 응답에서만 원문이 나갑니다. `.env` 의 `ALLOW_WORKSPACE_CREATE=0` 으로 끌 수 있습니다(403 `CREATE_DISABLED`).
+- 같은 이름으로 다시 입장하면 기존 참여자와 역할을 그대로 쓰지만, 코드의 역할이 그 참여자의 역할보다 낮으면 거부합니다(403 `NAME_IN_USE`). 재입장 전용 코드에 새 이름을 쓰면 401 `REENTRY_ONLY` 입니다.
+- 입장과 작업실 만들기 요청은 합쳐서 같은 IP 에서 10분에 20회(`RATE_LIMIT`, `RATE_WINDOW`)로 제한됩니다. 거부된 입장도 횟수에 들어갑니다. 입장 요청 20번 중 1번꼴로 만료 세션·티켓·시도 기록을 정리합니다.
 
 ## 초대 코드 (관리자)
 
 | 메서드 | 경로 | 내용 |
 |---|---|---|
-| GET | `/api/projects/{id}/invites` | 초대 목록. `{invite_id, role, max_uses, used_count, expires_at, revoked_at, created_at, status}` — `status` 는 `active`·`expired`·`revoked`·`exhausted`(인원 마감). 코드 원문과 해시는 반환하지 않음 |
-| POST | `/api/projects/{id}/invites` | `{role, days, max_uses}` 로 발급. `role` 은 admin·editor·viewer, `days` 는 1~30(기본 7), `max_uses` 는 1~100(빼거나 null 이면 인원 제한 없음). 응답 `{invite, code}` — **코드 원문은 이 응답에서만 한 번** |
+| GET | `/api/projects/{id}/invites` | 초대 목록. `{invite_id, role, max_uses, used_count, reentry_only, expires_at, revoked_at, created_at, status}` — `status` 는 `active`·`expired`·`revoked`·`exhausted`(인원 마감). 코드 원문과 해시는 반환하지 않음 |
+| POST | `/api/projects/{id}/invites` | `{role, days, max_uses}` 로 발급. `role` 은 admin·editor·viewer, `days` 는 1~30(기본 7), `max_uses` 는 0~100(빼거나 null 이면 인원 제한 없음, 0 이면 재입장 전용). 응답 `{invite, code}` — **코드 원문은 이 응답에서만 한 번** |
 | POST | `/api/invites/{id}/revoke` | 초대 취소. 이미 입장한 참여자는 유지되고 그 코드로 새로 입장만 막힘 |
 
-세 경로 모두 해당 프로젝트의 관리자만 호출할 수 있습니다(그 외 403). 최초 관리자는 `create-project.php` 가 출력하는 관리자 코드로 지정합니다.
+세 경로 모두 해당 프로젝트의 관리자만 호출할 수 있습니다(그 외 403). 최초 관리자는 화면에서 작업실을 직접 만든 사람이거나 `create-project.php` 가 출력하는 관리자 코드로 입장한 사람입니다.
 
 인원 제한은 그 코드로 **새로** 입장하는 사람만 셉니다. 확인과 증가를 `UPDATE … WHERE used_count < max_uses` 한 문장으로 해서 동시에 들어와도 한도를 넘지 않습니다. 인원이 차면 새 이름은 `INVITE_EXHAUSTED`(401)로 거부하고, 이미 입장한 이름은 같은 코드로 다시 들어올 수 있습니다. 명령줄에서는 네 번째 인자로 줍니다.
 

@@ -1,7 +1,7 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·메모 저장·글자 크기·실행 취소·다시 실행도 확인한다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
@@ -53,6 +53,30 @@ async function capture(browser, env)
     await a.goto(BASE + '/'); // 첫 화면
     await a.waitForSelector('#home-intro', { visible: true }); // 소개 구성 대기
     await shot(a, '01-intro'); // 소개 홈페이지
+
+    // 실제 입력 확인: 소개의 기능 카드를 화살표·점·방향키로 넘기면 그 카드가 화면에 들어오고, 끝에서는 처음으로 이어지는지
+    const featureShown = (title) => a.waitForFunction((want) =>
+    {
+        const car = document.getElementById('feature-carousel'); // 넘겨 보는 카드
+        const stage = car.querySelector('.carousel-track').getBoundingClientRect(); // 보이는 영역
+        const inView = [...car.querySelectorAll('.feature-card')].filter((card) => { const r = card.getBoundingClientRect(); return r.left >= stage.left - 1 && r.right <= stage.right + 1; }).map((card) => card.querySelector('h3').textContent); // 온전히 보이는 카드
+        return !car.carousel.state.moving && inView.length === 1 && inView[0] === want; // 넘기기가 끝나고 그 카드만 보임
+    }, { timeout: 5000 }, title).then(() => a.$eval('#feature-carousel .carousel-count', (el) => el.textContent), () => 'timeout'); // 통과하면 "n / 6" 표시, 아니면 timeout
+    const flips = []; // 넘길 때마다의 표시
+    await a.click('#feature-carousel .carousel-arrow.next'); // 오른쪽 화살표
+    flips.push(await featureShown('겹치지 않는 편집'));
+    await a.click('#feature-carousel .carousel-dot:nth-child(4)'); // 네 번째 점
+    flips.push(await featureShown('여러 보드가 공유하는 업무'));
+    await a.focus('#feature-carousel .carousel-track'); // 카드 영역에 초점
+    await a.keyboard.press('ArrowRight'); // 방향키
+    flips.push(await featureShown('연결선과 다중 선택'));
+    await a.click('#feature-carousel .carousel-arrow.next'); // 마지막 카드로
+    flips.push(await featureShown('놓는 순간 저장'));
+    await a.click('#feature-carousel .carousel-arrow.next'); // 마지막에서 다음 → 처음
+    flips.push(await featureShown('그리는 순간 함께 보기'));
+    await a.click('#feature-carousel .carousel-arrow.prev'); // 처음에서 이전 → 마지막
+    flips.push(await featureShown('놓는 순간 저장'));
+    check('기능 카드: 화살표·점·방향키로 넘기면 그 카드가 보이고 끝과 처음이 이어짐', flips.join(',') === '2 / 6,4 / 6,5 / 6,6 / 6,1 / 6,6 / 6' && (await a.$$eval('#feature-carousel .carousel-dot', (els) => els.length)) === 6);
     await a.click('#home-enter-top'); // 입장하기
     await a.waitForSelector('#view-join', { visible: true }); // 입장 화면 대기
     await a.type('#join-code', 'XXXX-XXXX-XXXX'); // 화면에는 실제 코드 대신 자리 표시 글만 찍음
@@ -239,6 +263,56 @@ async function capture(browser, env)
     const dataUrl = await a.evaluate(() => canvas.exportDataUrl()); // 내보내기 그림
     fs.writeFileSync(path.join(OUT, '09-board-export.png'), Buffer.from(dataUrl.split(',')[1], 'base64')); // 파일로 저장
     console.log('saved assets/screenshots/09-board-export.png');
+
+    // 10) 작업실 직접 만들기: 초대 코드가 없는 세 번째 사람이 자기 작업실을 만든다
+    const c = await newUser(browser, USER); // 혼자 시작하는 사람
+    const OWNER = '혼자 시작'; // 만드는 사람의 표시 이름
+    await c.goto(BASE + '/'); // 소개 페이지
+    await c.waitForSelector('#home-intro', { visible: true }); // 소개 구성 대기
+    await c.click('#home-create'); // 새 작업실 만들기
+    await c.waitForSelector('#view-create', { visible: true }); // 만들기 화면
+    await c.type('#create-name', OWNER); // 표시 이름
+    await c.type('#create-title', '내 작업실'); // 작업실 이름
+    await shot(c, '10-create'); // 작업실 만들기 화면
+    await c.click('#create-form button[type="submit"]'); // 만들기
+    await c.waitForSelector('#ws-owner', { visible: true }); // 작업실로 들어와 내 코드 카드가 보임
+    await c.waitForSelector('#boards-list .open-board'); // 첫 보드 카드
+    const fresh = await c.evaluate(() => ({
+        role: document.getElementById('boards-role').textContent, // 역할 표시
+        title: document.getElementById('boards-project-title').textContent, // 작업실 이름
+        boards: [...document.querySelectorAll('#boards-list .open-board strong')].map((el) => el.textContent), // 보드 이름
+        code: document.getElementById('ws-owner-code').textContent, // 재입장 코드(아래 재입장 확인에만 쓰고 출력하지 않음)
+        name: document.getElementById('ws-owner-name').textContent, // 다시 들어올 때 쓸 이름
+        admin: !document.getElementById('invite-admin').hidden && !document.getElementById('ws-rename').hidden, // 초대 코드 관리와 이름 변경이 보이는지
+    })); // 만든 직후의 작업실
+    check('작업실 만들기: 초대 코드 없이 이름과 작업실 이름만으로 만들어 관리자로 들어가고 첫 보드와 내 코드가 보임', fresh.role === '관리자' && fresh.title === '내 작업실'
+        && fresh.boards.length === 1 && fresh.boards[0] === '첫 보드' && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(fresh.code) && fresh.name === OWNER && fresh.admin);
+    await c.$eval('#ws-owner-code', (el) => { el.textContent = 'XXXX-XXXX-XXXX'; }); // 화면에는 실제 코드 대신 자리 표시 글만 찍음
+    await waitTaskBoard(c, 0); // 업무 현황판 연결 표시까지 기다림
+    await c.mouse.move(640, 20); // 마우스는 상단으로 치움
+    await shot(c, '11-workspace-new'); // 방금 만든 작업실(내 코드 안내)
+    await c.click('#ws-rename'); // 작업실 이름 변경
+    await c.waitForSelector('#project-rename-dialog[open]'); // 이름 변경 대화상자(현재 이름이 선택된 상태)
+    await c.keyboard.type('나만의 작업실'); // 새 이름
+    await c.keyboard.press('Enter'); // 저장
+    await c.waitForFunction(() => !document.getElementById('project-rename-dialog').open && document.getElementById('boards-project-title').textContent === '나만의 작업실'); // 제목 반영
+    await c.click('#ws-owner-done'); // 내 코드를 보관했다고 확인
+    await c.click('#boards-leave'); // 나가기
+    await c.waitForSelector('#home-intro', { visible: true }); // 소개 페이지로 돌아옴
+    await c.click('#home-enter-top'); // 입장하기
+    await c.waitForSelector('#view-join', { visible: true }); // 입장 화면
+    await c.type('#join-name', '다른 사람'); // 만든 사람이 아닌 이름
+    await c.type('#join-code', fresh.code); // 내 코드
+    await c.click('#join-form button[type="submit"]'); // 입장 시도
+    await c.waitForFunction(() => document.getElementById('join-error').textContent !== ''); // 거부 안내
+    const refused = await c.$eval('#join-error', (el) => el.textContent); // 안내 문구
+    await joinWorkspace(c, OWNER, fresh.code); // 같은 이름과 내 코드로 다시 입장
+    const back = await c.evaluate(() => ({
+        role: document.getElementById('boards-role').textContent, // 역할
+        title: document.getElementById('boards-project-title').textContent, // 작업실 이름
+        cardHidden: document.getElementById('ws-owner').hidden, // 내 코드 카드는 만든 직후에만
+    })); // 다시 들어온 작업실
+    check('재입장: 내 코드는 같은 이름으로만 통하고, 다시 들어오면 관리자와 바꾼 작업실 이름 그대로', refused.includes('다시 들어올 때만') && back.role === '관리자' && back.title === '나만의 작업실' && back.cardHidden);
 }
 
 async function main()

@@ -58,7 +58,7 @@ TaskBoard.compare = (a, b) =>
 // root 요소에 현황판을 만든다. options: onMove(task, status) 카드를 다른 열에 놓음, onOpen(task) 카드를 누름
 TaskBoard.mount = (root, options) =>
 {
-    const board = { tasks: [], editable: false, drag: null, suppressClick: false }; // 현황판 상태
+    const board = { tasks: [], editable: false, drag: null, suppressClick: false, stale: false }; // 현황판 상태(stale: 끄는 동안 미뤄 둔 다시 그리기가 있음)
     const lists = new Map(); // status → 카드 목록 요소
     const counts = new Map(); // status → 개수 표시 요소
 
@@ -139,7 +139,8 @@ TaskBoard.mount = (root, options) =>
         return el ? el.closest('.tb-col') : null; // 그 요소가 속한 열
     }
 
-    function endDrag()
+    // 끌기를 끝내고 화면을 정리한다. 끄는 동안 미뤄 둔 다시 그리기가 있으면 여기서 그린다(afterClick: 이어지는 클릭이 처리된 뒤에 그림)
+    function endDrag(afterClick = false)
     {
         const drag = board.drag; // 진행 중이던 끌기
         board.drag = null; // 끌기 종료
@@ -155,6 +156,18 @@ TaskBoard.mount = (root, options) =>
         for (const col of root.querySelectorAll('.tb-col.drop-target'))
         {
             col.classList.remove('drop-target'); // 놓을 열 강조 해제
+        }
+        if (board.stale)
+        {
+            board.stale = false; // 미뤄 둔 다시 그리기 처리
+            if (afterClick)
+            {
+                setTimeout(paint, 0); // 누르기만 한 경우: 카드가 바뀌기 전에 클릭이 먼저 처리되게 함
+            }
+            else
+            {
+                paint(); // 끄는 동안 바뀐 내용 반영
+            }
         }
     }
 
@@ -222,19 +235,20 @@ TaskBoard.mount = (root, options) =>
         }
         const moved = drag.ghost !== null; // 실제로 끌었는지
         const status = moved && drag.target ? drag.target.dataset.status : null; // 놓은 열의 상태
-        endDrag(); // 화면 정리
+        endDrag(!moved); // 화면 정리
         if (moved)
         {
             board.suppressClick = true; // 끌기 뒤에 이어지는 클릭은 카드 열기로 보지 않음
             setTimeout(() => { board.suppressClick = false; }, 0); // 이번 입력의 클릭만 막음
-            if (status && status !== drag.task.status)
+            const latest = board.tasks.find((t) => t.task_id === drag.task.task_id); // 끄는 동안 다른 사람이 바꿨을 수 있으므로 지금의 업무 기준
+            if (status && latest && board.editable && status !== latest.status)
             {
-                options.onMove(drag.task, status); // 상태 변경 요청
+                options.onMove(latest, status); // 상태 변경 요청
             }
         }
     });
 
-    root.addEventListener('pointercancel', endDrag); // 터치 스크롤 등으로 끌기가 끊기면 원래대로
+    root.addEventListener('pointercancel', () => endDrag()); // 터치 스크롤 등으로 끌기가 끊기면 원래대로
 
     root.addEventListener('click', (e) =>
     {
@@ -250,12 +264,16 @@ TaskBoard.mount = (root, options) =>
         }
     });
 
-    // 업무 목록과 편집 가능 여부를 받아 다시 그린다. 끄는 중이면 끌기를 취소한다
+    // 업무 목록과 편집 가능 여부를 받아 다시 그린다. 카드를 누르거나 끄는 중이면 그리기를 미뤘다가 끝난 뒤에 그린다
     board.render = (tasks, editable) =>
     {
-        endDrag(); // 다시 그리면 끌던 카드가 사라지므로 취소
         board.tasks = tasks; // 업무 목록
         board.editable = editable; // 편집 가능 여부
+        if (board.drag)
+        {
+            board.stale = true; // 지금 그리면 끌던 카드가 사라져 끌기가 끊기므로 미룸(다른 사람의 변경이 들어와도 끌기는 유지)
+            return;
+        }
         paint(); // 카드 그리기
     };
 

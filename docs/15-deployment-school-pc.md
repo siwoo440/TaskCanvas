@@ -45,7 +45,7 @@ C:/xampp/mysql/bin/mysql.exe -u root < database/schema.sql
 
 ### 2-2. 설정 파일
 
-`apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다.
+`apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다. 접속한 사람이 소개 화면에서 작업실을 직접 만들지 못하게 하려면 `apps/php-api/.env` 에 `ALLOW_WORKSPACE_CREATE=0` 을 적습니다(기본은 허용).
 
 `apps/realtime/.env` 의 `CORS_ORIGIN` 은 `auto`(기본)로 둡니다. 실시간 서버와 같은 주소(같은 IP)에서 열린 화면만 붙을 수 있고, 서버 IP 가 바뀌어도 고칠 필요가 없습니다.
 
@@ -77,6 +77,8 @@ C:/xampp/php/php.exe apps/php-api/bin/create-invite.php 1 editor 7
 ```
 
 초대 코드는 팀원에게 직접 전달하고 저장소·문서에 기록하지 않습니다.
+
+명령줄을 쓰지 않고 화면에서 시작할 수도 있습니다. 소개 페이지의 **새 작업실 만들기**에서 이름과 작업실 이름을 넣으면 그 사람이 관리자인 작업실이 첫 보드와 함께 만들어집니다. 만든 직후 보이는 **내 코드**는 그 사람이 다시 들어올 때 쓰는 재입장 전용 코드이므로 팀원에게 주지 말고, 팀원용 코드는 초대 코드 관리에서 따로 발급합니다. 시연에는 예시 내용이 채워진 프로젝트(2-5)를 쓰는 편이 준비가 쉽습니다.
 
 ### 2-5. 시연 직전 초기화 (선택)
 
@@ -184,6 +186,8 @@ PHP 8083·실시간 3004 포트의 임시 서버에서 접속 점검 화면, 입
 | 보드를 열면 "실시간 서버에 연결하지 못했습니다" 안내 | 그 PC 에서 `http://<서버 IP>:8080/check.html` 을 열면 어느 단계에서 막히는지 나옴. 위와 같은 원인이거나 접속 출처가 허용되지 않음. 실시간 서버 창의 시작 줄에 `접속 출처 목록 …` 이 보이면 `apps/realtime/.env` 의 `CORS_ORIGIN` 을 `auto` 로 되돌리고 서버를 다시 띄움 |
 | `"db":false` | MariaDB 가 꺼져 있음. XAMPP Control Panel 에서 MySQL Start |
 | 초대 코드 거부 | 만료(기본 7일)·취소·오타. 관리자 화면의 초대 코드 관리 또는 `create-invite.php` 로 재발급 |
+| "더 높은 권한의 참여자가 쓰고 있습니다" 안내 | 그 이름은 이미 관리자나 편집자가 쓰는 이름입니다. 다른 이름으로 입장하거나, 본인이라면 그 권한의 코드를 씁니다 |
+| 직접 만든 작업실에 다시 못 들어감 | 이름과 내 코드가 모두 맞아야 합니다. 코드를 잃어버렸으면 서버 PC 에서 `create-invite.php <project_id> admin 30 0` 으로 재입장 전용 코드를 새로 발급 |
 | 이미지 업로드 실패 | 10MB 초과 또는 PNG/JPG/WEBP 가 아님. `apps/php-api/storage/uploads` 쓰기 권한 확인 |
 | 영상이 검게만 보임 | 학교 네트워크에서 YouTube 차단. 영상 시연 생략 |
 | 입장 시도가 많다는 안내(429) | 같은 PC 에서 10분에 20회 초과. 잠시 후 재시도 |

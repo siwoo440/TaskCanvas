@@ -8,8 +8,8 @@
 |---|---|---|
 | `guests` | guest_id, display_name, created_at | 코드 입장을 위한 게스트 ID |
 | `guest_sessions` | session_token_hash, guest_id, expires_at | 세션 원문 저장 금지 |
-| `projects` | project_id, title, created_by | 프로젝트 |
-| `project_invites` | invite_id, project_id, code_hash, role, max_uses, used_count, expires_at | 초대 코드 평문 금지. `max_uses` 가 NULL 이면 인원 제한 없음, `used_count` 는 그 코드로 새로 입장한 인원 |
+| `projects` | project_id, title, created_by | 프로젝트(화면에서는 작업실). 직접 만든 작업실은 `created_by` 에 만든 게스트, 명령줄로 만든 것은 NULL |
+| `project_invites` | invite_id, project_id, code_hash, role, max_uses, used_count, expires_at | 초대 코드 평문 금지. `max_uses` 가 NULL 이면 인원 제한 없음, 0 이면 재입장 전용(이미 참여한 사람이 같은 이름으로 다시 들어올 때만 통함), `used_count` 는 그 코드로 새로 입장한 인원 |
 | `project_members` | project_id, guest_id, role | 복합 키로 중복 방지 |
 | `boards` | board_id, project_id, title | 프로젝트별 여러 보드 |
 | `board_objects` | object_id, board_id, task_id, type, x, y, width, height, payload_json, style_json, version | 최종 확정된 객체만 저장 |

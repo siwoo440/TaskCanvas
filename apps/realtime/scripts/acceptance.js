@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26, AC27 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -200,6 +200,24 @@ function imageForm(projectId, file, type, name)
     form.append('project_id', String(projectId)); // 프로젝트
     form.append('file', new Blob([file], { type }), name); // 파일
     return form; // 폼
+}
+
+// 작업실 직접 만들기를 꺼 둔 서버(ALLOW_WORKSPACE_CREATE=0)를 잠깐 띄워 만들기 요청이 거부되는지 본다
+async function createWhenDisabled()
+{
+    const port = API_PORT + 100; // 임시 포트
+    const php = spawn(PHP, ['-S', '127.0.0.1:' + port, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, RATE_LIMIT: '1000', ALLOW_WORKSPACE_CREATE: '0' } }); // 만들기를 꺼 둔 PHP 서버
+    try
+    {
+        await waitFor('http://127.0.0.1:' + port + '/api/health'); // 준비 대기
+        const res = await fetch('http://127.0.0.1:' + port + '/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TaskCanvas': '1' }, body: JSON.stringify({ display_name: 'AC-Off', title: 'AC Off' }) }); // 만들기 시도
+        const body = await res.json(); // 응답 본문
+        return { status: res.status, code: body.error ? body.error.code : null }; // 결과 요약
+    }
+    finally
+    {
+        php.kill(); // 임시 서버 종료
+    }
 }
 
 // ---------- 시나리오 ----------
@@ -409,7 +427,7 @@ async function run(envInfo)
     const afterRevoke = await join('AC-Late', issued.json.code); // 취소된 코드로 입장 시도
     const stillMember = await api('GET', '/api/me', undefined, viaIssued.cookie); // 이미 입장한 사람은 유지
     const limited = await api('POST', invitesPath, { role: 'viewer', days: 1, max_uses: 1 }, admin.cookie); // 한 명만 들어올 수 있는 코드
-    const badUses = await Promise.all([0, 101, 'x'].map((n) => api('POST', invitesPath, { role: 'viewer', days: 1, max_uses: n }, admin.cookie))); // 허용 범위 밖·형식 오류
+    const badUses = await Promise.all([-1, 101, 'x'].map((n) => api('POST', invitesPath, { role: 'viewer', days: 1, max_uses: n }, admin.cookie))); // 허용 범위 밖·형식 오류
     const firstIn = await join('AC-Limit-1', limited.json.code); // 첫 사람
     const secondIn = await join('AC-Limit-2', limited.json.code); // 두 번째 사람(인원 마감)
     const firstAgain = await join('AC-Limit-1', limited.json.code); // 이미 입장한 이름은 다시 들어올 수 있음
@@ -533,6 +551,51 @@ async function run(envInfo)
     {
         s.disconnect(); // 작업실 연결 정리
     }
+
+    // AC27 작업실 직접 만들기: 초대 코드 없이 만들면 관리자로 입장, 남의 작업실과 분리, 재입장 전용 코드, 낮은 권한 코드로 이름 가로채기 방지
+    const noHeader = await fetch(API + '/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ display_name: 'AC-Owner', title: 'no header' }) }); // CSRF 방어 헤더 없이
+    const emptyTitle = await api('POST', '/api/projects', { display_name: 'AC-Owner', title: '   ' }); // 빈 작업실 이름
+    const longTitle = await api('POST', '/api/projects', { display_name: 'AC-Owner', title: 'x'.repeat(121) }); // 너무 긴 이름
+    const made = await api('POST', '/api/projects', { display_name: 'AC-Owner', title: 'AC 내 작업실' }); // 작업실 만들기
+    const mine = made.status === 201 ? made.json.project.project_id : 0; // 새 작업실 ID
+    const firstBoard = made.status === 201 ? made.json.board.board_id : 0; // 처음부터 들어 있는 보드
+    const invitesMine = '/api/projects/' + mine + '/invites'; // 내 작업실의 초대 API
+    const meOwner = await api('GET', '/api/me', undefined, made.cookie); // 만든 직후의 세션
+    const myBoards = await api('GET', '/api/projects/' + mine + '/boards', undefined, made.cookie); // 내 보드 목록
+    const myInvites = await api('GET', invitesMine, undefined, made.cookie); // 내 초대 목록(재입장 코드 한 줄)
+    const intoOthers = await api('GET', '/api/projects/' + projectId + '/boards', undefined, made.cookie); // 내 세션으로 남의 작업실 조회
+    const othersIntoMine = await api('GET', '/api/projects/' + mine + '/boards', undefined, B.cookie); // 남의 세션으로 내 작업실 조회
+    const ownerSocket = await connect(); // 만든 사람의 실시간 연결
+    const ownerBoardJoin = await ack(ownerSocket, 'board:join', { board_id: firstBoard, ticket: await ticket(made.cookie, firstBoard) }); // 첫 보드에 바로 참여
+    ownerSocket.disconnect(); // 정리
+    const editorInvite = await api('POST', invitesMine, { role: 'editor', days: 1 }, made.cookie); // 팀원용 편집자 코드
+    const viewerInvite = await api('POST', invitesMine, { role: 'viewer', days: 1 }, made.cookie); // 열람자 코드
+    const friend = await join('AC-Friend', editorInvite.json.code); // 초대받은 편집자
+    const stealOwner = await join('AC-Owner', editorInvite.json.code); // 편집자 코드로 만든 사람의 이름을 씀
+    const stealFriend = await join('AC-Friend', viewerInvite.json.code); // 열람자 코드로 편집자의 이름을 씀
+    const friendAgain = await join('AC-Friend', editorInvite.json.code); // 같은 권한의 코드로 자기 이름은 다시 들어올 수 있음
+    const ownerBack = await join('AC-Owner', made.json.owner_code); // 만든 사람이 재입장 코드로 돌아옴
+    const ownerCodeNewName = await join('AC-Stranger', made.json.owner_code); // 재입장 코드로 새 이름
+    const reentryIssued = await api('POST', invitesMine, { role: 'admin', days: 1, max_uses: 0 }, made.cookie); // 관리자가 재입장 전용 코드를 새로 발급
+    const renameByEditor = await api('POST', '/api/projects/' + mine + '/rename', { title: 'nope' }, friend.cookie); // 편집자의 이름 변경 시도
+    const renameEmpty = await api('POST', '/api/projects/' + mine + '/rename', { title: '  ' }, made.cookie); // 빈 이름
+    const projectRenamed = await api('POST', '/api/projects/' + mine + '/rename', { title: 'AC 새 이름' }, made.cookie); // 관리자의 이름 변경
+    const meRenamed = await api('GET', '/api/me', undefined, ownerBack.cookie); // 다시 들어온 세션에서 본 작업실
+    const disabled = await createWhenDisabled(); // 만들기를 꺼 둔 서버
+    const ownerRow = myInvites.status === 200 ? myInvites.json.invites[0] : {}; // 재입장 코드의 목록 행
+    record('AC27', '작업실 직접 만들기', noHeader.status === 403 && emptyTitle.status === 400 && longTitle.status === 400
+        && made.status === 201 && made.json.project.role === 'admin' && made.json.project.title === 'AC 내 작업실' && made.cookie !== '' && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(made.json.owner_code)
+        && meOwner.status === 200 && meOwner.json.projects.length === 1 && meOwner.json.projects[0].project_id === mine && meOwner.json.projects[0].role === 'admin'
+        && myBoards.status === 200 && myBoards.json.boards.length === 1 && myBoards.json.boards[0].board_id === firstBoard
+        && myInvites.status === 200 && myInvites.json.invites.length === 1 && ownerRow.role === 'admin' && ownerRow.reentry_only === true && ownerRow.status === 'active' && ownerRow.code === undefined
+        && intoOthers.status === 403 && othersIntoMine.status === 403 && ownerBoardJoin.ok && ownerBoardJoin.you.role === 'admin'
+        && friend.status === 201 && friend.json.role === 'editor' && stealOwner.status === 403 && stealOwner.json.error.code === 'NAME_IN_USE' && stealFriend.status === 403 && stealFriend.json.error.code === 'NAME_IN_USE'
+        && friendAgain.status === 201 && friendAgain.json.guest.guest_id === friend.json.guest.guest_id
+        && ownerBack.status === 201 && ownerBack.json.role === 'admin' && ownerBack.json.guest.guest_id === made.json.guest.guest_id
+        && ownerCodeNewName.status === 401 && ownerCodeNewName.json.error.code === 'REENTRY_ONLY' && reentryIssued.status === 201 && reentryIssued.json.invite.reentry_only === true
+        && renameByEditor.status === 403 && renameEmpty.status === 400 && projectRenamed.status === 200 && meRenamed.json.projects[0].title === 'AC 새 이름'
+        && disabled.status === 403 && disabled.code === 'CREATE_DISABLED',
+        '초대 코드 없이 만들면 관리자로 입장하고 첫 보드에 바로 참여, 남의 작업실과 서로 403, 재입장 코드는 같은 이름만 허용, 낮은 권한 코드로 높은 권한 이름 사용은 NAME_IN_USE, 이름 변경은 관리자만, 꺼 둔 서버는 CREATE_DISABLED');
 
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)
