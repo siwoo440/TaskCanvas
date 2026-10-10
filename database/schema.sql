@@ -122,12 +122,14 @@ CREATE TABLE IF NOT EXISTS realtime_tickets ( -- Socket.IO 단기 접속 티켓
     ticket_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 티켓 행 ID
     ticket_hash CHAR(64) NOT NULL UNIQUE, -- 티켓 원문 SHA-256 해시
     guest_id BIGINT UNSIGNED NOT NULL, -- 발급 대상 게스트
-    board_id BIGINT UNSIGNED NOT NULL, -- 참여 허용 보드
+    board_id BIGINT UNSIGNED NULL, -- 참여 허용 보드(작업실 연결용 티켓이면 NULL)
+    project_id BIGINT UNSIGNED NULL, -- 작업실 연결용 티켓의 프로젝트(보드 티켓이면 NULL)
     expires_at DATETIME NOT NULL, -- 티켓 만료 시각
     used_at DATETIME NULL, -- 사용 시각(일회성 검사)
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 발급 시각
     CONSTRAINT fk_ticket_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 참조
-    CONSTRAINT fk_ticket_board FOREIGN KEY (board_id) REFERENCES boards (board_id) ON DELETE CASCADE -- 보드 참조
+    CONSTRAINT fk_ticket_board FOREIGN KEY (board_id) REFERENCES boards (board_id) ON DELETE CASCADE, -- 보드 참조
+    CONSTRAINT fk_ticket_project FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE CASCADE -- 프로젝트 참조
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 티켓 테이블
 
 CREATE TABLE IF NOT EXISTS join_attempts ( -- 게스트 입장 시도 기록(요청 제한용)

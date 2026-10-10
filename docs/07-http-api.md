@@ -9,7 +9,7 @@
 | POST | `/api/guest/join` | 표시 이름+초대 코드 검증 후 세션 발급 | 공개(요청 제한 필요) |
 | POST | `/api/guest/leave` | 게스트 세션 종료 | 참여자 |
 | GET | `/api/me` | 현재 세션의 게스트와 참여 프로젝트·역할 | 참여자 |
-| POST | `/api/realtime-ticket` | Socket.IO 단기 접속 티켓 발급 | 보드 참여자 |
+| POST | `/api/realtime-ticket` | Socket.IO 단기 접속 티켓 발급. `{board_id}` 는 보드 참여용, `{project_id}` 는 작업실 연결용. 둘 중 하나만 보냄(둘 다 있거나 없으면 400) | 참여자 |
 | GET | `/api/projects/{id}/boards` | 프로젝트 보드 목록 | 참여자 |
 | POST | `/api/projects/{id}/boards` | 보드 생성 | 관리자·편집자 |
 | GET | `/api/boards/{id}/snapshot` | 저장 완료 객체 전체 조회 | 참여자 |
@@ -24,7 +24,7 @@
 | POST | `/api/invites/{id}/revoke` | 초대 코드 취소(이미 입장한 참여자는 유지) | 관리자 |
 | GET | `/api/health` | 서버·DB 상태 확인(개발용) | 공개 |
 
-**구현 상태(1·5·7·9·11단계):** 위 엔드포인트는 모두 `apps/php-api` 에 구현되어 있습니다. 보드 이름 변경·삭제는 HTTP 로 처리하고, 그 보드를 열고 있는 참여자에게는 실시간 서버가 DB 를 주기적으로 확인해 `board:renamed`/`board:deleted` 로 알립니다. 삭제해도 업로드한 이미지 파일과 공유 업무 원본은 남습니다. 초대 코드는 `days` 1~30(기본 7), 상태는 `active`·`expired`·`revoked` 이며 최초 관리자는 `bin/create-project.php` 가 출력하는 관리자 코드로 지정합니다. 업무 생성·수정은 모든 보드에 전파해야 하므로 HTTP 가 아니라 실시간 서버의 `task:create`/`task:update` 로 처리합니다. 모든 `POST` 는 `X-TaskCanvas: 1` 헤더를 요구하며, `/api/images` 는 `multipart/form-data`(`project_id`, `file`), 나머지는 `Content-Type: application/json` 입니다. 이미지 업로드 응답은 `{asset:{asset_id, url:'/api/images/{id}', mime_type, size_bytes, width, height}}` 이고, 조회는 참여자 세션 쿠키가 있어야 하며 `Cache-Control: private` 로 반환됩니다.
+**구현 상태(1·5·7·9·11·17단계):** 위 엔드포인트는 모두 `apps/php-api` 에 구현되어 있습니다. 보드 이름 변경·삭제는 HTTP 로 처리하고, 그 보드를 열고 있는 참여자에게는 실시간 서버가 DB 를 주기적으로 확인해 `board:renamed`/`board:deleted` 로 알립니다. 삭제해도 업로드한 이미지 파일과 공유 업무 원본은 남습니다. 초대 코드는 `days` 1~30(기본 7), 상태는 `active`·`expired`·`revoked` 이며 최초 관리자는 `bin/create-project.php` 가 출력하는 관리자 코드로 지정합니다. 업무 생성·수정은 모든 보드에 전파해야 하므로 HTTP 가 아니라 실시간 서버의 `task:create`/`task:update` 로 처리합니다. 작업실의 업무 현황판도 작업실용 티켓으로 실시간 서버에 연결해(`project:join`) 같은 이벤트를 씁니다. 모든 `POST` 는 `X-TaskCanvas: 1` 헤더를 요구하며, `/api/images` 는 `multipart/form-data`(`project_id`, `file`), 나머지는 `Content-Type: application/json` 입니다. 이미지 업로드 응답은 `{asset:{asset_id, url:'/api/images/{id}', mime_type, size_bytes, width, height}}` 이고, 조회는 참여자 세션 쿠키가 있어야 하며 `Cache-Control: private` 로 반환됩니다.
 
 ---
 

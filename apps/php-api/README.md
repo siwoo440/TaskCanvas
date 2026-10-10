@@ -33,7 +33,7 @@ php-api/
 │   ├── create-project.php  # 프로젝트 + 보드 생성, 최초 관리자 초대 코드 출력
 │   ├── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력)
 │   ├── check-env.php       # 사전 점검(PHP 버전·확장·업로드 한도·DB·스키마·업로드 폴더)
-│   ├── migrate.php         # 예전에 만든 DB 에 빠진 컬럼 추가(데이터는 그대로)
+│   ├── migrate.php         # 예전에 만든 DB 에 나중에 바뀐 컬럼 반영(데이터는 그대로)
 │   ├── clean-uploads.php   # 어느 보드에서도 쓰지 않는 이미지 정리(기본은 미리보기)
 │   ├── reset-demo.php      # 시연 초기화(전체 데이터·업로드 삭제 후 시연 프로젝트 생성, --seed 로 예시 채움)
 │   └── seed-demo.php       # 빈 보드에 시연용 예시 내용 채우기
@@ -91,7 +91,7 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 
 - 상태 변경 요청(`POST`)은 **`X-TaskCanvas: 1`** 헤더가 필요합니다. 브라우저가 교차 사이트에서 이 헤더를 붙일 수 없으므로 CSRF 방어 역할을 합니다. 본문은 `Content-Type: application/json`(이미지 업로드만 `multipart/form-data`)입니다.
 - 입장 성공 시 세션 토큰은 **HttpOnly·SameSite=Strict 쿠키(`tc_session`)** 로만 전달됩니다. 응답 JSON에는 토큰이 없습니다.
-- 실시간 티켓(`POST /api/realtime-ticket`)은 60초 유효·일회용이며 DB에는 해시만 저장됩니다. Node.js 서버가 `realtime_tickets` 테이블로 검증합니다.
+- 실시간 티켓(`POST /api/realtime-ticket`)은 60초 유효·일회용이며 DB에는 해시만 저장됩니다. Node.js 서버가 `realtime_tickets` 테이블로 검증합니다. `{board_id}` 를 보내면 그 보드에 참여하는 티켓, `{project_id}` 를 보내면 작업실의 업무 현황판이 쓰는 작업실 연결용 티켓이 나옵니다. 둘 중 하나만 보내야 하고, 두 티켓은 서로 바꿔 쓸 수 없습니다.
 - 같은 프로젝트에 같은 표시 이름으로 다시 입장하면 기존 게스트와 역할을 재사용합니다(MVP 단순화).
 - 입장 요청은 같은 IP 에서 10분에 20회(`RATE_LIMIT`, `RATE_WINDOW`)로 제한됩니다. 입장 요청 20번 중 1번꼴로 만료 세션·티켓·시도 기록을 정리합니다.
 
@@ -150,7 +150,7 @@ C:/xampp/php/php.exe apps/php-api/bin/reset-demo.php --dry-run
 C:/xampp/php/php.exe apps/php-api/bin/seed-demo.php 1
 ```
 
-프로젝트(여기서는 `project_id=1`)의 첫 번째 보드에 제목 글·펜 획 밑줄·색 메모 3장·흐름 메모 3장과 연결선·강조 타원·테두리 사각형, 그리고 공유 업무 3개(진행 중·할 일·완료)와 그 블럭을 넣습니다. 두 번째 보드가 비어 있으면 같은 업무를 가리키는 블럭을 하나 더 놓아, 한쪽에서 상태를 바꾸면 양쪽이 함께 바뀌는 것을 바로 보여 줄 수 있습니다.
+프로젝트(여기서는 `project_id=1`)의 첫 번째 보드에 제목 글·펜 획 밑줄·색 메모 3장·흐름 메모 3장과 연결선·강조 타원·테두리 사각형, 그리고 공유 업무 3개(진행 중·할 일·완료)와 그 블럭을 넣습니다. 보드에 놓지 않는 업무도 하나 만들어 작업실의 업무 현황판에는 카드 4장이 보이고, 마감일은 실행한 날을 기준으로 잡아 임박(이틀 뒤)과 지남(하루 전) 표시가 하나씩 나옵니다. 두 번째 보드가 비어 있으면 같은 업무를 가리키는 블럭을 하나 더 놓아, 한쪽에서 상태를 바꾸면 양쪽이 함께 바뀌는 것을 바로 보여 줄 수 있습니다.
 
 - 실시간 서버가 저장하는 것과 같은 형식으로 DB 에 직접 넣습니다. 전부 들어가거나 전부 취소됩니다(트랜잭션).
 - 첫 번째 보드에 객체가 하나라도 있으면 넣지 않습니다. `--force` 를 주면 기존 내용을 지우지 않고 그 위에 추가합니다.
@@ -162,7 +162,7 @@ C:/xampp/php/php.exe apps/php-api/bin/seed-demo.php 1
 C:/xampp/php/php.exe apps/php-api/bin/migrate.php
 ```
 
-`database/schema.sql` 은 테이블이 없을 때만 만들기 때문에, 예전에 만든 DB 에는 나중에 추가된 컬럼이 없습니다. 이 명령이 빠진 컬럼만 더합니다(지금은 초대 코드의 `max_uses`·`used_count`). 여러 번 실행해도 되고 데이터는 지우지 않습니다. `scripts\start-dev.bat` 과 `reset-demo.php` 가 자동으로 실행합니다.
+`database/schema.sql` 은 테이블이 없을 때만 만들기 때문에, 예전에 만든 DB 에는 나중에 추가된 컬럼이 없습니다. 이 명령이 반영되지 않은 변경만 적용합니다(초대 코드의 `max_uses`·`used_count`, 접속 티켓의 `project_id` 추가와 `board_id` 의 NULL 허용). 여러 번 실행해도 되고 데이터는 지우지 않습니다. `scripts\start-dev.bat` 과 `reset-demo.php` 가 자동으로 실행합니다.
 
 ## 업로드 정리
 

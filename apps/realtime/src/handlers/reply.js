@@ -23,4 +23,14 @@ function joinedBoard(socket, data)
     return boardId && Number(data?.board_id) === boardId ? boardId : null; // 참여 보드와 일치할 때만 허용
 }
 
-module.exports = { ok, fail, joinedBoard };
+// 공유 업무는 프로젝트 단위: 보드에 참여한 연결은 그 보드 번호를 함께 보내야 하고, 작업실 연결은 참여한 프로젝트면 된다
+function joinedProject(socket, data)
+{
+    if (socket.data.workspace)
+    {
+        return socket.data.projectId ?? null; // 작업실 연결의 프로젝트
+    }
+    return joinedBoard(socket, data) ? socket.data.projectId : null; // 보드 연결은 보드 번호가 맞을 때만
+}
+
+module.exports = { ok, fail, joinedBoard, joinedProject };

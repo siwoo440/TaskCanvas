@@ -48,9 +48,10 @@ final class DemoSeed
             // 아래쪽: 공유 업무 영역(테두리 사각형 + 안내 글 + 업무 블럭 세 개)
             self::shape($main, 'rect', 320, 230, 800, 200, '#9ca3af', null, 2); // 영역 테두리
             self::note($main, 500, 236, 460, 40, '공유 업무 — 다른 보드의 같은 블럭과 함께 바뀝니다', null, '#6b7280'); // 안내 글
-            $design = self::task($projectId, '로그인 화면 디자인', 'doing', 7); // 진행 중 업무
-            $server = self::task($projectId, '실시간 서버 방 구현', 'todo', 10); // 할 일 업무
+            $design = self::task($projectId, '로그인 화면 디자인', 'doing', 7); // 진행 중 업무(마감 여유)
+            $server = self::task($projectId, '실시간 서버 방 구현', 'todo', 2); // 할 일 업무(마감 임박 표시)
             $schema = self::task($projectId, 'DB 스키마 검토', 'done', null); // 완료 업무
+            self::task($projectId, '발표 자료 초안', 'todo', -1); // 보드에 놓지 않은 업무(작업실 현황판에만 보임, 마감 지남 표시)
             $designBlock = self::taskBlock($main, $design, 340, 290); // 업무 블럭 1
             self::taskBlock($main, $server, 600, 290); // 업무 블럭 2
             self::taskBlock($main, $schema, 860, 290); // 업무 블럭 3

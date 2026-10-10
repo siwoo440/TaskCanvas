@@ -1,9 +1,9 @@
-// task:create / task:update — 보드와 독립된 공유 업무 원본. 변경은 프로젝트의 모든 보드에 전파
+// task:create / task:update — 보드와 독립된 공유 업무 원본. 변경은 프로젝트의 모든 보드와 작업실에 전파
 'use strict';
 
 const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
-const { ok, fail, joinedBoard } = require('./reply'); // 응답 헬퍼
+const { ok, fail, joinedProject } = require('./reply'); // 응답 헬퍼
 
 const STATUSES = ['todo', 'doing', 'done']; // 허용 상태
 const DATE = /^\d{4}-\d{2}-\d{2}$/; // 마감일 형식
@@ -107,10 +107,9 @@ function register(io, socket)
     {
         try
         {
-            const boardId = joinedBoard(socket, data); // 참여 보드 확인
-            if (!boardId)
+            if (!joinedProject(socket, data))
             {
-                return fail(ack, 'FORBIDDEN', '참여 중인 보드가 아닙니다.'); // 보드 불일치
+                return fail(ack, 'FORBIDDEN', '참여 중인 보드나 작업실이 아닙니다.'); // 미참여·보드 불일치
             }
             if (!(await auth.hasRole(socket.data.guestId, socket.data.projectId, 'editor')))
             {
@@ -128,7 +127,7 @@ function register(io, socket)
             ); // 업무 원본 생성
             const task = await loadTask(result.insertId); // 생성 결과
             ok(ack, { request_id: data.request_id ?? null, task }); // 생성 응답
-            socket.to(projectRoom(socket.data.projectId)).emit('task:created', { task, guest_id: socket.data.guestId }); // 프로젝트 전체에 전파
+            socket.to(projectRoom(socket.data.projectId)).emit('task:created', { task, guest_id: socket.data.guestId }); // 프로젝트의 모든 보드와 작업실에 전파
         }
         catch (err)
         {
@@ -142,10 +141,9 @@ function register(io, socket)
         let conn = null; // 트랜잭션 연결
         try
         {
-            const boardId = joinedBoard(socket, data); // 참여 보드 확인
-            if (!boardId)
+            if (!joinedProject(socket, data))
             {
-                return fail(ack, 'FORBIDDEN', '참여 중인 보드가 아닙니다.'); // 보드 불일치
+                return fail(ack, 'FORBIDDEN', '참여 중인 보드나 작업실이 아닙니다.'); // 미참여·보드 불일치
             }
             if (!(await auth.hasRole(socket.data.guestId, socket.data.projectId, 'editor')))
             {
@@ -189,7 +187,7 @@ function register(io, socket)
             await conn.commit(); // 트랜잭션 확정
             const task = await loadTask(taskId); // 저장 결과
             ok(ack, { request_id: data.request_id ?? null, task }); // 변경 응답
-            socket.to(projectRoom(socket.data.projectId)).emit('task:updated', { task, guest_id: socket.data.guestId }); // 같은 프로젝트의 모든 보드에 전파
+            socket.to(projectRoom(socket.data.projectId)).emit('task:updated', { task, guest_id: socket.data.guestId }); // 같은 프로젝트의 모든 보드와 작업실에 전파
         }
         catch (err)
         {

@@ -14,9 +14,9 @@ function register(io, socket)
     {
         try
         {
-            if (socket.data.boardId)
+            if (socket.data.boardId || socket.data.projectId)
             {
-                return fail(ack, 'ALREADY_JOINED', '이미 보드에 참여한 연결입니다.'); // 중복 참여 차단
+                return fail(ack, 'ALREADY_JOINED', '이미 보드나 작업실에 참여한 연결입니다.'); // 중복 참여 차단(작업실 연결을 보드 연결로 바꿀 수 없음)
             }
             const boardId = Number(data?.board_id); // 요청 보드
             if (!Number.isInteger(boardId) || boardId <= 0)

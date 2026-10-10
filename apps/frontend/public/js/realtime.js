@@ -1,4 +1,4 @@
-// Socket.IO 연결 관리: 티켓으로 보드 참여, 재접속 시 자동 재참여
+// Socket.IO 연결 관리: 티켓으로 보드 참여(또는 작업실 연결), 재접속 시 자동 재참여
 'use strict';
 
 class Realtime
@@ -9,6 +9,7 @@ class Realtime
         this.handlers = handlers; // 이벤트 콜백 모음
         this.socket = null; // 현재 소켓
         this.boardId = null; // 참여 중인 보드
+        this.projectId = null; // 작업실 연결이면 프로젝트 ID(보드 연결이면 null)
         this.joined = false; // 참여 완료 여부
         this.joinedOnce = false; // 이 연결에서 참여한 적이 있는지(재접속 판별)
         this.refusedShown = false; // 첫 연결 거부 안내를 이미 했는지
@@ -30,10 +31,23 @@ class Realtime
         });
     }
 
-    async join(boardId)
+    join(boardId)
     {
         this.leave(); // 이전 연결 정리
         this.boardId = boardId; // 보드 기록
+        this.open(); // 연결 시작
+    }
+
+    // 작업실 연결: 보드에 들어가지 않고 프로젝트의 공유 업무 생성·변경만 주고받는다
+    watchProject(projectId)
+    {
+        this.leave(); // 이전 연결 정리
+        this.projectId = projectId; // 프로젝트 기록
+        this.open(); // 연결 시작
+    }
+
+    open()
+    {
         this.socket = window.io(this.url, { transports: ['websocket', 'polling'] }); // 소켓 생성
         const socket = this.socket; // 지역 참조
 
@@ -75,12 +89,13 @@ class Realtime
         const wasJoined = this.joinedOnce === true; // 이전 참여 이력
         try
         {
-            const ticket = await this.handlers.getTicket(this.boardId); // PHP 에서 일회성 티켓 발급
+            const scope = this.projectId !== null ? { project_id: this.projectId } : { board_id: this.boardId }; // 참여할 범위(작업실 또는 보드)
+            const ticket = await this.handlers.getTicket(scope); // PHP 에서 일회성 티켓 발급
             if (socket !== this.socket)
             {
                 return; // 그 사이 다른 보드로 이동
             }
-            const reply = await this.request('board:join', { board_id: this.boardId, ticket }); // 보드 참여
+            const reply = await this.request(this.projectId !== null ? 'project:join' : 'board:join', { ...scope, ticket }); // 작업실 연결 또는 보드 참여
             this.joined = true; // 참여 완료
             this.joinedOnce = true; // 참여 이력 기록
             this.handlers.onStatus('online'); // 연결됨 표시
@@ -138,6 +153,7 @@ class Realtime
         this.joinedOnce = false; // 참여 이력 초기화
         this.refusedShown = false; // 다음 연결에서는 다시 안내
         this.boardId = null; // 보드 비움
+        this.projectId = null; // 프로젝트 비움
     }
 }
 

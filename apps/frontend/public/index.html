@@ -104,7 +104,7 @@
                     <li>
                         <span class="feature-icon" aria-hidden="true">☑</span>
                         <h3>여러 보드가 공유하는 업무</h3>
-                        <p>같은 업무 블럭을 여러 보드에 놓으면 상태·담당자·마감일이 모든 보드에서 함께 바뀝니다.</p>
+                        <p>같은 업무 블럭을 여러 보드에 놓으면 상태·담당자·마감일이 함께 바뀝니다. 작업실의 현황판에서는 상태별로 모아 보고 끌어서 바꿉니다.</p>
                     </li>
                     <li>
                         <span class="feature-icon" aria-hidden="true">⟶</span>
@@ -159,17 +159,23 @@
                 <p id="boards-error" class="error" role="alert"></p>
             </section>
 
-            <div class="ws-columns">
-                <section class="ws-section">
-                    <h2>참여자 <span class="count" id="ws-member-count"></span></h2>
-                    <ul id="ws-members" class="plain-list"></ul>
-                </section>
-                <section class="ws-section">
-                    <h2>공유 업무 <span class="count" id="ws-task-count"></span></h2>
-                    <ul id="ws-tasks" class="plain-list"></ul>
-                    <p class="muted small">업무는 보드 안에서 ☑ 업무 블럭으로 만들고 수정합니다. 같은 업무를 여러 보드에 놓을 수 있습니다.</p>
-                </section>
-            </div>
+            <section class="ws-section">
+                <div class="row between ws-section-head">
+                    <h2>업무 현황판 <span class="count" id="ws-task-count"></span></h2>
+                    <div class="row">
+                        <span id="ws-conn" class="badge" data-state="connecting">연결 중…</span>
+                        <button type="button" id="ws-task-add" class="primary" disabled>새 업무</button>
+                    </div>
+                </div>
+                <div id="ws-taskboard" class="taskboard"></div>
+                <p id="ws-task-error" class="error" role="alert"></p>
+                <p class="muted small" id="ws-task-hint"></p>
+            </section>
+
+            <section class="ws-section">
+                <h2>참여자 <span class="count" id="ws-member-count"></span></h2>
+                <ul id="ws-members" class="member-row"></ul>
+            </section>
 
             <section id="invite-admin" class="ws-section" hidden>
                 <h2>초대 코드 관리 <span class="muted small">관리자 전용</span></h2>
@@ -351,6 +357,30 @@
         </dialog>
     </section>
 
+    <!-- 작업실 업무 현황판의 업무 만들기·수정 대화상자 -->
+    <dialog id="ws-task-dialog">
+        <form id="ws-task-form" method="dialog">
+            <h2 id="ws-task-dialog-title">새 업무</h2>
+            <label>제목 <input id="ws-task-title" type="text" maxlength="180" placeholder="예: 로그인 화면 디자인"></label>
+            <div class="row">
+                <label>상태
+                    <select id="ws-task-status">
+                        <option value="todo">할 일</option>
+                        <option value="doing">진행 중</option>
+                        <option value="done">완료</option>
+                    </select>
+                </label>
+                <label>담당자 <select id="ws-task-assignee"><option value="">없음</option></select></label>
+                <label>마감일 <input id="ws-task-due" type="date"></label>
+            </div>
+            <p id="ws-task-dialog-error" class="error" role="alert"></p>
+            <div class="row">
+                <button type="button" id="ws-task-cancel">취소</button>
+                <button type="submit" class="primary">저장</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- 작업실의 보드 이름 변경·삭제 대화상자 (어느 화면에서도 열릴 수 있게 화면 바깥에 둔다) -->
     <dialog id="board-rename-dialog">
         <form id="board-rename-form" method="dialog">
@@ -380,6 +410,7 @@
     <script src="js/api.js"></script>
     <script src="js/realtime.js"></script>
     <script src="js/media.js"></script>
+    <script src="js/taskboard.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/tools.js"></script>
     <script src="js/app.js"></script>

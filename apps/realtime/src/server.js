@@ -6,6 +6,7 @@ const { Server } = require('socket.io'); // Socket.IO
 const env = require('./env'); // 설정 값
 const db = require('./db'); // DB 연결 확인용
 const boardHandler = require('./handlers/board'); // 보드 참여
+const projectHandler = require('./handlers/project'); // 작업실 연결
 const cursorHandler = require('./handlers/cursor'); // 커서 중계
 const strokeHandler = require('./handlers/stroke'); // 펜 중계·저장
 const objectHandler = require('./handlers/object'); // 객체 생성
@@ -38,6 +39,7 @@ const io = new Server(httpServer, {
 io.on('connection', (socket) =>
 {
     boardHandler.register(io, socket); // board:join·disconnect
+    projectHandler.register(io, socket); // project:join
     cursorHandler.register(io, socket); // cursor:move
     strokeHandler.register(io, socket); // stroke:preview·commit
     objectHandler.register(io, socket); // object:create

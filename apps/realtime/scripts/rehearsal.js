@@ -10,7 +10,7 @@ const fs = require('fs'); // 내려받은 파일 확인
 const os = require('os'); // 임시 폴더
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
-const { wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf } = require('./lib/browser-kit'); // 캡처 스크립트와 함께 쓰는 도우미
+const { wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 캡처 스크립트와 함께 쓰는 도우미
 
 const API_PORT = Number(process.env.REH_API_PORT || 8083); // 리허설용 PHP 포트
 const RT_PORT = Number(process.env.REH_RT_PORT || 3004); // 리허설용 실시간 포트
@@ -553,11 +553,34 @@ async function rehearse(browser, env)
         }
     });
 
-    await step('9', '열람자', async () =>
+    await step('9', '업무 현황판', async () =>
     {
+        const MOVED = '실시간 서버 방 구현'; // 끌어 옮길 업무(예시에서는 '할 일', 마감 이틀 전)
+        const CREATED = '리허설에서 만든 업무'; // 작업실에서 새로 만들 업무
         await d.click('#board-back'); // ‹ 작업실
         await d.waitForSelector('#home-workspace', { visible: true }); // 작업실
-        await d.click('#boards-leave'); // 나가기
+        await waitTaskBoard(d, 4).catch(() => { throw new Error(NAMES.d + ' 화면: 업무 현황판이 실시간으로 연결되지 않았습니다.'); }); // 카드 네 장과 연결 대기
+        const before = await taskCards(d); // 옮기기 전 카드
+        expect(before[MOVED] && before[MOVED].status === 'todo' && before[MOVED].due === 'soon:D-2', "'" + MOVED + "' 카드가 할 일 열에 마감 임박(D-2)으로 보이지 않습니다."); // 예시 업무와 임박 표시
+        expect(before['발표 자료 초안'] && before['발표 자료 초안'].due === 'overdue:1일 지남', "'발표 자료 초안' 카드에 마감 지남 표시가 없습니다."); // 보드에 놓지 않은 업무와 지남 표시
+        expect(before['로그인 화면 디자인'] && before['로그인 화면 디자인'].status === 'done', '6번에서 완료로 바꾼 업무가 완료 열에 없습니다.'); // 보드에서 바꾼 상태가 현황판에 반영
+        const movedId = await d.evaluate((title) => [...state.tasks.values()].find((t) => t.title === title).task_id, MOVED); // 옮길 업무 ID
+        await dragCard(d, MOVED, 'doing'); // D 가 카드를 진행 중 열로 끌어 놓음
+        await all([a, b, c], (p) => waitOn(p, '보드의 업무 블럭이 진행 중으로', (id) => state.tasks.get(id) && state.tasks.get(id).status === 'doing', movedId)); // 보드에 있는 세 화면
+        await waitOn(d, '카드가 진행 중 열에', (title) => [...document.querySelectorAll('#ws-taskboard .tb-col[data-status="doing"] .tb-card strong')].some((el) => el.textContent === title), MOVED); // D 의 현황판
+        await d.click('#ws-task-add'); // 새 업무
+        await d.waitForSelector('#ws-task-dialog[open]'); // 업무 대화상자
+        await d.type('#ws-task-title', CREATED); // 제목 입력
+        await d.keyboard.press('Enter'); // 저장
+        await all([a, b, c], (p) => waitOn(p, '작업실에서 만든 업무', (title) => [...state.tasks.values()].some((t) => t.title === title && t.status === 'todo'), CREATED)); // 보드에 있는 세 화면도 받음
+        await waitOn(d, '새 카드', (title) => !document.getElementById('ws-task-dialog').open && [...document.querySelectorAll('#ws-taskboard .tb-col[data-status="todo"] .tb-card strong')].some((el) => el.textContent === title), CREATED); // D 의 현황판
+        expect((await d.$eval('#ws-task-error', (el) => el.textContent)) === '', '현황판에 오류 안내가 떴습니다.'); // 오류 없음
+        return 'D 가 작업실에서 카드를 끌어 진행 중으로 옮기고 새 업무를 만들자 보드에 있는 3대에 전달, 마감 임박·지남 표시 확인';
+    });
+
+    await step('10', '열람자', async () =>
+    {
+        await d.click('#boards-leave'); // 나가기(D 는 9번에서 이미 작업실에 있음)
         await d.waitForSelector('#home-intro', { visible: true }); // 소개 페이지로 돌아옴
         await d.click('#home-enter-top'); // 입장하기
         await d.waitForSelector('#view-join', { visible: true }); // 입장 화면

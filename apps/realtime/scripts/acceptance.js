@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -488,6 +488,51 @@ async function run(envInfo)
         && renamed !== null && renamed.title === 'AC Renamed' && editorDelete.status === 403 && adminDelete.status === 200 && adminDelete.json.deleted === true
         && boardDeleted !== null && disconnected !== null && snapGone.status === 404 && !boardsAfter.some((b) => b.board_id === tempBoard.board_id) && boardsAfter.length >= 2
         && missingRename.status === 404, '편집자 이름 변경·관리자 삭제(그 외 403), 보드 안 참여자에게 이름 변경·삭제 알림 후 연결 종료, 삭제된 보드 404');
+
+    // AC26 업무 현황판: 작업실 연결(보드에 들어가지 않은 연결)에서 업무를 만들고 바꾸면 보드에 전달되고, 보드의 변경은 작업실에 전달
+    const projectTicket = async (cookie, id = projectId) => api('POST', '/api/realtime-ticket', { project_id: id }, cookie); // 작업실용 티켓 발급
+    const wsTicket = await projectTicket(B.cookie); // 편집자의 작업실 티켓
+    const W = await connect(); // 작업실 연결
+    const wsJoin = await ack(W, 'project:join', { project_id: projectId, ticket: wsTicket.json.ticket }); // 작업실 참여
+    const probe = await connect(); // 잘못된 티켓 사용을 시험할 연결
+    const reused = await ack(probe, 'project:join', { project_id: projectId, ticket: wsTicket.json.ticket }); // 이미 쓴 티켓
+    const asBoard = await ack(probe, 'board:join', { board_id: boardA, ticket: (await projectTicket(B.cookie)).json.ticket }); // 작업실 티켓으로 보드 참여 시도
+    const asProject = await ack(probe, 'project:join', { project_id: projectId, ticket: await ticket(B.cookie, boardA) }); // 보드 티켓으로 작업실 참여 시도
+    const beforeJoin = await ack(probe, 'task:create', { title: 'no join' }); // 어디에도 참여하지 않은 연결의 업무 생성
+    const bothIds = await api('POST', '/api/realtime-ticket', { board_id: boardA, project_id: projectId }, B.cookie); // 범위를 둘 다 지정
+    const noIds = await api('POST', '/api/realtime-ticket', {}, B.cookie); // 범위 없음
+    const otherAdminCode = /관리자 초대 코드: (\S+)/.exec(phpCli('create-project.php', ['AC Other ' + Date.now(), 'Other Board']))[1]; // 다른 프로젝트
+    const outsider = await join('AC-Outsider', otherAdminCode); // 다른 프로젝트의 참여자
+    const outsiderTicket = await projectTicket(outsider.cookie); // 남의 프로젝트 작업실 티켓 요청
+    const createdAtBoard = until(C.socket, 'task:created', (d) => d.task.title === 'AC workspace task'); // 보드 B 참여자가 받을 생성 알림
+    const wsCreate = await ack(W, 'task:create', { title: 'AC workspace task', status: 'todo', due_at: '2026-11-01' }); // 작업실에서 업무 생성(보드 번호 없음)
+    const boardSawCreate = await createdAtBoard; // 수신
+    const wsTaskId = wsCreate.ok ? wsCreate.task.task_id : 0; // 새 업무 ID
+    const movedAtBoard = until(C.socket, 'task:updated', (d) => d.task.task_id === wsTaskId && d.task.status === 'doing'); // 보드가 받을 상태 변경
+    const wsMove = await ack(W, 'task:update', { task_id: wsTaskId, version: 1, changes: { status: 'doing' } }); // 현황판에서 카드를 옮긴 것과 같은 요청
+    const boardSawMove = await movedAtBoard; // 수신
+    const doneAtWorkspace = until(W, 'task:updated', (d) => d.task.task_id === wsTaskId && d.task.status === 'done'); // 작업실이 받을 보드 쪽 변경
+    const boardMove = await ack(C.socket, 'task:update', { board_id: boardB, task_id: wsTaskId, version: 2, changes: { status: 'done' } }); // 보드에서 상태 변경
+    const workspaceSawMove = await doneAtWorkspace; // 수신
+    const wsStale = await ack(W, 'task:update', { task_id: wsTaskId, version: 2, changes: { status: 'todo' } }); // 이전 버전으로 다시 옮기기 시도
+    const wsObject = await ack(W, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 5, height: 5 }); // 작업실 연결로 보드 객체 생성 시도
+    const VW = await connect(); // 열람자의 작업실 연결
+    const viewerJoin = await ack(VW, 'project:join', { project_id: projectId, ticket: (await projectTicket(V.cookie)).json.ticket }); // 열람자도 볼 수는 있음
+    const viewerMove = await ack(VW, 'task:update', { task_id: wsTaskId, version: 3, changes: { status: 'todo' } }); // 열람자의 상태 변경 시도
+    const viewerCreate = await ack(VW, 'task:create', { title: 'viewer task' }); // 열람자의 업무 생성 시도
+    const wsListed = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, B.cookie)).json.tasks.find((t) => t.task_id === wsTaskId); // 저장된 결과
+    record('AC26', '업무 현황판', wsTicket.status === 201 && wsTicket.json.project_id === projectId && wsTicket.json.board_id === undefined && wsJoin.ok && wsJoin.you.role === 'editor'
+        && reused.ok === false && reused.error.code === 'INVALID_TICKET' && asBoard.ok === false && asBoard.error.code === 'INVALID_TICKET' && asProject.ok === false && asProject.error.code === 'INVALID_TICKET'
+        && beforeJoin.ok === false && beforeJoin.error.code === 'FORBIDDEN' && bothIds.status === 400 && noIds.status === 400 && outsider.status === 201 && outsiderTicket.status === 403
+        && wsCreate.ok && wsCreate.task.due_at === '2026-11-01' && boardSawCreate !== null && wsMove.ok && wsMove.task.version === 2 && boardSawMove !== null
+        && boardMove.ok && workspaceSawMove !== null && workspaceSawMove.task.version === 3 && wsStale.ok === false && wsStale.error.code === 'VERSION_CONFLICT' && wsStale.task.status === 'done'
+        && wsObject.ok === false && wsObject.error.code === 'FORBIDDEN' && viewerJoin.ok && viewerJoin.you.role === 'viewer' && viewerMove.ok === false && viewerMove.error.code === 'FORBIDDEN'
+        && viewerCreate.ok === false && viewerCreate.error.code === 'FORBIDDEN' && wsListed && wsListed.status === 'done' && wsListed.version === 3,
+        '작업실 연결의 업무 생성·상태 변경이 보드에 전달되고 보드의 변경은 작업실에 전달, 이전 버전은 VERSION_CONFLICT, 티켓은 범위가 다르면 거부, 작업실 연결의 보드 객체 생성과 열람자의 변경은 FORBIDDEN');
+    for (const s of [W, probe, VW])
+    {
+        s.disconnect(); // 작업실 연결 정리
+    }
 
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)

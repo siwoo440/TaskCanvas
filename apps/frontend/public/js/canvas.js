@@ -877,9 +877,21 @@ class BoardCanvas
             ctx.strokeStyle = accent; // 테두리 색
             ctx.lineWidth = 1.5; // 테두리 굵기
             ctx.strokeRect(o.x, o.y, o.width, o.height); // 테두리
+            const due = TaskBoard.dueInfo(task); // 마감 상태(작업실 현황판과 같은 기준)
+            let tagWidth = 0; // 오른쪽 위 마감 표시가 차지하는 폭
+            if (due.state === 'overdue' || due.state === 'today' || due.state === 'soon')
+            {
+                ctx.font = 'bold 11px sans-serif'; // 표시 글꼴
+                tagWidth = Math.min(ctx.measureText(due.label).width + 12, Math.max(0, o.width - 28)); // 글 폭 + 여백(블럭이 좁으면 블럭 안으로)
+                ctx.fillStyle = due.state === 'overdue' ? '#dc2626' : '#d97706'; // 지남은 빨강, 오늘·임박은 주황
+                ctx.fillRect(o.x + o.width - tagWidth - 8, o.y + 9, tagWidth, 18); // 표시 배경
+                ctx.fillStyle = '#ffffff'; // 표시 글자 색
+                ctx.fillText(due.label, o.x + o.width - tagWidth - 2, o.y + 22, tagWidth - 12); // 지남 일수·오늘 마감·D-n
+                tagWidth += 8; // 제목과의 간격
+            }
             ctx.fillStyle = '#111827'; // 제목 색
             ctx.font = 'bold 15px sans-serif'; // 제목 글꼴
-            ctx.fillText(task ? task.title : '업무 #' + o.task_id, o.x + 14, o.y + 24, o.width - 24); // 제목
+            ctx.fillText(task ? task.title : '업무 #' + o.task_id, o.x + 14, o.y + 24, Math.max(10, o.width - 24 - tagWidth)); // 제목(마감 표시와 겹치지 않게)
             ctx.font = '12px sans-serif'; // 본문 글꼴
             ctx.fillStyle = accent; // 상태 색
             ctx.fillText(task ? (labels[task.status] ?? task.status) : '불러오는 중…', o.x + 14, o.y + 46); // 상태

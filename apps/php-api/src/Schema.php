@@ -1,5 +1,5 @@
 <?php
-// DB 스키마 보정: 예전에 만든 DB 에 나중에 추가된 컬럼이 있는지 확인하고 없으면 더한다(데이터는 지우지 않음)
+// DB 스키마 보정: 예전에 만든 DB 에 나중에 바뀐 컬럼이 반영되어 있는지 확인하고 아니면 고친다(데이터는 지우지 않음)
 declare(strict_types=1);
 
 final class Schema
@@ -7,39 +7,65 @@ final class Schema
     private const ADDED_COLUMNS = [
         ['project_invites', 'max_uses', 'ALTER TABLE project_invites ADD COLUMN max_uses INT UNSIGNED NULL AFTER role'],
         ['project_invites', 'used_count', 'ALTER TABLE project_invites ADD COLUMN used_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_uses'],
+        ['realtime_tickets', 'project_id', 'ALTER TABLE realtime_tickets ADD COLUMN project_id BIGINT UNSIGNED NULL AFTER board_id, ADD CONSTRAINT fk_ticket_project FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE CASCADE'],
     ]; // [테이블, 컬럼, 추가 문장] — database/schema.sql 에 컬럼을 더할 때 여기에도 적는다
 
-    // 아직 없는 컬럼 목록("테이블.컬럼")
+    private const NULLABLE_COLUMNS = [
+        ['realtime_tickets', 'board_id', 'ALTER TABLE realtime_tickets MODIFY board_id BIGINT UNSIGNED NULL'],
+    ]; // [테이블, 컬럼, 변경 문장] — 처음에는 NOT NULL 이었다가 나중에 NULL 을 허용하게 된 컬럼
+
+    // 아직 반영되지 않은 변경 목록("테이블.컬럼", NULL 허용 변경은 뒤에 표시를 붙임)
     public static function missing(): array
     {
-        $missing = []; // 없는 컬럼
+        $missing = []; // 반영되지 않은 변경
         foreach (self::ADDED_COLUMNS as [$table, $column])
         {
-            $found = Database::one(
-                'SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
-                [$table, $column]
-            ); // 컬럼 존재 확인
-            if ((int) $found['n'] === 0)
+            if (self::column($table, $column) === null)
             {
                 $missing[] = $table . '.' . $column; // 추가가 필요한 컬럼
             }
         }
-        return $missing; // 없는 컬럼 목록
-    }
-
-    // 없는 컬럼을 더하고, 더한 컬럼 목록을 돌려준다. 이미 다 있으면 아무것도 하지 않는다
-    public static function upgrade(): array
-    {
-        $missing = self::missing(); // 없는 컬럼
-        $applied = []; // 더한 컬럼
-        foreach (self::ADDED_COLUMNS as [$table, $column, $sql])
+        foreach (self::NULLABLE_COLUMNS as [$table, $column])
         {
-            if (in_array($table . '.' . $column, $missing, true))
+            $found = self::column($table, $column); // 현재 컬럼 정보
+            if ($found !== null && $found['is_nullable'] !== 'YES')
             {
-                Database::pdo()->exec($sql); // 컬럼 추가(기존 행은 기본값으로 채워짐)
-                $applied[] = $table . '.' . $column; // 더한 컬럼 기록
+                $missing[] = $table . '.' . $column . '(NULL 허용)'; // NULL 허용으로 바꿔야 하는 컬럼
             }
         }
-        return $applied; // 더한 컬럼 목록
+        return $missing; // 반영되지 않은 변경 목록
+    }
+
+    // 반영되지 않은 변경을 적용하고, 적용한 목록을 돌려준다. 이미 다 되어 있으면 아무것도 하지 않는다
+    public static function upgrade(): array
+    {
+        $applied = []; // 적용한 변경
+        foreach (self::ADDED_COLUMNS as [$table, $column, $sql])
+        {
+            if (self::column($table, $column) === null)
+            {
+                Database::pdo()->exec($sql); // 컬럼 추가(기존 행은 기본값으로 채워짐)
+                $applied[] = $table . '.' . $column; // 적용 기록
+            }
+        }
+        foreach (self::NULLABLE_COLUMNS as [$table, $column, $sql])
+        {
+            $found = self::column($table, $column); // 현재 컬럼 정보
+            if ($found !== null && $found['is_nullable'] !== 'YES')
+            {
+                Database::pdo()->exec($sql); // NULL 허용으로 변경(기존 값은 그대로)
+                $applied[] = $table . '.' . $column . '(NULL 허용)'; // 적용 기록
+            }
+        }
+        return $applied; // 적용한 변경 목록
+    }
+
+    // 컬럼 정보(없으면 null)
+    private static function column(string $table, string $column): ?array
+    {
+        return Database::one(
+            'SELECT is_nullable FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
+            [$table, $column]
+        ); // 컬럼 존재와 NULL 허용 여부
     }
 }

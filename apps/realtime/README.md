@@ -27,14 +27,15 @@ realtime/
 │   ├── origin.js        # 접속 출처 검사(CORS_ORIGIN: auto·*·목록)
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
+│       ├── project.js   # project:join (작업실 연결: 보드 없이 프로젝트 방에만 참여)
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
 │       ├── object.js    # object:create 도형·이미지·영상·업무 블럭 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
-│       ├── task.js      # task:create·update (공유 업무 원본, 프로젝트 방 전파)
+│       ├── task.js      # task:create·update (공유 업무 원본, 프로젝트 방 전파. 보드 연결과 작업실 연결 모두 사용)
 │       ├── link.js      # link:create·update·delete (관계 연결선)
 │       ├── ping.js      # net:ping (접속 점검 화면의 왕복 시간 측정용 응답)
-│       └── reply.js     # ack 응답 형식, 보드 일치 검사
+│       └── reply.js     # ack 응답 형식, 보드·프로젝트 참여 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
 ├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01·운영 점검 OPS01 (서버를 직접 띄워 검사)
 ├── scripts/rehearsal.js    # 시연 리허설(브라우저 4개로 시연 대본 실행 + 전달 지연 측정)
@@ -77,7 +78,7 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 npm run rehearsal
 ```
 
-MariaDB 와 Chrome(또는 Edge)만 있으면 됩니다. PHP 내장 서버(8083)와 실시간 서버(3004)를 임시로 띄우고 "리허설 프로젝트"에 예시 내용을 채운 뒤, 브라우저 네 개(관리자 1·편집자 3)로 [시연 대본](../../docs/16-demo-script.md)의 1~9번 장면을 실제 마우스·키보드 입력으로 실행합니다. 맨 앞에서 접속 점검 화면(`check.html`)도 열어 서버에 닿는 항목이 통과인지 봅니다. 약 30초 걸리며 장면별 `PASS`/`FAIL` 과 결과 표를 출력합니다. 실패가 있으면 종료 코드 1 입니다.
+MariaDB 와 Chrome(또는 Edge)만 있으면 됩니다. PHP 내장 서버(8083)와 실시간 서버(3004)를 임시로 띄우고 "리허설 프로젝트"에 예시 내용을 채운 뒤, 브라우저 네 개(관리자 1·편집자 3)로 [시연 대본](../../docs/16-demo-script.md)의 1~10번 장면을 실제 마우스·키보드 입력으로 실행합니다. 맨 앞에서 접속 점검 화면(`check.html`)도 열어 서버에 닿는 항목이 통과인지 봅니다. 약 30초 걸리며 장면별 `PASS`/`FAIL` 과 결과 표를 출력합니다. 실패가 있으면 종료 코드 1 입니다.
 
 - 장면 뒤에는 A 화면이 보낸 것이 다른 화면에 도착하기까지의 시간을 잽니다(커서·펜 미리보기·이동 미리보기·확정 저장 응답·확정 결과). 미리보기 중앙값이 150ms, 확정 저장 응답 중앙값이 500ms 를 넘으면 실패입니다(`REH_MAX_PREVIEW_MS`·`REH_MAX_COMMIT_MS` 로 변경).
 - 마지막에 네 화면의 객체·연결선이 서버 저장 내용과 같은지, 화면 스크립트 오류가 없었는지 확인하고, 이 실행에서 만든 초대 코드를 모두 취소합니다. "리허설 프로젝트"는 DB 에 남습니다.
@@ -118,7 +119,7 @@ npm run capture
 
 MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서버(3003)를 임시로 띄우고 "시연 프로젝트"를 만들어 예시 내용을 채운 뒤, 설치된 Chrome 을 창 없이 실행해 관리자와 편집자 두 사람으로 접속하고 `assets/screenshots/` 에 9장(소개·입장·작업실·초대 관리·보드·잠금·업무·메모 편집·PNG 내보내기)을 저장합니다.
 
-- 찍는 김에 실제 키보드·마우스 입력으로 다섯 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 초대 링크 입장, 메모 글 입력 후 바깥 클릭 저장, 오른쪽 패널에서 글자 크기 변경, Ctrl+Z 두 번으로 차례로 되돌리기, Ctrl+Y 두 번으로 다시 실행. 하나라도 실패하면 종료 코드 1 입니다.
+- 찍는 김에 실제 키보드·마우스 입력으로 일곱 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 초대 링크 입장, 업무 현황판의 카드를 끌어 상태 변경(보드 화면에 전달되는지와 마감 표시 포함), 카드를 눌러 수정(그 사이 다른 사람이 바꾼 업무는 최신 내용으로 다시 채우는지), 메모 글 입력 후 바깥 클릭 저장, 오른쪽 패널에서 글자 크기 변경, Ctrl+Z 두 번으로 차례로 되돌리기, Ctrl+Y 두 번으로 다시 실행. 하나라도 실패하면 종료 코드 1 입니다.
 - 실행할 때마다 `.env` 의 DB 에 "시연 프로젝트"가 하나 생깁니다. 다른 DB 에서 찍으려면 `DB_NAME` 환경 변수를 지정합니다. Chrome 경로는 `CHROME_BIN`, PHP 경로는 `PHP_BIN`, 포트는 `CAP_API_PORT`·`CAP_RT_PORT` 로 바꿀 수 있습니다.
 - 수용 테스트(8081·3002)나 개발 서버(8080·3001)와 포트가 달라 동시에 떠 있어도 됩니다.
 
@@ -127,6 +128,7 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서
 | 방향 | 이벤트 | 내용 |
 |---|---|---|
 | C→S (ack) | `board:join` `{board_id, ticket}` | 티켓 검증 후 방 참여. 응답 `{ok, you, participants}` |
+| C→S (ack) | `project:join` `{project_id, ticket}` | 작업실용 티켓 검증 후 프로젝트 방에만 참여. 응답 `{ok, project_id, you}`. 이 연결은 업무 이벤트만 쓸 수 있고 보드 이벤트는 `FORBIDDEN` |
 | S→C | `presence:update` `{participants}` | 참여자 입장·퇴장 시 전체 목록 |
 | C→S | `cursor:move` `{board_id, x, y}` | 커서 중계. S→C 로 `{guest_id, display_name, color, x, y}` |
 | C→S | `stroke:preview` `{board_id, stroke_id, points_delta, style}` | 그리는 중 중계 (DB 기록 없음) |
@@ -139,9 +141,9 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서
 | C→S (ack) | `object:delete` `{board_id, object_id, lock_token, version}` | 버전 검사 후 삭제·잠금 해제 |
 | C→S (ack) | `object:unlock` `{board_id, object_id, lock_token}` | 변경 없이 잠금 해제 |
 | S→C | `object:locked` / `object:unlocked` / `object:preview` / `object:updated` / `object:deleted` | 잠금·해제(reason)·이동 중·변경·삭제 전파 |
-| C→S (ack) | `task:create` `{board_id, title, status, assignee_id, due_at}` | 공유 업무 원본 생성. 응답 `{task}` |
-| C→S (ack) | `task:update` `{board_id, task_id, version, changes}` | 버전 검사 후 저장. 충돌 시 `VERSION_CONFLICT` + 최상위 `task` |
-| S→C | `task:created` / `task:updated` `{task, guest_id}` | 프로젝트 방(`project:{id}`)의 모든 보드 참여자에게 전파 |
+| C→S (ack) | `task:create` `{board_id, title, status, assignee_id, due_at}` | 공유 업무 원본 생성. 응답 `{task}`. 작업실 연결은 `board_id` 없이 보냄 |
+| C→S (ack) | `task:update` `{board_id, task_id, version, changes}` | 버전 검사 후 저장. 충돌 시 `VERSION_CONFLICT` + 최상위 `task`. 작업실 연결은 `board_id` 없이 보냄 |
+| S→C | `task:created` / `task:updated` `{task, guest_id}` | 프로젝트 방(`project:{id}`)의 모든 보드 참여자와 작업실 연결에 전파 |
 | C→S (ack) | `link:create` `{board_id, from_object_id, to_object_id, label}` / `link:update` `{link_id, label}` / `link:delete` `{link_id}` | 연결선. 응답 `{link}`. S→C 로 `link:created`/`link:updated`/`link:deleted` 전파 |
 | S→C | `board:renamed` `{board_id, title}` / `board:deleted` `{board_id}` | 작업실에서 보드 이름이 바뀌거나 삭제되면 그 보드의 참여자에게 알림. 삭제 시 알림 뒤 연결 종료. 감지 주기 `BOARD_SWEEP_MS`(기본 5초) |
 | C→S (ack) | `net:ping` | 접속 점검 화면이 왕복 시간을 잴 때 사용. 보드 참여 전에도 `{ok:true}` 만 바로 돌려줌 |

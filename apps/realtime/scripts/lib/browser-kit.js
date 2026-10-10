@@ -166,4 +166,47 @@ async function centerOf(page, text)
     return screenPoint(page, o.x + o.width / 2, o.y + o.height / 2); // 가운데 화면 좌표
 }
 
-module.exports = { ROOT, PHP_API, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf };
+// 작업실 업무 현황판이 실시간으로 연결되어 카드를 끌 수 있게 될 때까지 기다린다
+function waitTaskBoard(page, cards)
+{
+    return page.waitForFunction((n) => document.getElementById('ws-conn').dataset.state === 'online' && document.querySelectorAll('#ws-taskboard .tb-card.draggable').length >= n, {}, cards);
+}
+
+// 현황판의 카드 상태: 제목 → { status(놓인 열), due(마감 표시의 종류와 글) }
+function taskCards(page)
+{
+    return page.evaluate(() => Object.fromEntries([...document.querySelectorAll('#ws-taskboard .tb-card')].map((card) =>
+    {
+        const due = card.querySelector('.tb-due'); // 마감 표시
+        return [card.querySelector('strong').textContent, { status: card.closest('.tb-col').dataset.status, due: due ? due.className.replace('tb-due ', '') + ':' + due.textContent : '' }];
+    })));
+}
+
+// 현황판의 카드를 실제 마우스 입력으로 끌어 다른 열에 놓는다
+async function dragCard(page, title, status)
+{
+    const points = await page.evaluate((wanted, target) =>
+    {
+        const card = [...document.querySelectorAll('#ws-taskboard .tb-card')].find((el) => el.querySelector('strong').textContent === wanted); // 끌 카드
+        const col = document.querySelector('#ws-taskboard .tb-col[data-status="' + target + '"]'); // 놓을 열
+        if (!card || !col)
+        {
+            return null;
+        }
+        col.scrollIntoView({ block: 'center' }); // 현황판을 화면 안으로
+        const from = card.getBoundingClientRect(); // 카드 위치
+        const to = col.getBoundingClientRect(); // 열 위치
+        return { from: { x: from.left + from.width / 2, y: from.top + from.height / 2 }, to: { x: to.left + to.width / 2, y: to.top + Math.min(to.height - 16, 70) } };
+    }, title, status);
+    if (!points)
+    {
+        throw new Error("현황판에서 '" + title + "' 카드나 '" + status + "' 열을 찾지 못했습니다."); // 예시 업무가 바뀐 경우
+    }
+    await page.mouse.move(points.from.x, points.from.y); // 카드 위로
+    await page.mouse.down(); // 잡기
+    await page.mouse.move(points.from.x + 14, points.from.y + 10, { steps: 3 }); // 조금 움직여 끌기 시작
+    await page.mouse.move(points.to.x, points.to.y, { steps: 10 }); // 다른 열로
+    await page.mouse.up(); // 놓기
+}
+
+module.exports = { ROOT, PHP_API, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard };

@@ -1,13 +1,13 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 메모 저장·글자 크기·실행 취소·다시 실행도 확인한다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·메모 저장·글자 크기·실행 취소·다시 실행도 확인한다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
-const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, centerOf } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
+const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
 
 const OUT = path.join(ROOT, 'assets', 'screenshots'); // 캡처 저장 폴더
 const API_PORT = Number(process.env.CAP_API_PORT || 8082); // 캡처용 PHP 포트
@@ -70,13 +70,73 @@ async function capture(browser, env)
     // 3) 작업실(관리자), 초대 코드 관리
     await a.reload(); // 참여자 목록에 두 번째 사용자 반영
     await a.waitForSelector('#home-workspace', { visible: true }); // 작업실 대기
-    await a.waitForFunction(() => document.querySelectorAll('#ws-members li').length >= 2 && document.querySelectorAll('#ws-tasks li .chip').length >= 3); // 참여자·업무 표시 대기
-    await shot(a, '03-workspace'); // 작업실
+    await a.waitForFunction(() => document.querySelectorAll('#ws-members li').length >= 2); // 참여자 표시 대기
+    await waitTaskBoard(a, 4); // 업무 현황판의 카드 네 장과 실시간 연결 대기
+    await a.mouse.move(640, 20); // 마우스는 상단으로 치움(카드 강조가 찍히지 않게)
+    await shot(a, '03-workspace'); // 작업실(보드 목록과 업무 현황판)
     await (await a.$('#invite-admin')).screenshot({ path: path.join(OUT, '04-invite-admin.png') }); // 초대 코드 관리(코드는 발급하지 않아 화면에 원문 없음)
     console.log('saved assets/screenshots/04-invite-admin.png');
 
     // 4) 화이트보드: 두 사람이 같은 보드에
     await openBoard(b, '기획 보드'); // 편집자 입장
+
+    // 실제 입력 확인: 관리자가 작업실 현황판에서 카드를 끌어 옮기면 보드에 있는 편집자의 화면에도 전달되는지
+    const TASK = '실시간 서버 방 구현'; // 옮겨 볼 업무(예시에서는 '할 일', 마감 이틀 전)
+    const statusOnBoard = (want) => b.waitForFunction((title, status) => [...state.tasks.values()].some((t) => t.title === title && t.status === status), {}, TASK, want); // 보드 화면의 업무 상태 대기
+    const seeded = await taskCards(a); // 옮기기 전 카드
+    await dragCard(a, TASK, 'doing'); // 진행 중 열로 끌어 놓기
+    await statusOnBoard('doing'); // 보드에 있는 편집자에게 전달
+    const dragged = await taskCards(a); // 옮긴 뒤 카드
+    check('업무 현황판: 카드를 끌어 놓으면 상태가 바뀌고 보드 화면에도 전달됨, 마감 임박·지남 표시', seeded[TASK].status === 'todo' && seeded[TASK].due === 'soon:D-2' && seeded['발표 자료 초안'].due === 'overdue:1일 지남'
+        && dragged[TASK].status === 'doing' && (await a.$eval('#ws-task-error', (el) => el.textContent)) === '');
+    await dragCard(a, TASK, 'todo'); // 정리: 원래 열로(이후 캡처가 예시 그대로 찍히게)
+    await statusOnBoard('todo'); // 되돌린 것도 전달
+    await a.waitForFunction((title) => [...document.querySelectorAll('#ws-taskboard .tb-col[data-status="todo"] .tb-card strong')].some((el) => el.textContent === title), {}, TASK); // 작업실 화면도 원래대로
+
+    // 실제 입력 확인: 카드를 눌러 수정. 대화상자를 연 사이 보드의 편집자가 같은 업무를 바꾸면 덮어쓰지 않고 최신 내용으로 다시 채우는지
+    const openCard = async () =>
+    {
+        const at = await a.evaluate((title) =>
+        {
+            const r = [...document.querySelectorAll('#ws-taskboard .tb-card')].find((el) => el.querySelector('strong').textContent === title).getBoundingClientRect(); // 카드 위치
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, TASK);
+        await a.mouse.click(at.x, at.y); // 끌지 않고 누르기
+        await a.waitForSelector('#ws-task-dialog[open]'); // 업무 대화상자
+    }; // 카드 열기
+    const saveDialog = async (due, assignee) =>
+    {
+        await a.$eval('#ws-task-due', (el, value) => { el.value = value; }, due); // 마감일(날짜 입력란은 지역 설정마다 입력 순서가 달라 값을 직접 넣음)
+        if (assignee !== undefined)
+        {
+            await a.select('#ws-task-assignee', assignee); // 담당자
+        }
+        await a.click('#ws-task-form button[type="submit"]'); // 저장
+    }; // 대화상자 저장
+    const dueOnBoard = (want) => b.waitForFunction((title, due) => [...state.tasks.values()].some((t) => t.title === title && t.due_at === due && (t.assignee_id === null) === (due !== new Date().toLocaleDateString('sv-SE'))), {}, TASK, want); // 보드 화면의 마감일(오늘로 바꾼 동안에는 담당자도 있어야 함)
+    const today = await a.evaluate(() => new Date().toLocaleDateString('sv-SE')); // 이 PC 의 오늘(YYYY-MM-DD)
+    await openCard(); // 관리자가 카드를 열어 둠
+    const opened = { title: await a.$eval('#ws-task-title', (el) => el.value), due: await a.$eval('#ws-task-due', (el) => el.value) }; // 대화상자에 채워진 값
+    await b.evaluate(async (title) =>
+    {
+        const t = [...state.tasks.values()].find((x) => x.title === title); // 같은 업무
+        const reply = await realtime.request('task:update', { board_id: state.board.board_id, task_id: t.task_id, version: t.version, changes: { assignee_id: state.guest.guest_id }, request_id: 'capture-first' }); // 그 사이 편집자가 담당자를 자기로 바꿈
+        state.tasks.set(reply.task.task_id, reply.task); // 편집자 화면 반영
+    }, TASK);
+    await saveDialog(today); // 예전 버전을 본 채로 저장 시도
+    await a.waitForFunction(() => document.getElementById('ws-task-dialog-error').textContent.includes('먼저')); // 충돌 안내
+    const refilled = { open: await a.$eval('#ws-task-dialog', (el) => el.open), due: await a.$eval('#ws-task-due', (el) => el.value), assignee: await a.$eval('#ws-task-assignee', (el) => el.selectedOptions[0].textContent) }; // 다시 채워진 값
+    await saveDialog(today); // 최신 내용을 확인하고 다시 저장
+    await a.waitForFunction(() => !document.getElementById('ws-task-dialog').open); // 저장되어 닫힘
+    await dueOnBoard(today); // 보드 화면에도 전달
+    const edited = (await taskCards(a))[TASK]; // 고친 뒤 카드
+    check('업무 수정: 카드를 눌러 고치고, 그 사이 다른 사람이 바꾼 업무는 덮어쓰지 않고 최신 내용으로 다시 채움', opened.title === TASK && opened.due !== '' && opened.due !== today
+        && refilled.open && refilled.due === opened.due && refilled.assignee === '프론트 담당' && edited.due === 'today:오늘 마감' && edited.status === 'todo');
+    await openCard(); // 정리: 마감일과 담당자를 예시 그대로
+    await saveDialog(opened.due, ''); // 원래 마감일, 담당자 없음
+    await a.waitForFunction(() => !document.getElementById('ws-task-dialog').open); // 닫힘
+    await dueOnBoard(opened.due); // 보드 화면도 원래대로
+    await a.evaluate(() => window.scrollTo(0, 0)); // 끌 때 내려간 화면을 맨 위로
     await openBoard(a, '기획 보드'); // 관리자 입장
     await a.waitForFunction(() => document.querySelectorAll('#participants li').length === 2); // 참여자 2명 표시 대기
     const cursorAt = await screenPoint(b, 660, 500); // 편집자 커서를 둘 곳(빈 영역)

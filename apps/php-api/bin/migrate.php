@@ -1,5 +1,5 @@
 <?php
-// DB 스키마 보정 CLI: 예전에 만든 DB 에 나중에 추가된 컬럼을 더한다. 여러 번 실행해도 안전하고 데이터는 지우지 않는다
+// DB 스키마 보정 CLI: 예전에 만든 DB 에 나중에 바뀐 컬럼(추가·NULL 허용)을 반영한다. 여러 번 실행해도 안전하고 데이터는 지우지 않는다
 // 사용법: php bin/migrate.php   (scripts\start-dev.bat 가 서버를 띄우기 전에 자동으로 실행)
 declare(strict_types=1);
 
@@ -12,7 +12,7 @@ if (PHP_SAPI !== 'cli')
 
 try
 {
-    $applied = Schema::upgrade(); // 없는 컬럼 추가
+    $applied = Schema::upgrade(); // 반영되지 않은 변경 적용
 }
 catch (Throwable $e)
 {
@@ -21,4 +21,4 @@ catch (Throwable $e)
 }
 echo $applied === []
     ? "DB 스키마: 최신 상태입니다.\n"
-    : 'DB 스키마: 컬럼 ' . count($applied) . '개를 추가했습니다 (' . implode(', ', $applied) . ").\n"; // 결과
+    : 'DB 스키마: 변경 ' . count($applied) . '건을 반영했습니다 (' . implode(', ', $applied) . ").\n"; // 결과

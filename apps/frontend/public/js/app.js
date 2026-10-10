@@ -17,7 +17,11 @@ const state = {
 
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
 let canvas = null; // BoardCanvas
-let realtime = null; // Realtime
+let realtime = null; // Realtime(보드 연결)
+let workspaceLink = null; // Realtime(작업실 연결: 업무 현황판용. 보드를 열면 끊고 보드 연결을 씀)
+let workspaceOnline = false; // 작업실 연결이 참여까지 끝났는지(끝나야 업무를 바꿀 수 있음)
+let taskBoard = null; // TaskBoard(작업실의 업무 현황판)
+let workspaceTaskTarget = null; // 업무 대화상자에서 고치는 업무(null 이면 새 업무)
 let overlay = null; // VideoOverlay
 let move = null; // 진행 중인 이동·크기 조절 세션 {kind, objects, tokens, start, dx, dy, corner?, shift?, armed, finished, lastPreviewAt}
 let noteEdit = null; // 글을 편집 중인 메모 {object, token, heartbeat, isNew}
@@ -271,6 +275,8 @@ async function openWorkspace()
     {
         $('boards-error').textContent = err.message; // 오류 표시
     }
+    $('ws-task-error').textContent = ''; // 현황판 오류 초기화
+    setWorkspaceConnection('connecting'); // 연결 전
     try
     {
         await loadProjectData(); // 참여자·공유 업무 조회
@@ -280,6 +286,7 @@ async function openWorkspace()
     {
         $('boards-error').textContent = err.message; // 오류 표시(보드 목록은 그대로 사용 가능)
     }
+    connectWorkspace(); // 업무 현황판용 실시간 연결(기다리지 않음: 연결 전에도 작업실은 쓸 수 있음)
 }
 
 function renderBoardList()
@@ -419,7 +426,7 @@ async function returnToWorkspace(notice)
         realtime.leave(); // 연결 종료
     }
     state.board = null; // 보드 비움
-    await openWorkspace(); // 작업실 구성
+    await openWorkspace(); // 작업실 구성(업무 현황판용 연결을 새로 맺음)
     if (notice)
     {
         $('ws-notice').textContent = notice; // 알림 문구
@@ -427,7 +434,7 @@ async function returnToWorkspace(notice)
     }
 }
 
-// 작업실 현황: 참여자 목록과 공유 업무 요약(업무 수정은 보드 안에서)
+// 작업실 현황: 참여자 목록과 업무 현황판
 function renderWorkspaceInfo()
 {
     const memberList = $('ws-members'); // 참여자 목록 요소
@@ -437,7 +444,6 @@ function renderWorkspaceInfo()
         const li = document.createElement('li'); // 항목
         const name = document.createElement('span'); // 이름
         const role = document.createElement('span'); // 역할
-        name.className = 'grow'; // 남는 폭 사용
         name.textContent = m.display_name + (state.guest && m.guest_id === state.guest.guest_id ? ' (나)' : ''); // 이름
         role.className = 'chip'; // 역할 표시
         role.textContent = ROLE_LABELS[m.role] ?? m.role; // 역할 이름
@@ -445,51 +451,199 @@ function renderWorkspaceInfo()
         memberList.appendChild(li); // 항목 추가
     }
     $('ws-member-count').textContent = state.members.length + '명'; // 참여자 수
+    renderTaskBoard(); // 업무 현황판
+}
 
-    const order = { doing: 0, todo: 1, done: 2 }; // 진행 중 → 할 일 → 완료 순
-    const tasks = [...state.tasks.values()].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.task_id - b.task_id); // 정렬된 업무
-    const counts = { todo: 0, doing: 0, done: 0 }; // 상태별 개수
-    for (const t of tasks)
+// ---------- 작업실의 업무 현황판 ----------
+
+// 현황판을 지금의 업무·역할·연결 상태로 다시 그린다. 편집자 이상이고 실시간 연결이 되어 있을 때만 바꿀 수 있다
+function renderTaskBoard()
+{
+    if (!taskBoard)
     {
-        if (counts[t.status] !== undefined)
+        taskBoard = TaskBoard.mount($('ws-taskboard'), { onMove: moveTask, onOpen: openWorkspaceTask }); // 처음 한 번만 만듦
+    }
+    const tasks = [...state.tasks.values()]; // 프로젝트의 모든 공유 업무(보드에 놓이지 않은 업무도 포함)
+    const overdue = tasks.filter((t) => TaskBoard.dueInfo(t).state === 'overdue').length; // 마감이 지난 업무 수
+    $('ws-task-count').textContent = tasks.length === 0 ? '' : tasks.length + '건' + (overdue > 0 ? ' · 마감 지남 ' + overdue + '건' : ''); // 요약
+    $('ws-task-add').hidden = !canEdit(); // 열람자는 만들 수 없음
+    $('ws-task-add').disabled = !workspaceOnline; // 연결 전에는 누를 수 없음
+    $('ws-task-hint').textContent = !canEdit() ? '열람자는 업무를 볼 수만 있습니다.'
+        : workspaceOnline ? '카드를 끌어 다른 열에 놓으면 상태가 바뀌고, 카드를 누르면 제목·담당자·마감일을 고칩니다. 보드에 놓인 같은 업무 블럭도 함께 바뀝니다.'
+            : '실시간 서버에 연결되면 업무를 만들고 바꿀 수 있습니다.'; // 사용 안내
+    taskBoard.render(tasks, canEdit() && workspaceOnline); // 카드 그리기
+}
+
+function setWorkspaceConnection(stateName)
+{
+    const labels = { connecting: '연결 중…', online: '실시간 연결됨', reconnecting: '재접속 중', offline: '연결 안 됨' }; // 표시 문구
+    workspaceOnline = stateName === 'online'; // 참여까지 끝났을 때만 편집 가능
+    $('ws-conn').dataset.state = stateName; // 색상 상태
+    $('ws-conn').textContent = labels[stateName]; // 문구
+    renderTaskBoard(); // 편집 가능 여부 반영
+}
+
+async function connectWorkspace()
+{
+    const projectId = state.project.project_id; // 연결할 프로젝트
+    try
+    {
+        await Realtime.loadClient(window.TC_CONFIG.realtimeUrl); // Socket.IO 클라이언트 로드
+        if (state.board || !state.project || state.project.project_id !== projectId)
         {
-            counts[t.status] += 1; // 개수 집계
+            return; // 그 사이 보드를 열었거나 나감
         }
+        if (!workspaceLink)
+        {
+            workspaceLink = new Realtime(window.TC_CONFIG.realtimeUrl, workspaceHandlers); // 작업실 연결 관리자
+        }
+        workspaceLink.watchProject(projectId); // 프로젝트의 공유 업무 변경 받기 시작
     }
-    $('ws-task-count').textContent = tasks.length === 0 ? '' : '할 일 ' + counts.todo + ' · 진행 중 ' + counts.doing + ' · 완료 ' + counts.done; // 요약
-    const taskList = $('ws-tasks'); // 업무 목록 요소
-    taskList.innerHTML = ''; // 초기화
-    if (tasks.length === 0)
+    catch (err)
     {
-        const li = document.createElement('li'); // 빈 안내
-        li.className = 'empty'; // 흐린 글자
-        li.textContent = '아직 공유 업무가 없습니다.'; // 안내 문구
-        taskList.appendChild(li); // 추가
-        return;
-    }
-    for (const t of tasks.slice(0, 8))
-    {
-        const li = document.createElement('li'); // 항목
-        const status = document.createElement('span'); // 상태
-        const title = document.createElement('span'); // 제목
-        const meta = document.createElement('span'); // 담당·마감
-        status.className = 'chip ' + (counts[t.status] !== undefined ? t.status : ''); // 상태 색
-        status.textContent = TASK_STATUS_LABELS[t.status] ?? t.status; // 상태 이름
-        title.className = 'grow'; // 남는 폭 사용
-        title.textContent = t.title; // 업무 제목
-        meta.className = 'muted small'; // 보조 글자
-        meta.textContent = [t.assignee_name ? '담당 ' + t.assignee_name : '', t.due_at ? '마감 ' + t.due_at : ''].filter(Boolean).join(' · '); // 담당·마감
-        li.append(status, title, meta); // 항목 구성
-        taskList.appendChild(li); // 항목 추가
-    }
-    if (tasks.length > 8)
-    {
-        const li = document.createElement('li'); // 생략 안내
-        li.className = 'empty'; // 흐린 글자
-        li.textContent = '외 ' + (tasks.length - 8) + '건'; // 남은 개수
-        taskList.appendChild(li); // 추가
+        setWorkspaceConnection('offline'); // 연결 실패
+        $('ws-task-error').textContent = '실시간 서버에 연결하지 못해 업무를 바꿀 수 없습니다. 주소 끝에 /check.html 을 붙여 접속 점검을 열면 원인을 볼 수 있습니다.'; // 안내(보는 것은 가능)
     }
 }
+
+function disconnectWorkspace()
+{
+    if (workspaceLink)
+    {
+        workspaceLink.leave(); // 연결 종료
+    }
+    workspaceOnline = false; // 편집 불가 상태로
+    if ($('ws-task-dialog').open)
+    {
+        $('ws-task-dialog').close(); // 열려 있던 업무 대화상자 닫기
+    }
+}
+
+// 카드를 다른 열에 놓음: 먼저 옮겨 보이고 서버에 상태 변경을 요청한다. 실패하면 서버의 최신 값이나 원래 값으로 되돌린다
+async function moveTask(task, status)
+{
+    const moved = { ...task, status }; // 먼저 보여 줄 모습
+    $('ws-task-error').textContent = ''; // 이전 오류 지움
+    state.tasks.set(task.task_id, moved); // 화면에 먼저 반영
+    renderTaskBoard(); // 옮겨진 모습으로 그리기
+    try
+    {
+        const reply = await workspaceLink.request('task:update', { task_id: task.task_id, version: task.version, changes: { status }, request_id: nextRequestId() }); // 업무 원본 변경(버전 검사)
+        state.tasks.set(reply.task.task_id, reply.task); // 서버가 저장한 값
+    }
+    catch (err)
+    {
+        if (err.task)
+        {
+            state.tasks.set(err.task.task_id, err.task); // 버전 충돌: 서버의 최신 업무로
+        }
+        else if (state.tasks.get(task.task_id) === moved)
+        {
+            state.tasks.set(task.task_id, task); // 그 밖의 실패: 원래대로(그 사이 다른 사람의 변경이 왔으면 그 값을 유지)
+        }
+        $('ws-task-error').textContent = err.code === 'VERSION_CONFLICT' ? '다른 사람이 먼저 이 업무를 바꿨습니다. 최신 상태를 불러왔습니다.' : '상태를 바꾸지 못했습니다: ' + err.message; // 안내
+    }
+    renderTaskBoard(); // 결과 반영
+}
+
+// 업무 대화상자 열기: task 가 있으면 수정, 없으면 새 업무
+function openWorkspaceTask(task)
+{
+    workspaceTaskTarget = task ?? null; // 대상 업무
+    $('ws-task-dialog-title').textContent = task ? '업무 수정' : '새 업무'; // 제목
+    $('ws-task-title').value = task ? task.title : ''; // 업무 제목
+    $('ws-task-status').value = task ? task.status : 'todo'; // 상태
+    $('ws-task-assignee').value = task && task.assignee_id !== null ? String(task.assignee_id) : ''; // 담당자
+    $('ws-task-due').value = task ? (task.due_at ?? '') : ''; // 마감일
+    $('ws-task-dialog-error').textContent = ''; // 오류 초기화
+    $('ws-task-dialog').showModal(); // 대화상자 열기
+    $('ws-task-title').focus(); // 바로 입력할 수 있게
+}
+
+$('ws-task-add').addEventListener('click', () => openWorkspaceTask(null)); // 새 업무
+$('ws-task-cancel').addEventListener('click', () => $('ws-task-dialog').close()); // 취소
+$('ws-task-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    const fields = {
+        title: $('ws-task-title').value.trim(), // 제목
+        status: $('ws-task-status').value, // 상태
+        assignee_id: $('ws-task-assignee').value === '' ? null : Number($('ws-task-assignee').value), // 담당자
+        due_at: $('ws-task-due').value || null, // 마감일
+    }; // 입력한 내용
+    if (fields.title === '')
+    {
+        $('ws-task-dialog-error').textContent = '업무 제목을 입력하세요.'; // 필수값 안내
+        return;
+    }
+    const target = workspaceTaskTarget; // 고치는 업무(새 업무면 null)
+    try
+    {
+        const reply = target
+            ? await workspaceLink.request('task:update', { task_id: target.task_id, version: target.version, changes: fields, request_id: nextRequestId() }) // 대화상자를 열 때의 버전으로 변경 요청
+            : await workspaceLink.request('task:create', { ...fields, request_id: nextRequestId() }); // 새 업무 원본 생성
+        state.tasks.set(reply.task.task_id, reply.task); // 저장된 업무 반영
+        $('ws-task-error').textContent = ''; // 현황판 오류 지움
+        $('ws-task-dialog').close(); // 닫기
+        renderTaskBoard(); // 현황판 갱신
+    }
+    catch (err)
+    {
+        if (err.code === 'VERSION_CONFLICT' && err.task)
+        {
+            state.tasks.set(err.task.task_id, err.task); // 서버의 최신 업무로 교체
+            renderTaskBoard(); // 현황판 갱신
+            openWorkspaceTask(err.task); // 최신 내용으로 다시 채움(다음 저장은 새 버전 기준)
+            $('ws-task-dialog-error').textContent = '다른 사람이 먼저 이 업무를 바꿨습니다. 최신 내용으로 다시 채웠으니 확인하고 저장하세요.'; // 안내
+            return;
+        }
+        $('ws-task-dialog-error').textContent = err.message; // 그 밖의 오류
+    }
+});
+
+// 작업실 연결의 콜백: 프로젝트의 공유 업무 생성·변경만 받는다(보드 이벤트는 오지 않음)
+const workspaceHandlers = {
+    getTicket: async (scope) => (await window.api.post('/api/realtime-ticket', scope)).ticket, // 작업실용 티켓 발급
+    onStatus: (name) => setWorkspaceConnection(name), // 연결 상태
+    onRefused: () =>
+    {
+        $('ws-task-error').textContent = '실시간 서버에 연결하지 못해 업무를 바꿀 수 없습니다. 주소 끝에 /check.html 을 붙여 접속 점검을 열면 원인을 볼 수 있습니다.'; // 첫 연결 실패 안내(보는 것은 가능)
+    },
+    onJoined: async () =>
+    {
+        $('ws-task-error').textContent = ''; // 연결되었으므로 이전 안내 지움
+        try
+        {
+            await loadProjectData(); // 화면을 그린 뒤 연결되기 전까지(또는 끊긴 동안)의 변경을 놓치지 않게 다시 조회
+        }
+        catch (err)
+        {
+            // 다시 읽지 못해도 이후의 변경은 실시간으로 들어옴
+        }
+        renderWorkspaceInfo(); // 참여자·현황판 갱신
+    },
+    onJoinError: (err) =>
+    {
+        if (err instanceof window.api.ApiError && err.status === 401)
+        {
+            disconnectWorkspace(); // 연결 정리
+            showView('join'); // 세션 만료 → 입장 화면
+            $('join-error').textContent = '세션이 만료되었습니다. 다시 입장해 주세요.'; // 안내
+            return;
+        }
+        $('ws-task-error').textContent = '업무 현황판을 실시간으로 연결하지 못했습니다: ' + err.message; // 안내(보는 것은 가능)
+    },
+    onTaskCreated: (task) =>
+    {
+        state.tasks.set(task.task_id, task); // 보드나 다른 작업실에서 만든 업무
+        renderTaskBoard(); // 현황판 갱신
+    },
+    onTaskUpdated: (task) =>
+    {
+        state.tasks.set(task.task_id, task); // 보드나 다른 작업실에서 바꾼 업무
+        renderTaskBoard(); // 현황판 갱신
+    },
+}; // 작업실 실시간 콜백
 
 $('board-create-form').addEventListener('submit', async (e) =>
 {
@@ -517,6 +671,7 @@ $('boards-leave').addEventListener('click', async () =>
     {
         // 이미 만료된 세션이어도 소개 페이지로 이동
     }
+    disconnectWorkspace(); // 작업실 연결 종료
     state.guest = null; // 게스트 비움
     state.project = null; // 프로젝트 비움
     showIntro(); // 홈이 다시 소개 페이지로 구성됨
@@ -658,6 +813,7 @@ async function openBoard(board, resumeView = null)
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
     clearUndo(); // 실행 취소 기록은 보드마다 따로
+    disconnectWorkspace(); // 작업실 연결은 끊고 보드 연결을 씀(업무 변경은 보드 연결로도 받음)
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
     showView('board'); // 보드 화면
@@ -2158,7 +2314,7 @@ async function loadProjectData()
 
 function fillAssigneeSelects()
 {
-    for (const id of ['task-assignee', 'task-new-assignee'])
+    for (const id of ['task-assignee', 'task-new-assignee', 'ws-task-assignee'])
     {
         const select = $(id); // 담당자 선택
         const current = select.value; // 기존 선택
@@ -2486,9 +2642,9 @@ function strokeBounds(points)
 // ---------- 실시간 서버 → 화면 ----------
 
 const realtimeHandlers = {
-    getTicket: async (id) =>
+    getTicket: async (scope) =>
     {
-        const data = await window.api.post('/api/realtime-ticket', { board_id: id }); // 티켓 발급
+        const data = await window.api.post('/api/realtime-ticket', scope); // 티켓 발급({board_id})
         return data.ticket; // 티켓 원문
     },
     onStatus: (name) => setConnection(name), // 연결 상태
