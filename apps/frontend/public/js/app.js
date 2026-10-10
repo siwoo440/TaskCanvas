@@ -39,6 +39,81 @@ function showView(name)
     {
         v.hidden = v.id !== 'view-' + name; // 해당 화면만 표시
     }
+    if (name !== 'board')
+    {
+        forgetBoard(); // 보드 밖으로 나오면 "보던 보드" 기억을 지움(새로고침하면 지금 화면으로 돌아오게)
+    }
+}
+
+// ---------- 보던 보드 기억(새로고침 복원) ----------
+
+const RESUME_KEY = 'tc_resume'; // 이 탭에서 보던 보드를 적어 두는 sessionStorage 키(탭마다 따로, 탭을 닫으면 사라짐)
+
+function rememberBoard(boardId, view)
+{
+    try
+    {
+        sessionStorage.setItem(RESUME_KEY, JSON.stringify({ board_id: boardId, view: view ? { scale: view.scale, x: view.x, y: view.y } : null })); // 보드와 보던 위치·배율
+    }
+    catch (err)
+    {
+        // 저장소를 쓸 수 없는 브라우저 설정이면 기억하지 않음(새로고침하면 작업실로 돌아감)
+    }
+}
+
+function forgetBoard()
+{
+    try
+    {
+        sessionStorage.removeItem(RESUME_KEY); // 기억 삭제
+    }
+    catch (err)
+    {
+        // 저장소를 쓸 수 없으면 지울 것도 없음
+    }
+}
+
+function recallBoard()
+{
+    try
+    {
+        const saved = JSON.parse(sessionStorage.getItem(RESUME_KEY) ?? 'null'); // 기억해 둔 값
+        if (saved && Number.isInteger(saved.board_id))
+        {
+            const v = saved.view; // 보던 위치·배율
+            const valid = !!v && [v.scale, v.x, v.y].every(Number.isFinite) && v.scale >= 0.1 && v.scale <= 8; // 화면에 적용해도 되는 값인지
+            return { board_id: saved.board_id, view: valid ? { scale: v.scale, x: v.x, y: v.y } : null }; // 복원 정보
+        }
+    }
+    catch (err)
+    {
+        // 깨진 값은 무시
+    }
+    return null; // 기억 없음
+}
+
+// 새로고침 전에 보던 보드가 있으면 작업실을 거치지 않고 그 보드로 돌아간다. 없거나 사라졌으면 작업실
+async function resumeOrWorkspace()
+{
+    const remembered = recallBoard(); // 이 탭에서 보던 보드
+    if (!remembered)
+    {
+        return openWorkspace(); // 기억 없음: 작업실
+    }
+    try
+    {
+        state.boards = (await window.api.get('/api/projects/' + state.project.project_id + '/boards')).boards; // 보드 목록(상단 전환 목록에도 쓰임)
+    }
+    catch (err)
+    {
+        return openWorkspace(); // 목록을 받지 못하면 작업실에서 오류를 보여 줌
+    }
+    const target = state.boards.find((b) => b.board_id === remembered.board_id); // 보던 보드
+    if (!target)
+    {
+        return openWorkspace(); // 그 사이 삭제되었거나 다른 프로젝트로 입장함
+    }
+    return openBoard(target, remembered.view); // 보던 위치·배율 그대로 다시 열기
 }
 
 function toast(message, ms = 2500)
@@ -100,7 +175,7 @@ async function bootstrap()
         if (state.project)
         {
             pendingInviteCode = null; // 이미 입장한 상태면 링크의 코드는 쓰지 않음
-            return openWorkspace(); // 입장한 상태: 홈이 작업실로 구성됨
+            return resumeOrWorkspace(); // 입장한 상태: 새로고침 전에 보던 보드가 있으면 그 보드, 없으면 홈이 작업실로 구성됨
         }
     }
     catch (err)
@@ -577,7 +652,7 @@ for (const [buttonId, sourceId] of [['invite-copy-code', 'invite-code'], ['invit
 
 // ---------- 화이트보드 ----------
 
-async function openBoard(board)
+async function openBoard(board, resumeView = null)
 {
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
@@ -585,6 +660,7 @@ async function openBoard(board)
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
     showView('board'); // 보드 화면
+    rememberBoard(board.board_id, null); // 새로고침하면 이 보드로 돌아오도록 기억
     setConnection('offline'); // 연결 전
     setSaveStatus('idle'); // 저장 상태 초기화
     renderBoardSwitch(); // 보드 전환 목록
@@ -607,6 +683,10 @@ async function openBoard(board)
         attachLinkInputs(); // 연결선 입력 연결
     }
     canvas.reset(); // 화면 비움
+    if (resumeView)
+    {
+        canvas.view = { ...resumeView }; // 새로고침 전에 보던 위치·배율(기본값이 아니므로 전체 보기 맞춤을 건너뜀)
+    }
     updateSelectionInfo(); // 선택 안내 초기화
     try
     {
@@ -2313,7 +2393,7 @@ const realtimeHandlers = {
         return data.ticket; // 티켓 원문
     },
     onStatus: (name) => setConnection(name), // 연결 상태
-    onRefused: () => toast('실시간 서버에 연결하지 못했습니다. 서버 창이 켜져 있는지, 서버의 접속 출처 설정(CORS_ORIGIN)이 이 주소를 허용하는지 확인하세요.', 8000), // 첫 연결 실패 안내
+    onRefused: () => toast('실시간 서버에 연결하지 못했습니다. 주소 끝에 /check.html 을 붙여 접속 점검을 열면 원인을 볼 수 있습니다.', 8000), // 첫 연결 실패 안내(원인은 점검 화면이 구분해 줌)
     onJoined: async (reply, rejoined) =>
     {
         renderParticipants(reply.participants); // 참여자 표시
@@ -2445,5 +2525,13 @@ const realtimeHandlers = {
         }
     },
 }; // 실시간 콜백
+
+window.addEventListener('pagehide', () =>
+{
+    if (state.board && canvas && !$('view-board').hidden)
+    {
+        rememberBoard(state.board.board_id, canvas.view); // 새로고침·탭 이동 직전의 위치·배율까지 기억
+    }
+});
 
 bootstrap(); // 시작

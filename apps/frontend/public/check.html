@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>TaskCanvas — 접속 점검</title>
+    <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="css/check.css">
+</head>
+<body class="check-page">
+    <!-- 접속 PC 점검: 시연 전에 각 PC 의 브라우저에서 이 주소를 열어 서버에 닿는지 확인한다 -->
+    <main class="check-card">
+        <h1>TaskCanvas 접속 점검</h1>
+        <p class="muted">이 PC 의 브라우저에서 서버에 닿는지 확인합니다. 입장하지 않아도 되고, 아무것도 저장하지 않습니다.</p>
+
+        <table class="check-table" aria-live="polite">
+            <thead>
+                <tr><th scope="col">항목</th><th scope="col">결과</th><th scope="col">내용</th></tr>
+            </thead>
+            <tbody id="check-rows"></tbody>
+        </table>
+
+        <p id="check-summary" class="check-summary" role="status">점검하는 중입니다…</p>
+
+        <div class="row">
+            <button type="button" id="check-again">다시 점검</button>
+            <a class="button-link primary" href="./">TaskCanvas 열기</a>
+        </div>
+
+        <p class="muted small">실패한 항목이 있으면 이 화면을 서버 PC 담당자에게 보여 주세요. 서버 PC 쪽 점검은 <code>scripts\check-env.bat</code> 입니다.</p>
+    </main>
+
+    <script src="js/config.js"></script>
+    <script src="js/check.js"></script>
+</body>
+</html>

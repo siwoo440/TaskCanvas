@@ -1,0 +1,19 @@
+/* 접속 점검 화면(check.html) 전용 스타일 — 색과 글꼴은 app.css 의 변수를 그대로 쓴다 */
+.check-page { display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; height: auto; min-height: 100%; }
+.check-card { width: 100%; max-width: 760px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
+.check-table { width: 100%; border-collapse: collapse; margin: 18px 0 8px; font-size: 14px; }
+.check-table th, .check-table td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.check-table thead th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.check-table tbody th { font-weight: 600; white-space: nowrap; width: 150px; }
+.check-table td.state { white-space: nowrap; width: 84px; font-weight: 700; color: var(--muted); }
+.check-table tr[data-level="ok"] td.state { color: var(--ok); }
+.check-table tr[data-level="warn"] td.state { color: var(--warn); }
+.check-table tr[data-level="fail"] td.state { color: var(--danger); }
+.check-table td.detail { color: var(--text); line-height: 1.5; word-break: keep-all; }
+.check-summary { margin: 14px 0 18px; padding: 12px 14px; border-radius: 8px; background: var(--bg); font-weight: 600; }
+.check-summary[data-level="ok"] { background: #dcfce7; color: #15803d; }
+.check-summary[data-level="warn"] { background: #fef3c7; color: #92400e; }
+.check-summary[data-level="fail"] { background: #fee2e2; color: #b91c1c; }
+.button-link { display: inline-block; padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; font-size: 14px; }
+.button-link.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.check-card code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }

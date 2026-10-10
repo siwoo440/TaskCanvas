@@ -21,6 +21,7 @@
 | `link:create` (P1) | from_object_id, to_object_id, label | 같은 보드의 서로 다른 두 객체 연결. `link:created` 전파 | O |
 | `link:update` (P1) | link_id, label | 라벨 변경. `link:updated` 전파 | O |
 | `link:delete` (P1) | link_id | 연결선 삭제. `link:deleted` 전파. 객체 삭제 시 DB FK 로 함께 삭제 | O |
+| `net:ping` | 없음 | 접속 점검 화면(`check.html`)이 왕복 시간을 잴 때 사용. 보드 참여 전에도 `{ok:true}` 만 바로 돌려줌 | X |
 
 서버→클라이언트 이벤트: `presence:update`(참여자 목록), `cursor:move`(타인 커서), `stroke:preview`(타인 펜 미리보기), `object:created`(확정 객체), `object:locked`(타인 잠금: object_id, guest_id, display_name, color), `object:unlocked`(해제: object_id, reason), `object:preview`(타인 이동 중 위치), `object:updated`(변경 확정 객체), `object:deleted`(삭제된 object_id), `task:created`/`task:updated`(공유 업무 원본 — 프로젝트 방 `project:{id}` 로 보드와 무관하게 전파), `board:renamed`(board_id, title)·`board:deleted`(board_id) — 작업실(HTTP)에서 보드가 바뀌면 서버가 5초 주기(`BOARD_SWEEP_MS`)로 감지해 그 보드의 참여자에게 알리고, 삭제 시에는 알림 뒤 연결을 끊음.
 

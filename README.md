@@ -60,7 +60,7 @@
 | `assets/screenshots/` | 구현된 화면을 Chrome 으로 찍은 실제 캡처 9장. `apps/realtime` 의 `npm run capture` 로 다시 생성 |
 | `apps/` | 구현 코드. `php-api/`(1·5·7·9단계: 입장·세션·보드·스냅샷·티켓·이미지 업로드·업무 조회·초대 코드 관리), `realtime/`(2·4·5단계: 보드 참여·커서·펜·도형·이미지·영상 저장·선점 잠금·버전 검사), `frontend/`(3~5·7·8단계: 입장·보드·화이트보드·선택/이동/삭제·이미지·영상·공유 업무 블럭·연결선·다중 선택) |
 | `scripts/start-dev.bat` | MariaDB·실시간 서버·PHP 서버를 한 번에 띄우는 Windows 실행 스크립트 |
-| `scripts/check-env.bat` | 학교 PC 사전 점검(PHP·Node·DB·포트·방화벽·LAN 주소). 서버 PC 에서 첫날 한 번 실행 |
+| `scripts/check-env.bat` | 학교 PC 사전 점검(PHP·Node·DB·포트·방화벽·LAN 주소). 서버 PC 에서 첫날 한 번 실행. 접속 PC 는 브라우저에서 `http://<서버 IP>:8080/check.html` 로 점검 |
 | `scripts/reset-demo.bat` | 시연 초기화(전체 데이터·업로드 이미지 삭제 후 시연 프로젝트·초대 코드 생성). `--dry-run` 으로 먼저 확인, `--seed` 를 붙이면 예시 보드까지 채움 |
 | `PUSH_GUIDE.md` | GitHub 업로드 및 권한 복구 안내 |
 

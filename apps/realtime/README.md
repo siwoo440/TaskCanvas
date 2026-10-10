@@ -33,6 +33,7 @@ realtime/
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
 │       ├── task.js      # task:create·update (공유 업무 원본, 프로젝트 방 전파)
 │       ├── link.js      # link:create·update·delete (관계 연결선)
+│       ├── ping.js      # net:ping (접속 점검 화면의 왕복 시간 측정용 응답)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
 ├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01 (서버를 직접 띄워 검사)
@@ -76,7 +77,7 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서
 npm run rehearsal
 ```
 
-MariaDB 와 Chrome(또는 Edge)만 있으면 됩니다. PHP 내장 서버(8083)와 실시간 서버(3004)를 임시로 띄우고 "리허설 프로젝트"에 예시 내용을 채운 뒤, 브라우저 네 개(관리자 1·편집자 3)로 [시연 대본](../../docs/16-demo-script.md)의 1~9번 장면을 실제 마우스·키보드 입력으로 실행합니다. 약 30초 걸리며 장면별 `PASS`/`FAIL` 과 결과 표를 출력합니다. 실패가 있으면 종료 코드 1 입니다.
+MariaDB 와 Chrome(또는 Edge)만 있으면 됩니다. PHP 내장 서버(8083)와 실시간 서버(3004)를 임시로 띄우고 "리허설 프로젝트"에 예시 내용을 채운 뒤, 브라우저 네 개(관리자 1·편집자 3)로 [시연 대본](../../docs/16-demo-script.md)의 1~9번 장면을 실제 마우스·키보드 입력으로 실행합니다. 맨 앞에서 접속 점검 화면(`check.html`)도 열어 서버에 닿는 항목이 통과인지 봅니다. 약 30초 걸리며 장면별 `PASS`/`FAIL` 과 결과 표를 출력합니다. 실패가 있으면 종료 코드 1 입니다.
 
 - 장면 뒤에는 A 화면이 보낸 것이 다른 화면에 도착하기까지의 시간을 잽니다(커서·펜 미리보기·이동 미리보기·확정 저장 응답·확정 결과). 미리보기 중앙값이 150ms, 확정 저장 응답 중앙값이 500ms 를 넘으면 실패입니다(`REH_MAX_PREVIEW_MS`·`REH_MAX_COMMIT_MS` 로 변경).
 - 마지막에 네 화면의 객체·연결선이 서버 저장 내용과 같은지, 화면 스크립트 오류가 없었는지 확인하고, 이 실행에서 만든 초대 코드를 모두 취소합니다. "리허설 프로젝트"는 DB 에 남습니다.
@@ -92,7 +93,7 @@ npm run check
 Node 버전, 패키지 설치, `.env` 와 접속 출처 설정, DB 연결, 두 포트(서버가 떠 있으면 응답, 아니면 비어 있는지), LAN 주소, Windows 방화벽의 허용·차단 규칙, 외부 영상 접속을 확인합니다. PHP 쪽까지 한 번에 보려면 저장소 루트의 `scripts\check-env.bat` 을 씁니다.
 
 - 방화벽 규칙은 관리자 권한 없이 읽을 수 있는 레지스트리 저장 값을 해석합니다. 읽지 못하면 `[주의]` 로만 알립니다.
-- 서버가 떠 있을 때 실행하면 LAN 주소로도 응답하는지 확인합니다. 그래도 다른 PC 에서 실제로 열리는지는 마지막에 출력되는 주소로 직접 확인해야 합니다.
+- 서버가 떠 있을 때 실행하면 LAN 주소로도 응답하는지 확인합니다. 그래도 다른 PC 에서 실제로 닿는지는 마지막에 출력되는 접속 점검 주소(`/check.html`)를 그 PC 의 브라우저로 열어 확인해야 합니다.
 
 ## 접속 출처 제한
 
@@ -143,6 +144,7 @@ MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서
 | S→C | `task:created` / `task:updated` `{task, guest_id}` | 프로젝트 방(`project:{id}`)의 모든 보드 참여자에게 전파 |
 | C→S (ack) | `link:create` `{board_id, from_object_id, to_object_id, label}` / `link:update` `{link_id, label}` / `link:delete` `{link_id}` | 연결선. 응답 `{link}`. S→C 로 `link:created`/`link:updated`/`link:deleted` 전파 |
 | S→C | `board:renamed` `{board_id, title}` / `board:deleted` `{board_id}` | 작업실에서 보드 이름이 바뀌거나 삭제되면 그 보드의 참여자에게 알림. 삭제 시 알림 뒤 연결 종료. 감지 주기 `BOARD_SWEEP_MS`(기본 5초) |
+| C→S (ack) | `net:ping` | 접속 점검 화면이 왕복 시간을 잴 때 사용. 보드 참여 전에도 `{ok:true}` 만 바로 돌려줌 |
 
 오류 ack 는 `{ok:false, error:{code, message}}` 이며 코드는 HTTP API 와 같은 체계(`INVALID_TICKET`, `FORBIDDEN`, `BAD_REQUEST`, `SAVE_FAILED`, `ALREADY_JOINED`, `OBJECT_LOCKED`, `LOCK_REQUIRED`, `VERSION_CONFLICT`, `NOT_FOUND`)를 씁니다.
 

@@ -363,10 +363,10 @@ async function main()
     console.log('실시간 쪽: 통과 ' + counts.ok + ', 주의 ' + counts.warn + ', 실패 ' + counts.fail); // 요약
     if (addresses.length > 0)
     {
-        console.log('\n다른 PC 에서 열어 볼 주소(둘 다 열려야 합니다):'); // 접속 PC 확인 안내
+        console.log('\n다른 PC 에서 열어 볼 주소(서버를 띄운 뒤, 모든 항목이 통과여야 합니다):'); // 접속 PC 확인 안내
         for (const item of addresses)
         {
-            console.log('  화면  http://' + item.address + ':' + WEB_PORT + '\n  연결  http://' + item.address + ':' + rtPort + '/health'); // 화면과 실시간 연결 주소
+            console.log('  접속 점검  http://' + item.address + ':' + WEB_PORT + '/check.html'); // 접속 PC 의 브라우저에서 웹·실시간·영상 접속을 한 번에 확인하는 화면
         }
     }
     process.exitCode = counts.fail > 0 ? 1 : 0; // 실패가 있으면 종료 코드 1(열려 있던 연결이 정리된 뒤 스스로 끝남)

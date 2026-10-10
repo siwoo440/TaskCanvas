@@ -12,6 +12,7 @@ const objectHandler = require('./handlers/object'); // 객체 생성
 const editHandler = require('./handlers/edit'); // 잠금·이동·삭제
 const taskHandler = require('./handlers/task'); // 공유 업무(P1)
 const linkHandler = require('./handlers/link'); // 연결선(P1)
+const pingHandler = require('./handlers/ping'); // 접속 점검용 왕복 응답
 const locks = require('./locks'); // 잠금 만료 검사
 const boards = require('./boards'); // 보드 삭제·이름 변경 감시
 const origin = require('./origin'); // 접속 출처 검사
@@ -43,6 +44,7 @@ io.on('connection', (socket) =>
     editHandler.register(io, socket); // object:lock·preview·commit·delete·unlock
     taskHandler.register(io, socket); // task:create·update
     linkHandler.register(io, socket); // link:create·update·delete
+    pingHandler.register(io, socket); // net:ping
 });
 
 async function start()

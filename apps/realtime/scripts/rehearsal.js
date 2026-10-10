@@ -343,6 +343,18 @@ async function rehearse(browser, env)
     [NAMES.a, NAMES.b, NAMES.c, NAMES.d].forEach((name, i) => labels.set(pages[i], name)); // 오류 안내용 이름
     let taskId = 0; // 공유 업무 ID(6번에서 채움)
 
+    await step('점검', '접속 점검 화면', async () =>
+    {
+        await a.goto(BASE + '/check.html'); // 접속 PC 가 시연 전에 여는 점검 화면
+        await waitOn(a, '점검 완료', () => document.body.dataset.done === '1'); // 모든 항목이 끝날 때까지
+        const rows = await a.evaluate(() => [...document.querySelectorAll('#check-rows tr')].map((tr) => ({ name: tr.querySelector('th').textContent, level: tr.dataset.level, text: tr.querySelector('td.detail').textContent }))); // 항목별 결과
+        const failed = rows.filter((r) => r.level === 'fail'); // 실패한 항목
+        expect(failed.length === 0, '실패 항목: ' + failed.map((r) => r.name + ' — ' + r.text).join(' / ')); // 실패가 없어야 함
+        const level = (name) => (rows.find((r) => r.name === name) ?? {}).level; // 항목의 결과
+        expect(['웹 서버', '실시간 서버 주소', '실시간 연결', '왕복 시간'].every((name) => level(name) === 'ok'), '서버 관련 항목이 모두 통과가 아닙니다: ' + rows.map((r) => r.name + '=' + r.level).join(', ')); // 서버에 닿는 네 항목
+        return '웹 서버·실시간 서버 주소·실시간 연결·왕복 시간 통과(외부 영상은 요청을 막아 두어 주의로 나옴)';
+    });
+
     await step('1', '입장', async () =>
     {
         await a.goto(BASE + '/'); // 소개 페이지
@@ -478,23 +490,33 @@ async function rehearse(browser, env)
         await waitOn(b, '기획 보드 복귀', (id) => state.board && state.board.board_id === id && document.getElementById('conn-status').dataset.state === 'online', env.boardMain); // 복귀 완료
         await wait(300); // 마지막 저장 여유
         const expected = await serverKey(a); // 서버에 저장된 내용
+        const viewsBefore = await all(pages, (p) => p.evaluate(() => ({ ...canvas.view }))); // 새로고침 전에 보던 위치·배율(C·D 는 5번에서 화면을 옮긴 상태)
         for (const page of pages)
         {
             await page.reload(); // F5
-            await page.waitForSelector('#home-workspace', { visible: true }); // 새로고침하면 작업실로 돌아옴
-            await page.waitForSelector('#boards-list .open-board'); // 보드 카드 대기
-            await openBoard(page, '기획 보드'); // 보드 다시 열기
+            await waitOn(page, '새로고침 뒤 보던 보드로 복귀', (id) => !document.getElementById('view-board').hidden && state.board && state.board.board_id === id && document.getElementById('conn-status').dataset.state === 'online', env.boardMain); // 작업실을 거치지 않고 바로 보드
         }
-        const seen = await all(pages, (p) => boardKey(p)); // 다시 연 화면의 내용
+        await wait(300); // 다시 그리기 여유
+        const seen = await all(pages, (p) => boardKey(p)); // 새로고침한 화면의 내용
         expect(seen.every((key) => key === expected), '새로고침 뒤 화면 내용이 저장된 내용과 다릅니다.'); // 그대로 복원
+        const viewsAfter = await all(pages, (p) => p.evaluate(() => ({ ...canvas.view }))); // 새로고침 뒤 위치·배율
+        expect(viewsAfter.every((v, i) => Math.abs(v.scale - viewsBefore[i].scale) < 1e-9 && Math.abs(v.x - viewsBefore[i].x) < 0.5 && Math.abs(v.y - viewsBefore[i].y) < 0.5), '새로고침 뒤 보던 위치·배율이 달라졌습니다.'); // 보던 자리 그대로
+        expect(viewsBefore[2].y !== viewsBefore[0].y, 'C 의 화면이 옮겨져 있지 않아 위치 복원을 확인할 수 없습니다.'); // 기본 위치가 아닌 화면이 있어야 의미 있는 확인
         const status = await all(pages, (p) => p.evaluate((id) => state.tasks.get(id).status, taskId)); // 업무 상태
         expect(status.every((s) => s === 'done'), '새로고침 뒤 업무 상태가 완료가 아닙니다.'); // 6번 결과 유지
-        return '작업실에서 보드를 다시 열면 객체 ' + expected.split('|').length + '개와 업무 상태가 그대로';
+        await b.click('#board-back'); // B 는 작업실로 나갔다가
+        await b.waitForSelector('#home-workspace', { visible: true }); // 작업실
+        await b.reload(); // 작업실에서 새로고침하면
+        await b.waitForSelector('#home-workspace', { visible: true }); // 보드가 아니라 작업실에 그대로 있어야 함
+        expect(await b.evaluate(() => document.getElementById('view-board').hidden), '작업실에서 새로고침했는데 보드가 열렸습니다.'); // 보던 화면 기준으로 복원
+        await openBoard(b, '기획 보드'); // B 다시 보드로
+        return '새로고침만으로 4대가 보던 보드·위치로 복귀, 객체 ' + expected.split('|').length + '개와 업무 상태 그대로';
     });
 
     await step('8', '실행 취소와 PNG 저장', async () =>
     {
         const before = await objectCount(a); // 그리기 전 객체 수
+        await a.click('#fit-view'); // ⤢ 화면 맞춤: 멀리 놓인 이미지·영상까지 한눈에(빈 자리도 넓어짐)
         await a.click('#toolbar [data-tool="rect"]'); // 사각형 도구
         const area = await freePoint(a, 110, 70); // 그릴 자리
         await a.mouse.move(area.from.x, area.from.y); // 시작점
