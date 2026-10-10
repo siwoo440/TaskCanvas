@@ -166,6 +166,50 @@ async function centerOf(page, text)
     return screenPoint(page, o.x + o.width / 2, o.y + o.height / 2); // 가운데 화면 좌표
 }
 
+// 체크리스트(root 선택자 안)에 보이는 항목들: [{ title, done }]
+function checklistItems(page, root)
+{
+    return page.$$eval(root + ' .cl-item', (rows) => rows.map((li) => ({ title: li.querySelector('.cl-title').value, done: li.querySelector('.cl-box').checked })));
+}
+
+// 체크리스트에서 그 이름의 항목에 있는 요소를 찾는다(part: box 체크 상자 · title 이름 칸 · delete 삭제 버튼)
+async function checklistPart(page, root, title, part)
+{
+    const handle = await page.evaluateHandle((sel, wanted, cls) =>
+    {
+        const li = [...document.querySelectorAll(sel + ' .cl-item')].find((el) => el.querySelector('.cl-title').value === wanted); // 그 이름의 줄
+        return li ? li.querySelector(cls) : null;
+    }, root, title, { box: '.cl-box', title: '.cl-title', delete: '.cl-del' }[part]);
+    const el = handle.asElement(); // 찾은 요소
+    if (!el)
+    {
+        throw new Error("체크리스트에서 '" + title + "' 항목을 찾지 못했습니다."); // 예시나 앞 단계가 바뀐 경우
+    }
+    return el;
+}
+
+// 체크리스트의 체크 상자나 삭제 버튼을 실제 마우스로 누른다(화면 밖이면 스크롤한 뒤 가운데를 누름)
+async function clickChecklist(page, root, title, part)
+{
+    await (await checklistPart(page, root, title, part)).click(); // 실제 클릭
+}
+
+// 체크리스트의 추가 칸에 이름을 적고 Enter 로 더한다
+async function addChecklistItem(page, root, title)
+{
+    await page.click(root + ' .cl-add input'); // 추가 칸
+    await page.keyboard.type(title); // 실제 키 입력
+    await page.keyboard.press('Enter'); // 추가
+}
+
+// 체크리스트 항목의 이름 칸을 눌러 전부 지우고 새 이름을 적은 뒤 Enter 로 저장한다
+async function renameChecklistItem(page, root, title, next)
+{
+    await (await checklistPart(page, root, title, 'title')).click({ count: 3 }); // 세 번 눌러 이름 전체 선택
+    await page.keyboard.type(next); // 새 이름
+    await page.keyboard.press('Enter'); // 저장
+}
+
 // 작업실 업무 현황판이 실시간으로 연결되어 카드를 끌 수 있게 될 때까지 기다린다
 function waitTaskBoard(page, cards)
 {
@@ -209,4 +253,4 @@ async function dragCard(page, title, status)
     await page.mouse.up(); // 놓기
 }
 
-module.exports = { ROOT, PHP_API, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard };
+module.exports = { ROOT, PHP_API, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard, checklistItems, clickChecklist, addChecklistItem, renameChecklistItem };

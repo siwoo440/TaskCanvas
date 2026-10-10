@@ -1,5 +1,5 @@
 // 업무 현황판: 공유 업무를 상태별 세 열에 카드로 보여 주고, 카드를 끌어 다른 열에 놓으면 상태 변경을 요청한다
-// 마감 표시 계산(dueInfo)은 보드의 업무 블럭(canvas.js)도 함께 쓴다
+// 마감 표시 계산(dueInfo)은 보드의 업무 블럭(canvas.js)도 함께 쓴다. 체크리스트 진행률은 checklist.js 의 계산을 쓴다
 'use strict';
 
 const TaskBoard = {
@@ -106,6 +106,20 @@ TaskBoard.mount = (root, options) =>
             tag.textContent = due.label; // 짧은 글
             tag.title = '마감 ' + task.due_at; // 정확한 날짜
             btn.appendChild(tag); // 카드에 추가
+        }
+        const progress = Checklist.progress(task); // 체크리스트 진행률
+        if (progress.total > 0)
+        {
+            const line = document.createElement('span'); // 진행률 줄
+            const bar = document.createElement('span'); // 진행 막대
+            const fill = document.createElement('i'); // 채워진 부분
+            line.className = 'tb-progress'; // 스타일
+            line.title = '체크리스트 ' + progress.total + '개 중 ' + progress.done + '개 완료'; // 설명
+            bar.className = 'cl-bar' + (progress.done === progress.total ? ' full' : ''); // 모두 끝내면 초록
+            fill.style.width = Math.round(progress.ratio * 100) + '%'; // 채워진 길이
+            bar.appendChild(fill); // 막대 구성
+            line.append(bar, document.createTextNode(progress.label)); // 막대와 "2/5"
+            btn.appendChild(line); // 카드에 추가
         }
         li.appendChild(btn); // 항목 구성
         return li;

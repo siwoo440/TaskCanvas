@@ -93,10 +93,21 @@ final class ProjectController
               WHERE t.project_id = ? ORDER BY t.task_id',
             [$projectId]
         ); // 업무 원본 목록 조회
-        Response::ok(['project_id' => $projectId, 'tasks' => array_map([self::class, 'formatTask'], $rows)]); // 목록 응답
+        $items = Database::all(
+            'SELECT i.task_id, i.item_id, i.title, i.is_done
+               FROM task_items i JOIN tasks t ON t.task_id = i.task_id
+              WHERE t.project_id = ? ORDER BY i.item_id',
+            [$projectId]
+        ); // 프로젝트의 모든 체크리스트 항목(만든 순서)
+        $checklists = []; // task_id → 항목 목록
+        foreach ($items as $item)
+        {
+            $checklists[(int) $item['task_id']][] = ['item_id' => (int) $item['item_id'], 'title' => $item['title'], 'done' => (int) $item['is_done'] === 1]; // 업무별로 묶음
+        }
+        Response::ok(['project_id' => $projectId, 'tasks' => array_map(static fn(array $r) => self::formatTask($r, $checklists[(int) $r['task_id']] ?? []), $rows)]); // 목록 응답
     }
 
-    public static function formatTask(array $r): array
+    public static function formatTask(array $r, array $checklist = []): array
     {
         return [
             'task_id' => (int) $r['task_id'],
@@ -108,6 +119,7 @@ final class ProjectController
             'assignee_name' => $r['assignee_name'],
             'due_at' => $r['due_at'] === null ? null : substr((string) $r['due_at'], 0, 10),
             'version' => (int) $r['version'],
-        ]; // 실시간 서버와 같은 업무 응답 형식
+            'checklist' => $checklist,
+        ]; // 실시간 서버와 같은 업무 응답 형식(checklist: 세부 항목 [{item_id, title, done}])
     }
 }

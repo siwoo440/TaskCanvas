@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC29 와 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC30 과 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -112,7 +112,20 @@ function connect()
     return new Promise((resolve) => socket.on('connect', () => resolve(socket))); // 연결 대기
 }
 
-const ack = (socket, event, data) => new Promise((resolve) => socket.emit(event, data, resolve)); // ack 프로미스
+// 요청을 보내고 응답(ack)을 기다린다. 15초 안에 답이 없으면 러너가 멈추지 않게 NO_ACK 오류로 돌려주고 어느 요청인지 남긴다
+const ack = (socket, event, data) => new Promise((resolve) =>
+{
+    const timer = setTimeout(() =>
+    {
+        console.error('응답 없음: ' + event + ' ' + JSON.stringify(data).slice(0, 120)); // 멈춘 요청 기록
+        resolve({ ok: false, error: { code: 'NO_ACK', message: '서버가 응답하지 않았습니다.' } }); // 실패로 처리
+    }, 15000); // 응답 대기 제한
+    socket.emit(event, data, (reply) =>
+    {
+        clearTimeout(timer); // 타이머 해제
+        resolve(reply); // 서버 응답
+    });
+}); // ack 프로미스
 
 // 브라우저처럼 Origin 헤더를 붙여 웹소켓 연결을 시도한다. 연결되면 true, 거부되면 false
 function connectFrom(originHeader)
@@ -645,6 +658,67 @@ async function run(envInfo)
         && selBad.every((r) => r.ok === false && r.error.code === 'BAD_REQUEST') && selWrongBoard.ok === false && selWrongBoard.error.code === 'FORBIDDEN'
         && selEmpty !== null && selEmpty.link_id === null && afterLeave !== null,
         '고른 객체 2개와 연결선이 같은 보드의 참여자에게 이름·색과 함께 전달(같은 번호는 하나로), 다른 보드로는 전달 안 됨, 나중에 들어온 사람의 참여자 목록에도 실림, 잘못된 형식은 BAD_REQUEST, 참여하지 않은 보드는 FORBIDDEN, 풀면 빈 선택 전달 (화면 표시는 리허설 2번과 캡처가 확인)');
+
+    // AC30 업무 체크리스트: 세부 항목을 더하고 체크하고 고치고 지우면 그 업무를 보는 모든 보드와 작업실에 전달된다. 업무의 버전은 그대로라 다른 수정과 충돌하지 않는다
+    const W2 = await connect(); // 편집자의 작업실 연결(AC26 의 연결은 이미 정리됨)
+    const VW2 = await connect(); // 열람자의 작업실 연결
+    const idle = await connect(); // 어디에도 참여하지 않은 연결
+    const w2Join = await ack(W2, 'project:join', { project_id: projectId, ticket: (await projectTicket(B.cookie)).json.ticket }); // 작업실 참여
+    const vw2Join = await ack(VW2, 'project:join', { project_id: projectId, ticket: (await projectTicket(V.cookie)).json.ticket }); // 열람자의 작업실 참여
+    const itemSeenAtBoard = until(C.socket, 'task:updated', (d) => d.task.task_id === taskId && d.task.checklist.length === 1); // 다른 보드가 받을 항목 추가
+    const itemSeenAtWorkspace = until(W2, 'task:updated', (d) => d.task.task_id === taskId && d.task.checklist.length === 1); // 작업실이 받을 항목 추가
+    const itemAdd = await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: taskId, title: '  첫 항목\n ' }); // 보드 A 에서 항목 추가(앞뒤 공백과 줄바꿈 포함)
+    const boardSawItem = await itemSeenAtBoard; // 수신
+    const workspaceSawItem = await itemSeenAtWorkspace; // 수신
+    const itemId = itemAdd.ok ? itemAdd.item_id : 0; // 새 항목 번호
+    const checkSeen = until(B.socket, 'task:updated', (d) => d.task.task_id === taskId && d.task.checklist.some((i) => i.item_id === itemId && i.done)); // 보드 A 가 받을 체크
+    const itemCheck = await ack(C.socket, 'checklist:update', { board_id: boardB, task_id: taskId, item_id: itemId, changes: { done: true } }); // 보드 B 에서 체크
+    const boardSawCheck = await checkSeen; // 수신
+    const itemRename = await ack(W2, 'checklist:update', { task_id: taskId, item_id: itemId, changes: { title: '고친 항목' } }); // 작업실에서 이름 변경(보드 번호 없음)
+    const afterItems = await ack(B.socket, 'task:update', { board_id: boardA, task_id: taskId, version: itemAdd.ok ? itemAdd.task.version : 0, changes: { description: '체크리스트와 따로 저장' } }); // 항목을 바꾸기 전에 알던 버전으로 업무 수정(충돌하지 않아야 함)
+    const itemListed = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, V.cookie)).json.tasks.find((t) => t.task_id === taskId); // 열람자가 조회한 업무 목록
+    const burstTasks = await Promise.all(Array.from({ length: 12 }, (_, i) => ack(B.socket, 'task:create', { board_id: boardA, title: 'AC burst ' + (i + 1) }))); // 한꺼번에 고칠 업무 12개
+    const burst = await Promise.race([
+        Promise.all(burstTasks.map((r) => ack(B.socket, 'task:update', { board_id: boardA, task_id: r.task.task_id, version: 1, changes: { status: 'doing' } }))), // 서로 다른 업무 12개를 동시에 수정(DB 연결 10개보다 많음)
+        sleep(8000).then(() => null), // 서버가 서로 막혀 멈추면 여기서 끝냄
+    ]); // 동시 수정 결과
+    const limitTask = await ack(B.socket, 'task:create', { board_id: boardA, title: 'AC checklist limit' }); // 개수 제한을 시험할 다른 업무
+    const limitId = limitTask.ok ? limitTask.task.task_id : 0; // 그 업무 번호
+    const many = await Promise.all(Array.from({ length: 31 }, (_, i) => ack(B.socket, 'checklist:add', { board_id: boardA, task_id: limitId, title: '항목 ' + (i + 1) }))); // 한꺼번에 31개 추가
+    const manyOk = many.filter((r) => r.ok).length; // 받아 준 수
+    const manyRefused = many.filter((r) => r.ok === false && r.error.code === 'BAD_REQUEST').length; // 개수 제한으로 거절된 수
+    const itemBad = [
+        await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: taskId, title: ' \n ' }), // 빈 이름
+        await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: taskId, title: 'x'.repeat(121) }), // 너무 긴 이름
+        await ack(B.socket, 'checklist:update', { board_id: boardA, task_id: taskId, item_id: itemId, changes: { done: 'yes' } }), // 체크 값이 참·거짓이 아님
+        await ack(B.socket, 'checklist:update', { board_id: boardA, task_id: taskId, item_id: itemId, changes: {} }), // 바꿀 내용 없음
+    ]; // 형식이 잘못된 요청들
+    const itemMissing = [
+        await ack(B.socket, 'checklist:update', { board_id: boardA, task_id: limitId, item_id: itemId, changes: { done: false } }), // 다른 업무의 항목 번호
+        await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: 99999999, title: '없는 업무' }), // 없는 업무
+    ]; // 대상이 없는 요청들
+    const itemForbidden = [
+        await ack(V.socket, 'checklist:update', { board_id: boardA, task_id: taskId, item_id: itemId, changes: { done: false } }), // 열람자(보드 연결)
+        await ack(VW2, 'checklist:add', { task_id: taskId, title: '열람자 항목' }), // 열람자(작업실 연결)
+        await ack(B.socket, 'checklist:add', { board_id: boardB, task_id: taskId, title: '다른 보드 번호' }), // 참여하지 않은 보드 번호
+        await ack(idle, 'checklist:add', { task_id: taskId, title: '미참여' }), // 어디에도 참여하지 않은 연결
+    ]; // 권한이 없는 요청들
+    const deleteSeen = until(C2.socket, 'task:updated', (d) => d.task.task_id === taskId && d.task.checklist.length === 0); // 같은 보드의 참여자가 받을 삭제
+    const itemDelete = await ack(B.socket, 'checklist:delete', { board_id: boardA, task_id: taskId, item_id: itemId }); // 항목 삭제
+    const boardSawDelete = await deleteSeen; // 수신
+    const itemDeleteAgain = await ack(B.socket, 'checklist:delete', { board_id: boardA, task_id: taskId, item_id: itemId }); // 이미 지운 항목
+    for (const s of [W2, VW2, idle])
+    {
+        s.disconnect(); // 연결 정리
+    }
+    record('AC30', '업무 체크리스트', w2Join.ok && vw2Join.ok && itemAdd.ok && itemAdd.task.checklist.length === 1 && itemAdd.task.checklist[0].title === '첫 항목' && itemAdd.task.checklist[0].done === false
+        && boardSawItem !== null && workspaceSawItem !== null && itemCheck.ok && boardSawCheck !== null
+        && itemRename.ok && itemRename.task.checklist[0].title === '고친 항목' && itemRename.task.checklist[0].done === true && itemRename.task.version === itemAdd.task.version && afterItems.ok
+        && !!itemListed && itemListed.checklist.length === 1 && itemListed.checklist[0].title === '고친 항목' && itemListed.checklist[0].done === true
+        && burst !== null && burst.every((r) => r.ok && r.task.status === 'doing') && manyOk === 30 && manyRefused === 1 && itemBad.every((r) => r.ok === false && r.error.code === 'BAD_REQUEST')
+        && itemMissing.every((r) => r.ok === false && r.error.code === 'NOT_FOUND') && itemForbidden.every((r) => r.ok === false && r.error.code === 'FORBIDDEN')
+        && itemDelete.ok && boardSawDelete !== null && itemDeleteAgain.ok === false && itemDeleteAgain.error.code === 'NOT_FOUND',
+        '보드에서 더한 항목이 다른 보드와 작업실에 전달, 다른 보드의 체크와 작업실의 이름 변경이 저장되고 목록 조회에도 실림, 항목을 바꿔도 업무 버전은 그대로라 앞선 버전의 업무 수정이 충돌하지 않음, 업무 12개를 동시에 고쳐도 모두 저장, 항목을 한꺼번에 31개 보내도 ' + manyOk + '개만 저장, 잘못된 형식 BAD_REQUEST·없는 대상 NOT_FOUND·열람자와 미참여 FORBIDDEN, 삭제 전달 (화면 조작은 리허설 6·9번과 캡처가 확인)');
 
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)

@@ -22,6 +22,9 @@ let workspaceLink = null; // Realtime(작업실 연결: 업무 현황판용. 보
 let workspaceOnline = false; // 작업실 연결이 참여까지 끝났는지(끝나야 업무를 바꿀 수 있음)
 let taskBoard = null; // TaskBoard(작업실의 업무 현황판)
 let workspaceTaskTarget = null; // 업무 대화상자에서 고치는 업무(null 이면 새 업무)
+let workspaceChecklist = null; // 업무 대화상자의 체크리스트
+let taskChecklist = null; // 보드의 업무 패널에 있는 체크리스트
+let shownTaskKey = null; // 업무 패널의 입력란에 채워 둔 업무("번호:버전"). 같은 업무·같은 버전이면 적는 중인 값을 덮어쓰지 않음
 let overlay = null; // VideoOverlay
 let move = null; // 진행 중인 이동·크기 조절 세션 {kind, objects, tokens, start, dx, dy, corner?, shift?, armed, finished, lastPreviewAt}
 let noteEdit = null; // 글을 편집 중인 메모 {object, token, heartbeat, isNew}
@@ -557,10 +560,59 @@ function renderTaskBoard()
     $('ws-task-add').hidden = !canEdit(); // 열람자는 만들 수 없음
     $('ws-task-add').disabled = !workspaceOnline; // 연결 전에는 누를 수 없음
     $('ws-task-hint').textContent = !canEdit() ? '열람자는 업무를 볼 수만 있습니다.'
-        : workspaceOnline ? '카드를 끌어 다른 열에 놓으면 상태가 바뀌고, 카드를 누르면 제목·담당자·마감일을 고칩니다. 보드에 놓인 같은 업무 블럭도 함께 바뀝니다.'
+        : workspaceOnline ? '카드를 끌어 다른 열에 놓으면 상태가 바뀌고, 카드를 누르면 제목·담당자·마감일과 체크리스트를 고칩니다. 보드에 놓인 같은 업무 블럭도 함께 바뀝니다.'
             : '실시간 서버에 연결되면 업무를 만들고 바꿀 수 있습니다.'; // 사용 안내
     taskBoard.render(tasks, canEdit() && workspaceOnline); // 카드 그리기
+    renderWorkspaceChecklist(); // 업무 대화상자가 열려 있으면 그 안의 체크리스트도 최신으로
 }
+
+// 업무 대화상자의 체크리스트: 고치는 중인 업무의 지금 항목을 보여 준다(새 업무를 만드는 중이면 안내만)
+function renderWorkspaceChecklist()
+{
+    const task = workspaceTaskTarget ? state.tasks.get(workspaceTaskTarget.task_id) ?? null : null; // 대화상자가 고치는 업무의 최신 값
+    $('ws-task-checklist').hidden = !task; // 새 업무에는 아직 항목을 달 수 없음
+    $('ws-task-checklist-hint').textContent = task ? '체크리스트는 바꾸는 즉시 저장됩니다. 제목·상태·담당자·마감일은 저장을 눌러야 바뀝니다.' : '체크리스트는 업무를 만든 뒤 카드를 눌러 더합니다.'; // 저장 방식 안내
+    if (!task || !$('ws-task-dialog').open)
+    {
+        return; // 보여 줄 대상 없음
+    }
+    if (!workspaceChecklist)
+    {
+        workspaceChecklist = Checklist.mount($('ws-task-checklist'), checklistActions); // 처음 한 번만 만듦
+    }
+    workspaceChecklist.render(task, canEdit() && workspaceOnline); // 항목 그리기
+}
+
+// ---------- 업무 체크리스트(보드의 업무 패널·작업실의 업무 대화상자 공용) ----------
+
+// 체크리스트 요청: 보드에서는 보드 연결로, 작업실에서는 작업실 연결로 보낸다. 서버가 돌려준 업무(체크리스트 포함)를 화면에 반영한다
+async function checklistRequest(event, payload)
+{
+    const onBoard = !!state.board; // 보드 화면에서 보낸 요청인지
+    const link = onBoard ? realtime : workspaceLink; // 쓸 연결
+    if (!link || !link.joined)
+    {
+        throw new Error('실시간 서버에 연결되어 있지 않습니다. 연결된 뒤 다시 시도하세요.'); // 연결 전·끊김
+    }
+    const reply = await link.request(event, onBoard ? { board_id: boardId(), ...payload } : payload); // 항목 저장(보드 연결은 보드 번호를 함께 보냄)
+    state.tasks.set(reply.task.task_id, reply.task); // 서버가 저장한 업무
+    if (onBoard)
+    {
+        canvas.invalidate(); // 업무 블럭의 진행률 다시 그리기
+        refreshTaskProps(); // 업무 패널 갱신
+    }
+    else
+    {
+        renderTaskBoard(); // 현황판 카드와 대화상자 갱신
+    }
+}
+
+const checklistActions = {
+    onAdd: (task, title) => checklistRequest('checklist:add', { task_id: task.task_id, title }), // 항목 추가
+    onToggle: (task, item, done) => checklistRequest('checklist:update', { task_id: task.task_id, item_id: item.item_id, changes: { done } }), // 체크·해제
+    onRename: (task, item, title) => checklistRequest('checklist:update', { task_id: task.task_id, item_id: item.item_id, changes: { title } }), // 이름 변경
+    onDelete: (task, item) => checklistRequest('checklist:delete', { task_id: task.task_id, item_id: item.item_id }), // 항목 삭제
+}; // 체크리스트가 부르는 저장 요청
 
 function setWorkspaceConnection(stateName)
 {
@@ -645,6 +697,7 @@ function openWorkspaceTask(task)
     $('ws-task-due').value = task ? (task.due_at ?? '') : ''; // 마감일
     $('ws-task-dialog-error').textContent = ''; // 오류 초기화
     $('ws-task-dialog').showModal(); // 대화상자 열기
+    renderWorkspaceChecklist(); // 고치는 업무의 체크리스트(새 업무면 안내만)
     $('ws-task-title').focus(); // 바로 입력할 수 있게
 }
 
@@ -2593,12 +2646,23 @@ function refreshTaskProps()
     $('task-props').hidden = !task; // 업무 패널 표시 여부
     if (!task)
     {
+        shownTaskKey = null; // 다시 고르면 입력란을 새로 채움
         return;
     }
-    $('task-title').value = task.title; // 제목
-    $('task-status').value = task.status; // 상태
-    $('task-assignee').value = task.assignee_id === null ? '' : String(task.assignee_id); // 담당자
-    $('task-due').value = task.due_at ?? ''; // 마감일
+    const key = task.task_id + ':' + task.version; // 지금 보여 줄 업무와 버전
+    if (key !== shownTaskKey)
+    {
+        shownTaskKey = key; // 채운 내용 기억
+        $('task-title').value = task.title; // 제목
+        $('task-status').value = task.status; // 상태
+        $('task-assignee').value = task.assignee_id === null ? '' : String(task.assignee_id); // 담당자
+        $('task-due').value = task.due_at ?? ''; // 마감일
+    }
+    if (!taskChecklist)
+    {
+        taskChecklist = Checklist.mount($('task-checklist'), checklistActions); // 처음 한 번만 만듦
+    }
+    taskChecklist.render(task, canEdit() && !!realtime && realtime.joined); // 체크리스트(버전이 같아도 항목은 바뀔 수 있으므로 매번 그림)
 }
 
 async function saveTask()

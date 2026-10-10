@@ -41,7 +41,7 @@ http://<서버 IP>:8080/check.html
 C:/xampp/mysql/bin/mysql.exe -u root < database/schema.sql
 ```
 
-예전에 만든 DB 를 그대로 쓰는 경우, 나중에 바뀐 컬럼(초대 코드의 인원 제한, 작업실용 접속 티켓)은 `scripts\start-dev.bat` 이 서버를 띄우기 전에 자동으로 반영합니다(`apps/php-api/bin/migrate.php`, 기존 데이터는 그대로). `scripts\check-env.bat` 도 예전 스키마이면 `[실패]` 로 알려 줍니다.
+예전에 만든 DB 를 그대로 쓰는 경우, 나중에 더한 표(업무 체크리스트 항목)와 바뀐 컬럼(초대 코드의 인원 제한, 작업실용 접속 티켓)은 `scripts\start-dev.bat` 이 서버를 띄우기 전에 자동으로 반영합니다(`apps/php-api/bin/migrate.php`, 기존 데이터는 그대로). `scripts\check-env.bat` 도 예전 스키마이면 `[실패]` 로 알려 줍니다.
 
 ### 2-2. 설정 파일
 

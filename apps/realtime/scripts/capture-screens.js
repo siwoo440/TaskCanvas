@@ -1,13 +1,13 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·선택 표시·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·선택 표시·체크리스트·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
-const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
+const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard, checklistItems, clickChecklist, addChecklistItem, renameChecklistItem } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
 
 const OUT = path.join(ROOT, 'assets', 'screenshots'); // 캡처 저장 폴더
 const API_PORT = Number(process.env.CAP_API_PORT || 8082); // 캡처용 PHP 포트
@@ -212,8 +212,34 @@ async function capture(browser, env)
     const taskAt = await centerOf(a, '로그인 화면 디자인'); // 업무 블럭
     await a.mouse.click(taskAt.x, taskAt.y); // 선택
     await a.waitForSelector('#task-props', { visible: true }); // 업무 패널 표시 대기
+    await a.$eval('#task-props', (el) => el.scrollIntoView({ block: 'start' })); // 오른쪽 패널을 업무 부분까지 내려 체크리스트가 보이게
     await wait(300); // 그리기 여유
-    await shot(a, '07-board-task'); // 업무 블럭과 편집 패널
+    await shot(a, '07-board-task'); // 업무 블럭과 편집 패널(체크리스트 포함)
+
+    // 실제 입력 확인: 업무 패널의 체크리스트에 항목을 더하고 체크하고 이름을 고치고 지우면, 그때마다 서버에 저장되고 같은 보드의 편집자 화면에도 전달되는지
+    const LISTED = '로그인 화면 디자인'; // 고른 업무
+    const listText = (items) => items.map((i) => (i.done ? '[v] ' : '[ ] ') + i.title).join(' / '); // 항목들을 한 줄로
+    const listOnOther = () => b.evaluate((title) => [...state.tasks.values()].find((t) => t.title === title).checklist.map((i) => ({ title: i.title, done: i.done })), LISTED); // 편집자 화면의 그 업무
+    const listOnServer = () => a.evaluate(async (title) => (await window.api.get('/api/projects/' + state.project.project_id + '/tasks')).tasks.find((t) => t.title === title).checklist.map((i) => ({ title: i.title, done: i.done })), LISTED); // 서버에 저장된 그 업무
+    const reached = async (want) =>
+    {
+        await b.waitForFunction((title, text) => [...state.tasks.values()].find((t) => t.title === title).checklist.map((i) => (i.done ? '[v] ' : '[ ] ') + i.title).join(' / ') === text, {}, LISTED, want); // 편집자 화면에 전달될 때까지
+        return listText(await listOnServer()) === want && listText(await checklistItems(a, '#task-checklist')) === want; // 서버와 내 패널도 같은지
+    }; // 세 곳이 모두 그 모습인지
+    const listSeed = listText(await listOnOther()); // 예시 체크리스트
+    const listVersion = () => a.evaluate((title) => [...state.tasks.values()].find((t) => t.title === title).version, LISTED); // 업무 버전
+    const listVersionBefore = await listVersion(); // 바꾸기 전 버전
+    await addChecklistItem(a, '#task-checklist', '캡처 확인 항목'); // 적고 Enter
+    const itemAdded = await reached(listSeed + ' / [ ] 캡처 확인 항목'); // 추가됨
+    await clickChecklist(a, '#task-checklist', '캡처 확인 항목', 'box'); // 체크
+    const itemChecked = await reached(listSeed + ' / [v] 캡처 확인 항목'); // 체크됨
+    await renameChecklistItem(a, '#task-checklist', '캡처 확인 항목', '고친 항목'); // 이름 고치기
+    const itemRenamed = await reached(listSeed + ' / [v] 고친 항목'); // 이름 바뀜
+    await clickChecklist(a, '#task-checklist', '고친 항목', 'delete'); // 지우기
+    const itemRemoved = await reached(listSeed); // 예시 그대로 돌아옴
+    check('체크리스트: 항목을 더하고 체크하고 고치고 지우면 바로 저장되고 다른 화면에도 전달됨', listSeed === '[v] 시안 그리기 / [v] 팀 확인받기 / [ ] 수정 반영'
+        && itemAdded && itemChecked && itemRenamed && itemRemoved && (await listVersion()) === listVersionBefore && (await a.$eval('#task-checklist .error', (el) => el.textContent)) === '');
+    await a.$eval('.props', (el) => { el.scrollTop = 0; }); // 체크리스트를 누르느라 내려간 패널을 맨 위로
 
     // 7) 메모 글 편집(더블클릭) — 찍은 뒤 Esc 로 취소
     const noteAt = await centerOf(a, '아이디어'); // 편집할 메모

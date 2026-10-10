@@ -52,6 +52,9 @@ final class DemoSeed
             $server = self::task($projectId, '실시간 서버 방 구현', 'todo', 2); // 할 일 업무(마감 임박 표시)
             $schema = self::task($projectId, 'DB 스키마 검토', 'done', null); // 완료 업무
             self::task($projectId, '발표 자료 초안', 'todo', -1); // 보드에 놓지 않은 업무(작업실 현황판에만 보임, 마감 지남 표시)
+            self::items($design, [['시안 그리기', true], ['팀 확인받기', true], ['수정 반영', false]]); // 진행 중 업무의 체크리스트(2/3)
+            self::items($server, [['방 참여 처리', true], ['커서 전달', false], ['펜 미리보기 전달', false], ['저장과 복원', false]]); // 할 일 업무의 체크리스트(1/4)
+            self::items($schema, [['표 정의 확인', true], ['외래키 확인', true]]); // 완료 업무의 체크리스트(2/2)
             $designBlock = self::taskBlock($main, $design, 340, 290); // 업무 블럭 1
             self::taskBlock($main, $server, 600, 290); // 업무 블럭 2
             self::taskBlock($main, $schema, 860, 290); // 업무 블럭 3
@@ -79,6 +82,7 @@ final class DemoSeed
             'objects' => (int) Database::one('SELECT COUNT(*) AS n FROM board_objects WHERE board_id = ?', [$main])['n'],
             'links' => (int) Database::one('SELECT COUNT(*) AS n FROM board_links WHERE board_id = ?', [$main])['n'],
             'tasks' => (int) Database::one('SELECT COUNT(*) AS n FROM tasks WHERE project_id = ?', [$projectId])['n'],
+            'items' => (int) Database::one('SELECT COUNT(*) AS n FROM task_items i JOIN tasks t ON t.task_id = i.task_id WHERE t.project_id = ?', [$projectId])['n'],
             'second_board_id' => $second,
         ]; // 채운 내용 요약
     }
@@ -120,6 +124,15 @@ final class DemoSeed
             Database::run('INSERT INTO tasks (project_id, title, status, due_at) VALUES (?, ?, ?, DATE_ADD(CURDATE(), INTERVAL ? DAY))', [$projectId, $title, $status, $dueInDays]); // 마감 있는 업무
         }
         return Database::lastId(); // 업무 ID
+    }
+
+    // 업무의 체크리스트 항목들: [이름, 완료 여부] 를 적은 순서대로 넣는다
+    private static function items(int $taskId, array $items): void
+    {
+        foreach ($items as [$title, $done])
+        {
+            Database::run('INSERT INTO task_items (task_id, title, is_done) VALUES (?, ?, ?)', [$taskId, $title, $done ? 1 : 0]); // 항목
+        }
     }
 
     private static function taskBlock(int $boardId, int $taskId, float $x, float $y): int

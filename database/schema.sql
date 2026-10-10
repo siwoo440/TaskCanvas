@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS tasks ( -- P1 원본 업무
     CONSTRAINT fk_task_assignee FOREIGN KEY (assignee_id) REFERENCES guests (guest_id) ON DELETE SET NULL -- 담당자 참조
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 업무 테이블
 
+CREATE TABLE IF NOT EXISTS task_items ( -- P1 업무 체크리스트 항목
+    item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 항목 ID
+    task_id BIGINT UNSIGNED NOT NULL, -- 업무 ID
+    title VARCHAR(120) NOT NULL, -- 항목 이름
+    is_done TINYINT(1) NOT NULL DEFAULT 0, -- 완료 여부
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 생성 시각
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- 수정 시각
+    KEY idx_item_task (task_id, item_id), -- 업무별 항목 조회(만든 순서)
+    CONSTRAINT fk_item_task FOREIGN KEY (task_id) REFERENCES tasks (task_id) ON DELETE CASCADE -- 업무 참조(업무가 지워지면 항목도 삭제)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 체크리스트 항목 테이블
+
 CREATE TABLE IF NOT EXISTS board_objects ( -- 보드 저장 객체
     object_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 객체 ID
     board_id BIGINT UNSIGNED NOT NULL, -- 보드 ID

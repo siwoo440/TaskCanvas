@@ -10,7 +10,7 @@ const fs = require('fs'); // 내려받은 파일 확인
 const os = require('os'); // 임시 폴더
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
-const { wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 캡처 스크립트와 함께 쓰는 도우미
+const { wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard, checklistItems, clickChecklist, addChecklistItem } = require('./lib/browser-kit'); // 캡처 스크립트와 함께 쓰는 도우미
 
 const API_PORT = Number(process.env.REH_API_PORT || 8083); // 리허설용 PHP 포트
 const RT_PORT = Number(process.env.REH_RT_PORT || 3004); // 리허설용 실시간 포트
@@ -489,10 +489,22 @@ async function rehearse(browser, env)
         taskId = await a.evaluate(() => [...state.tasks.values()].find((t) => t.title === '로그인 화면 디자인').task_id); // 업무 ID
         const beforeOnB = await b.evaluate((id) => ({ status: state.tasks.get(id).status, joined: realtime.joined, board: realtime.boardId }), taskId); // 바꾸기 직전의 B 화면
         expect(beforeOnB.status === 'doing' && beforeOnB.joined && beforeOnB.board === env.boardDev, 'B 가 개발 보드에 참여한 상태가 아니거나 업무가 이미 완료입니다.'); // 이후의 변화가 실시간 전달임을 보장
+
+        // 체크리스트: A 가 업무 패널에서 남은 항목을 체크하고 새 항목을 더하면 다른 보드에 있는 B 의 같은 업무도 바뀐다
+        const listBefore = await checklistItems(a, '#task-checklist'); // 예시 업무의 세부 항목
+        expect(listBefore.length === 3 && listBefore.filter((i) => i.done).length === 2, '예시 업무의 체크리스트가 3개 중 2개 완료가 아닙니다.'); // 예시가 바뀐 경우
+        const versionBefore = await a.evaluate((id) => state.tasks.get(id).version, taskId); // 항목을 바꾸기 전의 업무 버전
+        await clickChecklist(a, '#task-checklist', '수정 반영', 'box'); // 남은 항목 체크
+        await all(pages, (p) => waitOn(p, '체크리스트 3/3', (id) => { const t = state.tasks.get(id); return !!t && t.checklist.length === 3 && t.checklist.every((i) => i.done); }, taskId)); // 다른 보드의 B 포함
+        await addChecklistItem(a, '#task-checklist', '발표 전 확인'); // 새 항목을 적고 Enter
+        await all(pages, (p) => waitOn(p, '체크리스트 3/4', (id) => { const t = state.tasks.get(id); return !!t && t.checklist.length === 4 && t.checklist.filter((i) => i.done).length === 3 && t.checklist[3].title === '발표 전 확인'; }, taskId)); // 네 화면 모두
+        expect((await a.evaluate((id) => state.tasks.get(id).version, taskId)) === versionBefore, '체크리스트를 바꿨는데 업무 버전이 올라갔습니다.'); // 항목은 업무 버전과 따로 저장
+
         await a.select('#task-status', 'done'); // 상태를 완료로
         await a.click('#task-save'); // 저장
         await all(pages, (p) => waitOn(p, '업무 상태 완료', (id) => state.tasks.get(id) && state.tasks.get(id).status === 'done', taskId)); // 다른 보드에 있는 B 도 포함
-        return 'A 가 기획 보드에서 완료로 바꾸자 개발 보드의 B 화면도 바뀜';
+        expect((await checklistItems(a, '#task-checklist')).length === 4, '업무를 저장한 뒤 체크리스트가 달라졌습니다.'); // 상태를 바꿔도 항목은 그대로
+        return 'A 가 기획 보드에서 체크리스트를 고치고(3/4) 완료로 바꾸자 개발 보드의 B 화면도 바뀜';
     });
 
     await step('7', '새로고침 후 복원', async () =>
@@ -579,6 +591,24 @@ async function rehearse(browser, env)
         await dragCard(d, MOVED, 'doing'); // D 가 카드를 진행 중 열로 끌어 놓음
         await all([a, b, c], (p) => waitOn(p, '보드의 업무 블럭이 진행 중으로', (id) => state.tasks.get(id) && state.tasks.get(id).status === 'doing', movedId)); // 보드에 있는 세 화면
         await waitOn(d, '카드가 진행 중 열에', (title) => [...document.querySelectorAll('#ws-taskboard .tb-col[data-status="doing"] .tb-card strong')].some((el) => el.textContent === title), MOVED); // D 의 현황판
+
+        // 체크리스트: 카드에 진행률이 보이고, D 가 카드를 눌러 연 창에서 항목을 체크하면 카드와 보드의 세 화면에 전달된다
+        const cardOf = (title) => d.evaluate((wanted) =>
+        {
+            const card = [...document.querySelectorAll('#ws-taskboard .tb-card')].find((el) => el.querySelector('strong').textContent === wanted); // 그 업무의 카드
+            const progress = card ? card.querySelector('.tb-progress') : null; // 진행률 줄
+            const r = card ? card.getBoundingClientRect() : null; // 카드 위치
+            return { progress: progress ? progress.textContent : '', x: r ? r.left + r.width / 2 : 0, y: r ? r.top + r.height / 2 : 0 };
+        }, title); // 카드의 진행률 글과 가운데 좌표
+        const movedCard = await cardOf(MOVED); // 옮긴 카드
+        expect(movedCard.progress === '1/4', "'" + MOVED + "' 카드의 진행률이 1/4 로 보이지 않습니다: " + movedCard.progress); // 예시 체크리스트
+        await d.mouse.click(movedCard.x, movedCard.y); // 카드 누르기(끌지 않음)
+        await d.waitForSelector('#ws-task-dialog[open]'); // 업무 대화상자
+        await clickChecklist(d, '#ws-task-checklist', '커서 전달', 'box'); // 항목 체크
+        await all([a, b, c], (p) => waitOn(p, '보드의 업무 진행률 2/4', (id) => { const t = state.tasks.get(id); return !!t && t.checklist.length === 4 && t.checklist.filter((i) => i.done).length === 2; }, movedId)); // 보드에 있는 세 화면
+        await waitOn(d, '카드 진행률 2/4', (title) => [...document.querySelectorAll('#ws-taskboard .tb-card')].some((el) => el.querySelector('strong').textContent === title && el.querySelector('.tb-progress') && el.querySelector('.tb-progress').textContent === '2/4'), MOVED); // D 의 카드
+        await d.click('#ws-task-cancel'); // 대화상자 닫기(체크는 이미 저장됨)
+        await waitOn(d, '대화상자 닫힘', () => !document.getElementById('ws-task-dialog').open); // 닫힘
         await d.click('#ws-task-add'); // 새 업무
         await d.waitForSelector('#ws-task-dialog[open]'); // 업무 대화상자
         await d.type('#ws-task-title', CREATED); // 제목 입력
@@ -586,7 +616,7 @@ async function rehearse(browser, env)
         await all([a, b, c], (p) => waitOn(p, '작업실에서 만든 업무', (title) => [...state.tasks.values()].some((t) => t.title === title && t.status === 'todo'), CREATED)); // 보드에 있는 세 화면도 받음
         await waitOn(d, '새 카드', (title) => !document.getElementById('ws-task-dialog').open && [...document.querySelectorAll('#ws-taskboard .tb-col[data-status="todo"] .tb-card strong')].some((el) => el.textContent === title), CREATED); // D 의 현황판
         expect((await d.$eval('#ws-task-error', (el) => el.textContent)) === '', '현황판에 오류 안내가 떴습니다.'); // 오류 없음
-        return 'D 가 작업실에서 카드를 끌어 진행 중으로 옮기고 새 업무를 만들자 보드에 있는 3대에 전달, 마감 임박·지남 표시 확인';
+        return 'D 가 작업실에서 카드를 끌어 진행 중으로 옮기고 체크리스트를 체크하고(2/4) 새 업무를 만들자 보드에 있는 3대에 전달, 마감 임박·지남 표시 확인';
     });
 
     await step('10', '열람자', async () =>

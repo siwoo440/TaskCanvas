@@ -1,4 +1,5 @@
 // task:create / task:update — 보드와 독립된 공유 업무 원본. 변경은 프로젝트의 모든 보드와 작업실에 전파
+// 업무에는 체크리스트(세부 항목)가 함께 실린다. 항목을 바꾸는 요청은 handlers/checklist.js 가 맡는다
 'use strict';
 
 const db = require('../db'); // DB 접근
@@ -13,7 +14,7 @@ function projectRoom(projectId)
     return 'project:' + projectId; // 프로젝트 단위 방 이름(모든 보드 참여자 포함)
 }
 
-function rowToTask(row)
+function rowToTask(row, items)
 {
     return {
         task_id: row.task_id, // 업무 ID
@@ -25,19 +26,22 @@ function rowToTask(row)
         assignee_name: row.assignee_name ?? null, // 담당자 이름
         due_at: row.due_at ? String(row.due_at).slice(0, 10) : null, // 마감일(YYYY-MM-DD)
         version: Number(row.version), // 버전
+        checklist: items.map((i) => ({ item_id: i.item_id, title: i.title, done: Number(i.is_done) === 1 })), // 세부 항목(만든 순서)
     }; // 클라이언트 업무 형식
 }
 
 async function loadTask(taskId, executor = db)
 {
     const sql = `SELECT t.*, g.display_name AS assignee_name FROM tasks t LEFT JOIN guests g ON g.guest_id = t.assignee_id WHERE t.task_id = ?`; // 담당자 이름 포함 조회
+    const itemSql = 'SELECT item_id, title, is_done FROM task_items WHERE task_id = ? ORDER BY item_id'; // 체크리스트 항목(만든 순서)
     if (executor === db)
     {
         const row = await db.one(sql, [taskId]); // 풀로 조회
-        return row ? rowToTask(row) : null;
+        return row ? rowToTask(row, await db.query(itemSql, [taskId])) : null;
     }
     const [rows] = await executor.execute(sql + ' FOR UPDATE', [taskId]); // 트랜잭션 연결로 행 잠금 조회
-    return rows.length > 0 ? rowToTask(rows[0]) : null;
+    const [items] = await executor.execute(itemSql, [taskId]); // 같은 연결로 항목 조회
+    return rows.length > 0 ? rowToTask(rows[0], items) : null;
 }
 
 async function cleanFields(data, projectId, partial)
@@ -185,6 +189,8 @@ function register(io, socket)
             const sets = Object.keys(f).map((k) => k + ' = ?'); // SET 절
             await conn.execute('UPDATE tasks SET ' + sets.join(', ') + ', version = version + 1 WHERE task_id = ? AND version = ?', [...Object.values(f), taskId, version]); // 변경 저장
             await conn.commit(); // 트랜잭션 확정
+            conn.release(); // 결과를 다시 읽기 전에 연결을 돌려줌(연결을 쥔 채 풀에서 하나를 더 기다리면 요청이 한꺼번에 몰릴 때 서로 막힘)
+            conn = null; // finally 에서 다시 돌려주지 않게
             const task = await loadTask(taskId); // 저장 결과
             ok(ack, { request_id: data.request_id ?? null, task }); // 변경 응답
             socket.to(projectRoom(socket.data.projectId)).emit('task:updated', { task, guest_id: socket.data.guestId }); // 같은 프로젝트의 모든 보드와 작업실에 전파
@@ -208,4 +214,4 @@ function register(io, socket)
     });
 }
 
-module.exports = { register, projectRoom, STATUSES };
+module.exports = { register, projectRoom, loadTask, STATUSES };

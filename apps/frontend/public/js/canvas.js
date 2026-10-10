@@ -1093,6 +1093,23 @@ class BoardCanvas
             ctx.font = '12px sans-serif'; // 본문 글꼴
             ctx.fillStyle = accent; // 상태 색
             ctx.fillText(task ? (labels[task.status] ?? task.status) : '불러오는 중…', o.x + 14, o.y + 46); // 상태
+            const progress = Checklist.progress(task); // 체크리스트 진행률(작업실 현황판과 같은 계산)
+            if (progress.total > 0 && o.width >= 150)
+            {
+                const barWidth = o.width >= 200 ? 56 : 0; // 블럭이 좁으면 막대 없이 숫자만
+                const right = o.x + o.width - 14; // 오른쪽 끝
+                if (barWidth > 0)
+                {
+                    ctx.fillStyle = '#e5e7eb'; // 막대 바탕
+                    ctx.fillRect(right - barWidth, o.y + 39, barWidth, 6); // 진행 막대 바탕
+                    ctx.fillStyle = progress.done === progress.total ? '#16a34a' : '#2563eb'; // 모두 끝내면 초록, 아니면 파랑
+                    ctx.fillRect(right - barWidth, o.y + 39, barWidth * progress.ratio, 6); // 끝낸 만큼 채움
+                }
+                ctx.fillStyle = '#6b7280'; // 숫자 색
+                ctx.textAlign = 'right'; // 막대 왼쪽에 붙여 씀
+                ctx.fillText(progress.label, right - barWidth - (barWidth > 0 ? 6 : 0), o.y + 46); // "2/5"
+                ctx.textAlign = 'left'; // 정렬 되돌림
+            }
             ctx.fillStyle = '#6b7280'; // 보조 글자 색
             ctx.fillText((task && task.assignee_name ? '담당 ' + task.assignee_name : '담당자 없음') + (task && task.due_at ? ' · 마감 ' + task.due_at : ''), o.x + 14, o.y + 66, o.width - 24); // 담당·마감
             ctx.fillStyle = '#9ca3af'; // 안내 글자 색

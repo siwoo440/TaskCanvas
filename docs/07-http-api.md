@@ -19,7 +19,7 @@
 | POST | `/api/boards/{id}/delete` | 보드 삭제(객체·연결선 포함, 되돌릴 수 없음) | 관리자 |
 | POST | `/api/images` | PNG/JPG/WEBP(최대 10MB) 이미지 업로드 | 관리자·편집자 |
 | GET | `/api/images/{id}` | 프로젝트 권한 검증 후 이미지 반환 | 참여자 |
-| GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록(담당자 이름·버전 포함) | 참여자 |
+| GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록(담당자 이름·버전 포함). 업무마다 `checklist` 에 세부 항목 `[{item_id, title, done}]` | 참여자 |
 | GET | `/api/projects/{id}/members` | 프로젝트 참여자 목록(담당자 선택용) | 참여자 |
 | GET | `/api/projects/{id}/invites` | 초대 코드 목록(역할·만료·인원 제한과 입장 인원·상태, 코드 원문 없음) | 관리자 |
 | POST | `/api/projects/{id}/invites` | 초대 코드 발급 `{role, days, max_uses}` — `max_uses`(0~100)를 빼거나 null 로 주면 인원 제한 없음, 0 이면 재입장 전용 코드. 원문은 응답에서 한 번만 | 관리자 |

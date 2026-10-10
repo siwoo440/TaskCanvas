@@ -1,5 +1,5 @@
 <?php
-// DB 스키마 보정 CLI: 예전에 만든 DB 에 나중에 바뀐 컬럼(추가·NULL 허용)을 반영한다. 여러 번 실행해도 안전하고 데이터는 지우지 않는다
+// DB 스키마 보정 CLI: 예전에 만든 DB 에 나중에 더한 표와 바뀐 컬럼(추가·NULL 허용)을 반영한다. 여러 번 실행해도 안전하고 데이터는 지우지 않는다
 // 사용법: php bin/migrate.php   (scripts\start-dev.bat 가 서버를 띄우기 전에 자동으로 실행)
 declare(strict_types=1);
 

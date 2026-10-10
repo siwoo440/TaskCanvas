@@ -21,19 +21,19 @@ $names = array_values(array_filter($args, static fn(string $a) => !str_starts_wi
 $projectTitle = $names[0] ?? '시연 프로젝트'; // 새로 만들 프로젝트 이름
 
 const RESET_TABLES = [
-    'board_links', 'board_objects', 'media_assets', 'tasks', 'realtime_tickets', 'join_attempts',
+    'board_links', 'board_objects', 'media_assets', 'task_items', 'tasks', 'realtime_tickets', 'join_attempts',
     'guest_sessions', 'project_invites', 'project_members', 'boards', 'projects', 'guests',
 ]; // 비울 테이블(이 목록 밖의 테이블은 건드리지 않음)
 
 $dbName = Env::get('DB_NAME'); // 대상 DB 이름
 $existing = array_map(static fn(array $r) => (string) array_values($r)[0], Database::all('SHOW TABLES')); // 실제 테이블 목록
-$missing = array_diff(RESET_TABLES, $existing); // 없는 테이블
+$missing = array_diff(RESET_TABLES, $existing, Schema::tableNames()); // 없는 테이블(나중에 더한 표는 아래의 보정이 만들므로 제외)
 if ($missing !== [])
 {
     exit("DB '{$dbName}' 에 테이블이 없습니다: " . implode(', ', $missing) . "\n먼저 database/schema.sql 을 적용하세요.\n"); // 스키마 미적용
 }
 
-Schema::upgrade(); // 예전에 만든 DB 라면 나중에 추가된 컬럼부터 더함(데이터는 그대로)
+Schema::upgrade(); // 예전에 만든 DB 라면 나중에 더한 표와 컬럼부터 채움(데이터는 그대로)
 $files = Storage::listUploadedFiles(); // 지울 업로드 파일(서버가 만든 이름 규칙에 맞는 것만)
 
 echo "=== TaskCanvas 시연 초기화 ===\n"; // 제목
@@ -109,7 +109,7 @@ echo "\n새 프로젝트: project_id={$projectId} ({$projectTitle}), 보드: 기
 if ($seed)
 {
     $filled = DemoSeed::fill($projectId); // 시연용 예시 내용
-    echo "예시 내용: 기획 보드에 객체 {$filled['objects']}개·연결선 {$filled['links']}개·공유 업무 {$filled['tasks']}개를 채웠습니다.\n"; // 채운 결과
+    echo "예시 내용: 기획 보드에 객체 {$filled['objects']}개·연결선 {$filled['links']}개·공유 업무 {$filled['tasks']}개(체크리스트 항목 {$filled['items']}개)를 채웠습니다.\n"; // 채운 결과
 }
 foreach (['admin' => '관리자', 'editor' => '편집자', 'viewer' => '열람자'] as $role => $label)
 {

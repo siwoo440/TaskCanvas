@@ -39,7 +39,7 @@ catch (RuntimeException $e)
 {
     fail($e->getMessage()); // 보드 없음·이미 내용 있음
 }
-echo "예시 내용을 채웠습니다: 보드 '{$result['board_title']}'(board_id={$result['board_id']}) 에 객체 {$result['objects']}개, 연결선 {$result['links']}개, 공유 업무 {$result['tasks']}개\n"; // 결과
+echo "예시 내용을 채웠습니다: 보드 '{$result['board_title']}'(board_id={$result['board_id']}) 에 객체 {$result['objects']}개, 연결선 {$result['links']}개, 공유 업무 {$result['tasks']}개(체크리스트 항목 {$result['items']}개)\n"; // 결과
 if ($result['second_board_id'] !== null)
 {
     echo "두 번째 보드(board_id={$result['second_board_id']})에도 같은 업무를 참조하는 블럭을 놓았습니다.\n"; // 공유 업무 시연용

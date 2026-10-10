@@ -139,10 +139,10 @@ if ($connected)
     $missing = array_diff($required, $existing); // 없는 테이블
     if ($missing === array())
     {
-        $columns = Schema::missing(); // 나중에 바뀐 컬럼 가운데 반영되지 않은 것
+        $columns = Schema::missing(); // 나중에 더한 표와 바뀐 컬럼 가운데 반영되지 않은 것
         if ($columns === array())
         {
-            report('ok', 'DB 스키마', '테이블 ' . count($required) . '개 확인'); // 스키마 적용됨
+            report('ok', 'DB 스키마', '테이블 ' . (count($required) + count(Schema::tableNames())) . '개 확인'); // 스키마 적용됨(나중에 더한 표 포함)
         }
         else
         {
