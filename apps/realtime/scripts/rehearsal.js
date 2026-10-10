@@ -605,7 +605,45 @@ async function rehearse(browser, env)
         expect(direct === 'FORBIDDEN', '서버가 열람자의 생성 요청을 거부하지 않았습니다: ' + direct); // 서버 쪽 제한
         expect((await serverKey(a)).split('|').length === before, '열람자의 조작으로 객체가 생겼습니다.'); // 아무것도 바뀌지 않음
         await waitOn(a, '참여자 목록에 열람자', (name) => [...document.querySelectorAll('#participants li')].some((li) => li.textContent.includes(name)), NAMES.viewer); // A 화면의 참여자
-        return '도구가 꺼져 있고 서버도 생성 요청을 거부(FORBIDDEN)';
+
+        // 열람자도 진행자를 따라갈 수 있다: D 가 A 의 이름을 한 번 눌러 그 자리로 가고, 한 번 더 눌러 계속 따라간다
+        const chipOfA = (page) => page.evaluateHandle((name) => [...document.querySelectorAll('#participants .participant')].find((el) => el.textContent.startsWith(name)) ?? null, NAMES.a); // D 화면에 보이는 A 의 이름표
+        const seenByD = () => d.evaluate(() => ({ view: { ...canvas.view }, following: follow.guestId, armed: follow.armed, banner: document.getElementById('follow-banner').hidden ? '' : document.getElementById('follow-text').textContent })); // D 의 화면 위치와 따라가기 상태
+        const aCursorOnD = () => d.evaluate((name) =>
+        {
+            const p = participants.find((x) => x.display_name === name); // A
+            const at = p ? lastSeen.get(p.guest_id) : null; // A 가 마지막으로 있던 곳
+            return at ? { known: true, inView: canvas.isWellInView(at.x, at.y, 0.05) } : { known: false, inView: false };
+        }, NAMES.a); // A 의 마지막 위치가 D 화면 안에 있는지
+        const wiggle = async (page, x, y) =>
+        {
+            await page.mouse.move(x, y); // 커서 이동
+            await page.mouse.move(x + 24, y + 16, { steps: 4 }); // 조금 더 움직여 위치를 여러 번 알림
+        }; // 화면 위에서 마우스를 움직임
+        await a.click('#toolbar [data-tool="pan"]'); // A 는 이동 도구(끌어도 그려지지 않게)
+        await wiggle(a, 500, 400); // A 가 지금 있는 곳을 알림
+        await waitOn(d, 'A 의 위치 수신', (name) => { const p = participants.find((x) => x.display_name === name); return !!p && lastSeen.has(p.guest_id); }, NAMES.a); // D 가 A 의 위치를 앎
+        const chip = await chipOfA(d); // A 의 이름표
+        expect((await chip.jsonValue()) !== null, 'D 화면에 A 의 이름표가 없습니다.'); // 누를 수 있는 이름표
+        await chip.click(); // 한 번: A 가 있는 곳으로 이동
+        await waitOn(d, '한 번 누른 상태', () => follow.armed !== null && follow.guestId === null); // 이동만 하고 아직 따라가지는 않음
+        expect((await aCursorOnD()).inView, '이름을 눌렀는데 A 가 있는 곳이 D 화면에 들어오지 않았습니다.'); // 이동 확인
+        await (await chipOfA(d)).click(); // 한 번 더: 계속 따라가기(이름표는 다시 그려지므로 새로 찾음)
+        await waitOn(d, '따라가는 중 안내', (name) => follow.guestId !== null && !document.getElementById('follow-banner').hidden && document.getElementById('follow-text').textContent.includes(name), NAMES.a); // 안내 표시
+        const before10 = await seenByD(); // 따라가기 시작할 때의 D 화면
+        await panBy(a, -900, -700); // A 가 자기 화면을 멀리 옮김(A 의 커서는 이제 보드의 다른 곳을 가리킴)
+        await wiggle(a, 640, 420); // 옮긴 곳에서 마우스를 움직임
+        await waitOn(d, 'D 화면이 A 를 따라 이동', (x, y) => Math.abs(canvas.view.x - x) > 200 || Math.abs(canvas.view.y - y) > 200, before10.view.x, before10.view.y); // 화면이 따라 움직임
+        expect((await aCursorOnD()).inView, '따라가는 중인데 A 가 있는 곳이 D 화면에 없습니다.'); // 따라간 곳에 A 가 보임
+        await d.keyboard.press('Escape'); // Esc 로 해제
+        await waitOn(d, '따라가기 해제', () => follow.guestId === null && document.getElementById('follow-banner').hidden); // 안내 사라짐
+        const after10 = await seenByD(); // 해제한 뒤의 D 화면
+        await wiggle(a, 300, 300); // A 가 다시 움직여도
+        await wait(300); // 반영 여유
+        expect(Math.abs((await seenByD()).view.x - after10.view.x) < 1, '따라가기를 풀었는데도 D 화면이 움직였습니다.'); // 더는 따라가지 않음
+        await panBy(a, 900, 700); // A 화면을 원래 자리로
+        await a.click('#toolbar [data-tool="select"]'); // A 는 다시 선택 도구
+        return '도구가 꺼져 있고 서버도 생성 요청을 거부(FORBIDDEN). 열람자가 A 의 이름을 두 번 눌러 따라가고 Esc 로 해제';
     });
 
     await step('지연', '화면 사이 전달 지연', () => measureLatency(pages));

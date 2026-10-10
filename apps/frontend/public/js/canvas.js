@@ -69,6 +69,23 @@ class BoardCanvas
         this.invalidate(); // 다시 그리기
     }
 
+    // 월드 좌표 (wx, wy) 가 화면 가운데에 오도록 화면을 옮긴다(배율은 그대로)
+    centerOn(wx, wy)
+    {
+        this.view.x = this.el.width / this.dpr / 2 - wx * this.view.scale; // 가로 가운데
+        this.view.y = this.el.height / this.dpr / 2 - wy * this.view.scale; // 세로 가운데
+        this.invalidate(); // 다시 그리기
+    }
+
+    // 월드 좌표가 화면 가장자리(margin 비율)를 뺀 안쪽에 보이는지. 따라가는 동안 화면을 쓸데없이 흔들지 않기 위한 판정
+    isWellInView(wx, wy, margin = 0.2)
+    {
+        const s = this.toScreen(wx, wy); // 화면 좌표
+        const width = this.el.width / this.dpr; // 표시 너비
+        const height = this.el.height / this.dpr; // 표시 높이
+        return s.x >= width * margin && s.x <= width * (1 - margin) && s.y >= height * margin && s.y <= height * (1 - margin); // 안쪽 영역 안이면 그대로 둠
+    }
+
     fitAll()
     {
         const width = this.el.width / this.dpr; // 표시 너비

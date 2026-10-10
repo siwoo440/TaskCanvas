@@ -25,6 +25,7 @@ realtime/
 │   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거, 글자 크기 10~72)
 │   ├── boards.js        # 보드 삭제·이름 변경 감시(주기적 DB 확인 → board:renamed / board:deleted)
 │   ├── origin.js        # 접속 출처 검사(CORS_ORIGIN: auto·*·목록)
+│   ├── ratelimit.js     # 연결마다 이벤트 요청 수 제한(저장 요청은 거절, 미리보기 중계는 버림)
 │   └── handlers/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── project.js   # project:join (작업실 연결: 보드 없이 프로젝트 방에만 참여)
@@ -37,7 +38,7 @@ realtime/
 │       ├── ping.js      # net:ping (접속 점검 화면의 왕복 시간 측정용 응답)
 │       └── reply.js     # ack 응답 형식, 보드·프로젝트 참여 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01·운영 점검 OPS01 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23, AC26~AC28 과 보안 점검 SEC01·SEC02·운영 점검 OPS01 (서버를 직접 띄워 검사)
 ├── scripts/rehearsal.js    # 시연 리허설(브라우저 4개로 시연 대본 실행 + 전달 지연 측정)
 ├── scripts/capture-screens.js  # 실제 화면 캡처(임시 서버 + 설치된 Chrome 조작 → assets/screenshots)
 ├── scripts/check-env.js    # 사전 점검(Node·패키지·DB·포트·LAN 주소·방화벽·외부 영상)
@@ -70,7 +71,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01)과 업로드 정리(OPS01)도 검사해 요약 줄을 따로 냅니다. 업로드 정리는 러너가 만든 테스트 프로젝트의 이미지만 대상으로 합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23, AC26~AC28 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01), 요청 제한(SEC02), 업로드 정리(OPS01)도 검사해 요약 줄을 따로 냅니다. 요청 제한 검사 중에는 서버가 `요청 제한: …` 경고를 한두 줄 찍는데 정상입니다. 업로드 정리는 러너가 만든 테스트 프로젝트의 이미지만 대상으로 합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 시연 리허설
 
@@ -95,6 +96,20 @@ Node 버전, 패키지 설치, `.env` 와 접속 출처 설정, DB 연결, 두 �
 
 - 방화벽 규칙은 관리자 권한 없이 읽을 수 있는 레지스트리 저장 값을 해석합니다. 읽지 못하면 `[주의]` 로만 알립니다.
 - 서버가 떠 있을 때 실행하면 LAN 주소로도 응답하는지 확인합니다. 그래도 다른 PC 에서 실제로 닿는지는 마지막에 출력되는 접속 점검 주소(`/check.html`)를 그 PC 의 브라우저로 열어 확인해야 합니다.
+
+## 요청 제한
+
+연결 하나가 보낼 수 있는 이벤트 수를 제한합니다(`src/ratelimit.js`). 통에 BURST 개가 차 있다가 요청마다 하나씩 줄고 1초에 PER_SEC 개씩 다시 차는 방식이라, 여러 객체를 함께 옮길 때처럼 한꺼번에 몰리는 정상 요청은 통과하고 계속 쏟아지는 요청만 걸러집니다.
+
+| 종류 | 대상 | 기본값 | 넘치면 |
+|---|---|---|---|
+| 저장 요청 | 응답을 돌려주는 모든 이벤트(참여·잠금·저장·삭제·업무·연결선·`net:ping`) | `RATE_SAVE_BURST=300`, `RATE_SAVE_PER_SEC=50` | `RATE_LIMITED` 로 거절(처리하지 않음). 화면에는 "저장 실패: 요청이 너무 잦습니다" |
+| 미리보기 중계 | `stroke:preview`, `object:preview` | `RATE_RELAY_BURST=1200`, `RATE_RELAY_PER_SEC=600` | 조용히 버림(확정 저장에는 영향 없음) |
+| 커서 | `cursor:move` | `CURSOR_INTERVAL_MS=33` | 간격보다 잦은 것은 버림(기존 동작) |
+
+- BURST 를 0 으로 두면 그 종류의 제한을 끕니다.
+- 제한에 걸리면 서버 창에 `요청 제한: guest=… event=…` 이 연결마다 10초에 한 번까지만 찍힙니다.
+- 한도는 연결마다 따로입니다. 한 사람이 걸려도 다른 사람의 편집에는 영향이 없습니다.
 
 ## 접속 출처 제한
 

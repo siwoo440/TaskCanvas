@@ -109,7 +109,32 @@ button.danger { background: var(--danger); border-color: var(--danger); color: #
     background: var(--bg);
     font-size: 13px;
 }
-.participants .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.participants .dot, .follow-banner .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+/* 다른 참여자는 누를 수 있는 이름표: 누르면 그 사람이 있는 곳으로 이동하고, 한 번 더 누르면 계속 따라간다 */
+.participants li.other { padding: 0; background: none; }
+.topbar .participant { display: flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; background: var(--bg); font-size: 13px; }
+.topbar .participant:hover { border-color: var(--primary); }
+.topbar .participant.armed { border-color: var(--primary); background: #eff6ff; }
+.topbar .participant.following { border-color: var(--primary); background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+.follow-banner {
+    position: absolute;
+    left: 50%;
+    top: 14px;
+    transform: translateX(-50%);
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px 6px 14px;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 13px;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, .15);
+    white-space: nowrap;
+}
+.follow-banner button { padding: 3px 10px; border-radius: 999px; font-size: 12px; }
 .badge { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); }
 .badge[data-state="online"], .badge[data-state="saved"] { background: #dcfce7; color: var(--ok); }
 .badge[data-state="reconnecting"], .badge[data-state="saving"] { background: #fef3c7; color: var(--warn); }

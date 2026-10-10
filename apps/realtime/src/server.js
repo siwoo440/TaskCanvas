@@ -17,6 +17,7 @@ const pingHandler = require('./handlers/ping'); // 접속 점검용 왕복 응�
 const locks = require('./locks'); // 잠금 만료 검사
 const boards = require('./boards'); // 보드 삭제·이름 변경 감시
 const origin = require('./origin'); // 접속 출처 검사
+const ratelimit = require('./ratelimit'); // 이벤트 요청 제한
 
 const httpServer = http.createServer((req, res) =>
 {
@@ -38,6 +39,7 @@ const io = new Server(httpServer, {
 
 io.on('connection', (socket) =>
 {
+    ratelimit.attach(socket); // 연결마다 요청 수 제한(다른 처리보다 먼저 걸러 냄)
     boardHandler.register(io, socket); // board:join·disconnect
     projectHandler.register(io, socket); // project:join
     cursorHandler.register(io, socket); // cursor:move

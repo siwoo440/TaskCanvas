@@ -27,6 +27,9 @@ let move = null; // 진행 중인 이동·크기 조절 세션 {kind, objects, t
 let noteEdit = null; // 글을 편집 중인 메모 {object, token, heartbeat, isNew}
 let busyOps = 0; // 진행 중인 잠금 요청·확정·삭제 수(다음 잠금 요청이 앞선 작업의 반납보다 먼저 나가지 않게 한다)
 let boardDialogTarget = null; // 이름 변경·삭제 대화상자의 대상 보드
+let participants = []; // 지금 보드의 참여자 목록(실시간 서버가 알려 준 그대로)
+const lastSeen = new Map(); // guest_id → {x, y}: 다른 참여자가 마지막으로 있던 곳(커서는 5초 멈추면 화면에서 사라지지만 위치는 기억)
+const follow = { guestId: null, armed: null }; // 계속 따라가는 참여자, 방금 그 사람 자리로 한 번 이동한 참여자(한 번 더 누르면 따라가기 시작)
 
 // 앞선 잠금 요청·확정이 모두 끝날 때까지 기다린다. 같은 객체를 연달아 잠글 때 서버에 도착하는 순서를 보장하기 위함
 async function whenIdle()
@@ -502,6 +505,8 @@ async function returnToWorkspace(notice)
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 메모 편집 취소(잠금 반납)
     clearUndo(); // 실행 취소 기록 비움
+    stopFollow(); // 따라가기 해제
+    lastSeen.clear(); // 보드를 나가면 위치 기억도 버림
     if (realtime)
     {
         realtime.leave(); // 연결 종료
@@ -895,6 +900,8 @@ async function openBoard(board, resumeView = null)
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
     clearUndo(); // 실행 취소 기록은 보드마다 따로
+    stopFollow(); // 따라가기는 보드마다 따로
+    lastSeen.clear(); // 다른 보드의 위치는 버림
     disconnectWorkspace(); // 작업실 연결은 끊고 보드 연결을 씀(업무 변경은 보드 연결로도 받음)
     state.board = board; // 현재 보드
     state.pendingSaves = 0; // 저장 대기 초기화
@@ -987,23 +994,140 @@ $('board-back').addEventListener('click', () => returnToWorkspace('')); // 작�
 
 function renderParticipants(list)
 {
+    participants = list; // 목록 기억(따라가기 표시를 다시 그릴 때 사용)
     const ul = $('participants'); // 참여자 목록 요소
     ul.innerHTML = ''; // 초기화
     for (const p of list)
     {
         const li = document.createElement('li'); // 항목
         const dot = document.createElement('span'); // 색상 점
+        const mine = state.guest && p.guest_id === state.guest.guest_id; // 나 자신인지
         dot.className = 'dot'; // 스타일
         dot.style.background = p.color; // 참여자 색
-        li.appendChild(dot); // 점 추가
-        li.appendChild(document.createTextNode(p.display_name + (state.guest && p.guest_id === state.guest.guest_id ? ' (나)' : ''))); // 이름
+        if (mine)
+        {
+            li.appendChild(dot); // 점 추가
+            li.appendChild(document.createTextNode(p.display_name + ' (나)')); // 이름
+        }
+        else
+        {
+            const btn = document.createElement('button'); // 누를 수 있는 이름표
+            btn.type = 'button'; // 제출 방지
+            btn.className = 'participant' + (follow.guestId === p.guest_id ? ' following' : follow.armed === p.guest_id ? ' armed' : ''); // 따라가는 중·방금 이동함 표시
+            btn.dataset.guestId = String(p.guest_id); // 대상 참여자
+            btn.title = follow.guestId === p.guest_id ? '따라가는 중입니다. 누르면 그만 따라갑니다'
+                : follow.armed === p.guest_id ? '한 번 더 누르면 이 사람을 계속 따라갑니다' : '누르면 이 사람이 있는 곳으로 이동합니다'; // 다음에 일어날 일
+            btn.append(dot, document.createTextNode(p.display_name + (follow.guestId === p.guest_id ? ' · 따라가는 중' : ''))); // 점과 이름
+            btn.addEventListener('click', () => onParticipantClick(p.guest_id)); // 이동 → 따라가기 → 해제 순서
+            li.className = 'other'; // 이름표가 칸을 채움
+            li.appendChild(btn); // 이름표 추가
+            if (p.cursor)
+            {
+                lastSeen.set(p.guest_id, { x: p.cursor.x, y: p.cursor.y }); // 서버가 기억한 마지막 위치(내가 들어오기 전에 움직인 사람도 찾아갈 수 있음)
+            }
+        }
         ul.appendChild(li); // 항목 추가
     }
+    if (follow.guestId !== null && !list.some((p) => p.guest_id === follow.guestId))
+    {
+        stopFollow('따라가던 참여자가 나가서 따라가기를 멈췄습니다.'); // 대상이 보드를 떠남
+    }
+    else if (follow.armed !== null && !list.some((p) => p.guest_id === follow.armed))
+    {
+        follow.armed = null; // 방금 찾아갔던 사람이 떠남
+    }
+    renderFollowBanner(); // 따라가는 중 안내 갱신
     if (canvas)
     {
         canvas.removeCursorsExcept(list.map((p) => p.guest_id)); // 퇴장자 커서 제거
     }
 }
+
+// ---------- 참여자 따라가기 ----------
+
+function participantOf(guestId)
+{
+    return participants.find((p) => p.guest_id === guestId) ?? null; // 목록의 그 참여자
+}
+
+function renderFollowBanner()
+{
+    const target = follow.guestId === null ? null : participantOf(follow.guestId); // 따라가는 대상
+    $('follow-banner').hidden = target === null; // 따라가는 중에만 표시
+    if (target)
+    {
+        $('follow-dot').style.background = target.color; // 그 사람의 커서 색
+        $('follow-text').textContent = target.display_name + ' 님을 따라가는 중'; // 안내 문구(textContent 로만 표시)
+    }
+}
+
+// 이름표를 누를 때마다: 그 사람 자리로 이동 → (한 번 더) 계속 따라가기 → (한 번 더) 해제
+function onParticipantClick(guestId)
+{
+    const target = participantOf(guestId); // 누른 참여자
+    if (!target || !canvas)
+    {
+        return;
+    }
+    if (follow.guestId === guestId)
+    {
+        stopFollow(target.display_name + ' 님 따라가기를 멈췄습니다.'); // 따라가는 중 → 해제
+        return;
+    }
+    const at = lastSeen.get(guestId) ?? null; // 마지막으로 있던 곳
+    if (follow.armed === guestId)
+    {
+        follow.guestId = guestId; // 계속 따라가기 시작
+        follow.armed = null; // 한 번 이동 상태 종료
+        if (at)
+        {
+            canvas.centerOn(at.x, at.y); // 지금 자리부터 맞춤
+        }
+        renderParticipants(participants); // 이름표·안내 갱신
+        toast(target.display_name + ' 님을 따라갑니다. 보드를 직접 움직이거나 Esc 를 누르면 멈춥니다.', 3500); // 해제 방법 안내
+        return;
+    }
+    follow.guestId = null; // 다른 사람을 따라가던 중이면 해제
+    follow.armed = guestId; // 한 번 더 누르면 따라가기
+    if (at)
+    {
+        canvas.centerOn(at.x, at.y); // 그 사람이 있는 곳을 화면 가운데로
+        toast(target.display_name + ' 님이 있는 곳으로 이동했습니다. 이름을 한 번 더 누르면 계속 따라갑니다.', 3500); // 안내
+    }
+    else
+    {
+        toast(target.display_name + ' 님의 위치를 아직 모릅니다. 그분이 마우스를 움직이면 알 수 있습니다. 이름을 한 번 더 누르면 움직일 때부터 따라갑니다.', 4500); // 아직 커서를 받은 적 없음
+    }
+    renderParticipants(participants); // 이름표 갱신
+}
+
+function stopFollow(message)
+{
+    if (follow.guestId === null && follow.armed === null)
+    {
+        return; // 따라가는 중이 아님
+    }
+    const wasFollowing = follow.guestId !== null; // 실제로 따라가던 중이었는지
+    follow.guestId = null; // 따라가기 해제
+    follow.armed = null; // 한 번 이동 상태도 해제
+    renderParticipants(participants); // 이름표·안내 갱신
+    if (wasFollowing && message)
+    {
+        toast(message); // 왜 멈췄는지 안내
+    }
+}
+
+// 다른 참여자의 커서가 올 때마다: 위치를 기억하고, 따라가는 대상이면 화면 가장자리로 나가기 전에 가운데로 다시 맞춘다
+function noteCursor(data)
+{
+    lastSeen.set(data.guest_id, { x: data.x, y: data.y }); // 마지막 위치
+    if (follow.guestId === data.guest_id && !canvas.isWellInView(data.x, data.y))
+    {
+        canvas.centerOn(data.x, data.y); // 화면 안쪽을 벗어나면 따라감(조금 움직일 때마다 화면이 흔들리지 않게)
+    }
+}
+
+$('follow-stop').addEventListener('click', () => stopFollow('따라가기를 멈췄습니다.')); // 안내의 "그만 따라가기"
 
 function applyRole()
 {
@@ -1041,7 +1165,14 @@ for (const btn of document.querySelectorAll('#toolbar [data-tool]'))
 {
     btn.addEventListener('click', () => setTool(btn.dataset.tool)); // 도구 버튼
 }
-$('fit-view').addEventListener('click', () => canvas && canvas.fitAll()); // 화면 맞춤
+$('fit-view').addEventListener('click', () =>
+{
+    stopFollow('화면을 직접 맞춰 따라가기를 멈췄습니다.'); // 내가 화면을 정했으므로 따라가기 해제
+    if (canvas)
+    {
+        canvas.fitAll(); // 화면 맞춤
+    }
+});
 
 $('prop-color').addEventListener('input', (e) => { state.style.color = e.target.value; }); // 색상 변경
 $('prop-color').addEventListener('change', () => restyleSelected()); // 선택 객체에 색상 적용
@@ -2696,9 +2827,11 @@ const toolHandlers = {
     onSelectUp: () => endMove(), // 이동·크기 조절 확정
     onEscape: () =>
     {
+        stopFollow('따라가기를 멈췄습니다.'); // 따라가는 중이면 해제
         cancelMove(); // 이동 취소
         setSelection([]); // 선택 해제
     },
+    onCanvasTouch: () => stopFollow('보드를 직접 움직여 따라가기를 멈췄습니다.'), // 보드를 누르거나 휠을 굴리면 내 화면은 내가 정함
     onDeleteKey: () => deleteSelected(), // 선택 객체 삭제
     onUndo: () => undoLast(), // Ctrl+Z
     onRedo: () => redoLast(), // Ctrl+Y, Ctrl+Shift+Z
@@ -2766,7 +2899,11 @@ const realtimeHandlers = {
         toast('보드 참여 실패: ' + err.message, 5000); // 안내
     },
     onPresence: (participants) => renderParticipants(participants), // 참여자 갱신
-    onCursor: (data) => canvas.setCursor(data), // 타인 커서
+    onCursor: (data) =>
+    {
+        canvas.setCursor(data); // 타인 커서
+        noteCursor(data); // 위치 기억, 따라가는 대상이면 화면 이동
+    },
     onStrokePreview: (data) => canvas.applyPreview(data), // 타인 펜 미리보기
     onObjectCreated: (object) => canvas.addObject(object), // 타인 확정 객체
     onObjectLocked: (lock) =>

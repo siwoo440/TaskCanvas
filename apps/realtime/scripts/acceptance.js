@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26, AC27 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC28 과 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -597,6 +597,22 @@ async function run(envInfo)
         && disabled.status === 403 && disabled.code === 'CREATE_DISABLED',
         '초대 코드 없이 만들면 관리자로 입장하고 첫 보드에 바로 참여, 남의 작업실과 서로 403, 재입장 코드는 같은 이름만 허용, 낮은 권한 코드로 높은 권한 이름 사용은 NAME_IN_USE, 이름 변경은 관리자만, 꺼 둔 서버는 CREATE_DISABLED');
 
+    // AC28 참여자 따라가기(서버 쪽): 참여자의 마지막 커서 위치를 기억해, 나중에 들어온 사람의 참여자 목록에도 실어 준다
+    const cursorSeen = once(C2.socket, 'cursor:move'); // 같은 보드의 참여자가 받을 커서
+    B.socket.emit('cursor:move', { board_id: boardA, x: 321, y: -45 }); // B 가 커서를 옮김
+    const cursorRelayed = await cursorSeen; // 중계 확인
+    const presenceSeen = until(C2.socket, 'presence:update', (d) => d.participants.some((p) => p.display_name === 'AC-Follower')); // 새 참여자가 들어올 때의 목록 갱신
+    const follower = await enter('AC-Follower', editorCode, boardA); // B 가 움직인 뒤에 들어온 사람
+    const presenceUpdate = await presenceSeen; // 기존 참여자가 받은 목록
+    const joinedList = follower.reply.ok ? follower.reply.participants : []; // 들어온 사람이 받은 목록
+    const listedB = joinedList.find((p) => p.guest_id === B.guestId); // 목록의 B
+    const listedSelf = joinedList.find((p) => p.guest_id === follower.guestId); // 목록의 자기 자신(아직 움직인 적 없음)
+    const updateB = presenceUpdate ? presenceUpdate.participants.find((p) => p.guest_id === B.guestId) : null; // 갱신된 목록의 B
+    follower.socket.disconnect(); // 정리
+    record('AC28', '참여자 따라가기', cursorRelayed !== null && cursorRelayed.x === 321 && !!listedB && !!listedB.cursor && listedB.cursor.x === 321 && listedB.cursor.y === -45
+        && !!listedSelf && listedSelf.cursor === null && !!updateB && !!updateB.cursor && updateB.cursor.x === 321 && joinedList.every((p) => p.socket_id === undefined),
+        '참여자의 마지막 커서 위치가 나중에 들어온 사람의 참여자 목록과 목록 갱신에 실림, 움직인 적 없는 사람은 null (화면 동작은 리허설 10번이 확인)');
+
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)
     const foreignWs = await connectFrom('http://evil.example'); // 다른 사이트의 페이지
@@ -607,6 +623,31 @@ async function run(envInfo)
     const plainPoll = await pollingHandshake(null); // 출처 없는 클라이언트(테스트 스크립트)
     record('SEC01', '접속 출처 제한', foreignWs === false && nullWs === false && sameWs === true && foreignPoll.status === 403 && foreignPoll.allow === null
         && samePoll.status === 200 && samePoll.allow === sameHostOrigin && plainPoll.status === 200, '다른 사이트 출처의 웹소켓·폴링 연결 403, 같은 호스트의 페이지와 출처 없는 클라이언트는 허용');
+
+    // SEC02 요청 제한: 한 연결이 요청을 쏟아내면 응답 있는 요청은 RATE_LIMITED 로 거절, 미리보기 중계는 일부만 전달. 잠시 뒤에는 다시 받음
+    const flood = await connect(); // 보드에 참여하지 않은 새 연결(제한은 연결마다 따로라 다른 검사에 영향 없음)
+    const pings = await Promise.all(Array.from({ length: 400 }, () => ack(flood, 'net:ping', {}))); // 한꺼번에 400번
+    const pingPassed = pings.filter((r) => r && r.ok === true).length; // 받아 준 수(기본 통 크기 300 + 그 사이 다시 찬 만큼)
+    const pingLimited = pings.filter((r) => r && r.ok === false && r.error.code === 'RATE_LIMITED').length; // 거절된 수
+    await sleep(1200); // 통이 다시 차기를 기다림
+    const pingAfterWait = await ack(flood, 'net:ping', {}); // 잠시 뒤에는 다시 받음
+    flood.disconnect(); // 정리
+    const noisy = await enter('AC-Noisy', editorCode, boardA); // 미리보기를 쏟아낼 편집자
+    let relayed = 0; // 다른 참여자가 받은 미리보기 수
+    const countPreview = () => { relayed += 1; }; // 수신 집계
+    C2.socket.on('stroke:preview', countPreview); // 같은 보드의 참여자가 받는 미리보기
+    for (let i = 0; i < 3000; i++)
+    {
+        noisy.socket.emit('stroke:preview', { board_id: boardA, stroke_id: 'ac-flood', points_delta: [[i, i]], style: { color: '#000000', width: 1 } }); // 한꺼번에 3000번
+    }
+    const lockWhileNoisy = await ack(noisy.socket, 'object:lock', { board_id: boardA, object_id: target.object_id }); // 저장 쪽 요청은 따로 세므로 계속 됨
+    await sleep(600); // 전달 대기
+    C2.socket.off('stroke:preview', countPreview); // 집계 종료
+    await ack(noisy.socket, 'object:unlock', { board_id: boardA, object_id: target.object_id, lock_token: lockWhileNoisy.lock_token }); // 잠금 반납
+    noisy.socket.disconnect(); // 정리
+    record('SEC02', '요청 제한', pingPassed >= 300 && pingPassed < 400 && pingLimited === 400 - pingPassed && pingAfterWait.ok === true
+        && relayed > 0 && relayed < 3000 && lockWhileNoisy.ok === true,
+        '한꺼번에 보낸 400번 중 ' + pingPassed + '번만 받고 나머지는 RATE_LIMITED, 잠시 뒤 다시 받음. 미리보기 3000번 중 ' + relayed + '번만 전달, 그동안에도 잠금 요청은 처리');
 
     // OPS01 업로드 정리(수용 기준과 별도의 운영 점검): 보드에서 쓰지 않는 이미지만 지워지는지
     const keepUpload = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'tiny.png')), 'image/png', 'keep.png'), B.cookie); // 계속 쓸 이미지

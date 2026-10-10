@@ -61,6 +61,7 @@ function attachTools(canvas, options)
         const { sx, sy } = position(e); // 화면 좌표
         const w = canvas.toWorld(sx, sy); // 월드 좌표
         el.setPointerCapture(e.pointerId); // 포인터 고정
+        options.onCanvasTouch(); // 보드를 직접 만지기 시작함(다른 사람을 따라가던 중이면 풀림)
         const panMode = state.tool === 'pan' || spaceHeld || e.button === 1 || !state.canEdit; // 이동 모드 조건
         if (panMode)
         {
@@ -261,6 +262,7 @@ function attachTools(canvas, options)
     {
         e.preventDefault(); // 페이지 스크롤 방지
         const { sx, sy } = position(e); // 화면 좌표
+        options.onCanvasTouch(); // 직접 확대·축소함(다른 사람을 따라가던 중이면 풀림)
         canvas.zoomAt(sx, sy, e.deltaY < 0 ? 1.1 : 1 / 1.1); // 휠 방향에 따른 확대·축소
     }, { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault()); // 우클릭 메뉴 방지

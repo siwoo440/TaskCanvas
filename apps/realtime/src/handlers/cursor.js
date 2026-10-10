@@ -28,6 +28,7 @@ function register(io, socket)
             return; // 좌표 검사
         }
         socket.data.lastCursorAt = now; // 중계 시각 갱신
+        presence.setCursor(boardId, socket.id, x, y); // 마지막 위치 기억(참여자 목록에 실려 나감)
         socket.to(presence.roomName(boardId)).volatile.emit('cursor:move', {
             guest_id: socket.data.guestId, // 커서 주인
             display_name: socket.data.displayName, // 표시 이름

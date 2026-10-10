@@ -17,6 +17,10 @@ const DEFAULTS = { // .env 가 없을 때의 기본값
     LOCK_TTL_MS: '30000',
     LOCK_SWEEP_MS: '5000',
     BOARD_SWEEP_MS: '5000',
+    RATE_SAVE_BURST: '300',
+    RATE_SAVE_PER_SEC: '50',
+    RATE_RELAY_BURST: '1200',
+    RATE_RELAY_PER_SEC: '600',
 };
 
 const values = { ...DEFAULTS }; // 로드된 설정 값
