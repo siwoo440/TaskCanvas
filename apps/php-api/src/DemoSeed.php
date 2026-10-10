@@ -24,7 +24,7 @@ final class DemoSeed
         try
         {
             // 제목(배경 없는 텍스트)과 밑줄(펜 획)
-            self::note($main, 60, 36, 620, 44, 'TaskCanvas 기획 보드 — 웹서버 수업 팀 프로젝트', null, '#111827'); // 제목
+            self::note($main, 60, 32, 620, 48, 'TaskCanvas 기획 보드 — 웹서버 수업 팀 프로젝트', null, '#111827', 20); // 제목(큰 글자)
             $points = []; // 밑줄 좌표
             for ($i = 0; $i <= 38; $i++)
             {
@@ -91,9 +91,9 @@ final class DemoSeed
         return Database::lastId(); // 객체 ID
     }
 
-    private static function note(int $boardId, float $x, float $y, float $width, float $height, string $text, ?string $fill, string $color = '#222222'): int
+    private static function note(int $boardId, float $x, float $y, float $width, float $height, string $text, ?string $fill, string $color = '#222222', int $size = 16): int
     {
-        return self::insert($boardId, 'note', $x, $y, $width, $height, ['text' => $text], ['fill' => $fill, 'color' => $color]); // 메모(배경이 null 이면 텍스트)
+        return self::insert($boardId, 'note', $x, $y, $width, $height, ['text' => $text], ['fill' => $fill, 'color' => $color, 'size' => $size]); // 메모(배경이 null 이면 텍스트, size 는 글자 크기)
     }
 
     private static function shape(int $boardId, string $type, float $x, float $y, float $width, float $height, string $stroke, ?string $fill, int $lineWidth): int

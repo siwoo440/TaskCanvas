@@ -33,6 +33,7 @@ if ($missing !== [])
     exit("DB '{$dbName}' 에 테이블이 없습니다: " . implode(', ', $missing) . "\n먼저 database/schema.sql 을 적용하세요.\n"); // 스키마 미적용
 }
 
+Schema::upgrade(); // 예전에 만든 DB 라면 나중에 추가된 컬럼부터 더함(데이터는 그대로)
 $files = Storage::listUploadedFiles(); // 지울 업로드 파일(서버가 만든 이름 규칙에 맞는 것만)
 
 echo "=== TaskCanvas 시연 초기화 ===\n"; // 제목

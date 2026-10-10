@@ -121,7 +121,7 @@ function attachTools(canvas, options)
             const origin = snap(w, state); // 시작점(격자 맞춤 반영)
             const isNote = state.tool === 'note' || state.tool === 'text'; // 메모·텍스트 도구 여부
             const draft = isNote
-                ? { type: 'note', x: origin.x, y: origin.y, width: 0, height: 0, payload: { text: '' }, style: { fill: state.tool === 'text' ? null : (state.style.fill ?? '#fff59d'), color: state.style.color } } // 메모 초안(텍스트 도구는 배경 없음)
+                ? { type: 'note', x: origin.x, y: origin.y, width: 0, height: 0, payload: { text: '' }, style: { fill: state.tool === 'text' ? null : (state.style.fill ?? '#fff59d'), color: state.style.color, size: state.style.size } } // 메모 초안(텍스트 도구는 배경 없음)
                 : { type: state.tool, x: origin.x, y: origin.y, width: 0, height: 0, style: { stroke: state.style.color, width: state.style.width, fill: state.style.fill } }; // 도형 초안
             drag = { mode: 'shape', origin, draft, tool: state.tool }; // 도형·메모 드래그
             canvas.draft = draft; // 초안 표시
@@ -300,6 +300,11 @@ function attachTools(canvas, options)
         {
             e.preventDefault(); // 뒤로 가기 방지
             options.onDeleteKey(); // 선택 객체 삭제
+        }
+        else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z')))
+        {
+            e.preventDefault(); // 브라우저 기본 동작 방지
+            options.onRedo(); // 다시 실행
         }
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')
         {

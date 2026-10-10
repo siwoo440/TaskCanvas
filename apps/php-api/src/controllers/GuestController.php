@@ -45,6 +45,14 @@ final class GuestController
             }
             else
             {
+                $taken = Database::run(
+                    'UPDATE project_invites SET used_count = used_count + 1 WHERE invite_id = ? AND (max_uses IS NULL OR used_count < max_uses)',
+                    [(int) $invite['invite_id']]
+                )->rowCount(); // 새 참여자 한 명만큼 사용 횟수 차감(확인과 증가를 한 문장으로 해서 동시에 들어와도 한도를 넘지 않음)
+                if ($taken === 0)
+                {
+                    throw new ApiException(401, 'INVITE_EXHAUSTED', '이 초대 코드는 정해진 인원이 모두 입장했습니다. 관리자에게 새 코드를 요청하세요.'); // 인원 마감(이미 입장한 이름으로는 다시 들어올 수 있음)
+                }
                 Database::run('INSERT INTO guests (display_name) VALUES (?)', [$name]); // 게스트 생성
                 $guestId = Database::lastId(); // 새 게스트 ID
                 $role = $invite['role']; // 초대 코드의 역할 부여

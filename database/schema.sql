@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS project_invites ( -- 초대 코드 정보
     project_id BIGINT UNSIGNED NOT NULL, -- 연결 프로젝트
     code_hash CHAR(64) NOT NULL UNIQUE, -- 초대 코드 해시
     role VARCHAR(20) NOT NULL DEFAULT 'editor', -- 부여 권한
+    max_uses INT UNSIGNED NULL, -- 이 코드로 새로 입장할 수 있는 인원(NULL 이면 제한 없음)
+    used_count INT UNSIGNED NOT NULL DEFAULT 0, -- 이 코드로 새로 입장한 인원
     expires_at DATETIME NOT NULL, -- 유효 기간
     revoked_at DATETIME NULL, -- 초대 취소 시각
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 발급 시각

@@ -3,6 +3,9 @@
 
 const HEX = /^#[0-9a-fA-F]{6}$/; // 색상 형식
 const MAX_TEXT = 2000; // 메모 한 개의 최대 글자 수
+const DEFAULT_SIZE = 16; // 기본 글자 크기(보드 좌표 단위)
+const MIN_SIZE = 10; // 가장 작은 글자 크기
+const MAX_SIZE = 72; // 가장 큰 글자 크기
 
 // 글 정리: 줄바꿈을 \n 으로 통일하고 제어 문자를 지운다(탭·줄바꿈은 유지). 문자열이 아니거나 너무 길면 null
 function cleanText(value)
@@ -25,7 +28,15 @@ function cleanNoteStyle(style)
     return {
         fill: typeof s.fill === 'string' && HEX.test(s.fill) ? s.fill : null, // 배경 색(없으면 배경 없는 텍스트)
         color: typeof s.color === 'string' && HEX.test(s.color) ? s.color : '#222222', // 글자 색
+        size: cleanSize(s.size), // 글자 크기
     }; // 메모 스타일
 }
 
-module.exports = { MAX_TEXT, cleanText, cleanNoteStyle };
+// 글자 크기: 숫자이고 허용 범위 안이면 정수로, 아니면(없음·형식 오류·범위 밖) 기본 크기
+function cleanSize(value)
+{
+    const n = typeof value === 'number' ? value : NaN; // 숫자만 인정
+    return Number.isFinite(n) && n >= MIN_SIZE && n <= MAX_SIZE ? Math.round(n) : DEFAULT_SIZE; // 범위 검사
+}
+
+module.exports = { MAX_TEXT, DEFAULT_SIZE, MIN_SIZE, MAX_SIZE, cleanText, cleanNoteStyle };

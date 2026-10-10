@@ -41,6 +41,8 @@ http://<서버 IP>:8080/check.html
 C:/xampp/mysql/bin/mysql.exe -u root < database/schema.sql
 ```
 
+예전에 만든 DB 를 그대로 쓰는 경우, 나중에 추가된 컬럼은 `scripts\start-dev.bat` 이 서버를 띄우기 전에 자동으로 더합니다(`apps/php-api/bin/migrate.php`, 기존 데이터는 그대로). `scripts\check-env.bat` 도 예전 스키마이면 `[실패]` 로 알려 줍니다.
+
 ### 2-2. 설정 파일
 
 `apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다.
@@ -64,7 +66,7 @@ New-NetFirewallRule -DisplayName "TaskCanvas Realtime 3001" -Direction Inbound -
 C:/xampp/php/php.exe apps/php-api/bin/create-project.php "시연 프로젝트" "기획 보드" "개발 보드"
 ```
 
-`관리자 초대 코드` 가 한 번 출력됩니다. 이 코드로 입장한 사람이 관리자가 되고, 보드 선택 화면 아래 **초대 코드 관리**에서 역할(편집자·열람자)과 유효 기간을 골라 코드를 발급·취소합니다. 발급 직후에만 코드와 초대 링크가 표시되므로 바로 전달합니다. 열람자 시연용 코드도 하나 만들어 둡니다.
+`관리자 초대 코드` 가 한 번 출력됩니다. 이 코드로 입장한 사람이 관리자가 되고, 보드 선택 화면 아래 **초대 코드 관리**에서 역할(편집자·열람자)과 유효 기간을 골라 코드를 발급·취소합니다. 발급 직후에만 코드와 초대 링크가 표시되므로 바로 전달합니다. 인원 제한을 적으면 그 수만큼만 새로 입장할 수 있고, 비우면 제한이 없습니다. 열람자 시연용 코드도 하나 만들어 둡니다.
 
 초대 링크는 `http://<서버 IP>:8080/#code=<초대 코드>` 형식입니다. 링크를 열면 코드가 입력란에 채워지고 주소창에서는 바로 지워지므로 이름만 입력하면 됩니다. 서버 PC 에서 `localhost` 로 접속해 발급한 링크는 다른 PC 에 보내기 전에 `localhost` 를 서버 IP 로 바꿉니다.
 
@@ -99,6 +101,16 @@ C:/xampp/php/php.exe apps/php-api/bin/seed-demo.php 1
 ```
 
 객체가 이미 있는 보드에는 넣지 않습니다(`--force` 를 주면 기존 내용 위에 추가).
+
+### 2-6. 업로드 정리 (선택)
+
+보드에서 이미지를 지워도 파일은 서버에 남습니다. 오래 쓰는 서버라면 아무도 편집하지 않을 때 정리합니다. 시연만 한다면 2-5 의 초기화로 충분합니다.
+
+```bash
+C:/xampp/php/php.exe apps/php-api/bin/clean-uploads.php
+```
+
+어느 보드에서도 쓰지 않고 올린 지 24시간이 지난 이미지를 보여 주기만 합니다. `--apply` 를 붙이면 실제로 지우며 되돌릴 수 없습니다. 최근 30분 안에 보드 접속 기록이 있으면 멈춥니다.
 
 ---
 
@@ -137,7 +149,7 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 cd apps/realtime && npm run test:acceptance
 ```
 
-PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC23 과 보안 점검 SEC01(접속 출처 제한)을 자동 검사하고 표를 출력합니다. 실행 중인 시연 서버에는 영향이 없지만 테스트용 프로젝트("AC Project …")가 DB 에 남으므로, 점검 뒤 2-5 의 초기화를 실행해 시연용 상태로 되돌립니다. (점검 → 초기화 → 시연 순서)
+PHP 8081·실시간 3002 포트로 임시 서버를 띄워 AC01~AC14, AC16~AC23 과 보안 점검 SEC01(접속 출처 제한), 운영 점검 OPS01(업로드 정리)을 자동 검사하고 표를 출력합니다. 실행 중인 시연 서버에는 영향이 없지만 테스트용 프로젝트("AC Project …")가 DB 에 남으므로, 점검 뒤 2-5 의 초기화를 실행해 시연용 상태로 되돌립니다. (점검 → 초기화 → 시연 순서)
 
 이어서 시연 대본의 순서를 브라우저 네 개로 그대로 돌려 봅니다(Chrome 필요, 약 30초).
 

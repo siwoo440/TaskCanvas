@@ -1,7 +1,7 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 메모 저장·실행 취소도 확인한다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 메모 저장·글자 크기·실행 취소·다시 실행도 확인한다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
@@ -131,12 +131,49 @@ async function capture(browser, env)
     await a.waitForFunction(() => document.getElementById('save-status').dataset.state === 'saved' && !noteEdit); // 저장 대기
     const saved = await a.evaluate(async () => (await window.api.get('/api/boards/' + state.board.board_id + '/snapshot')).objects.some((o) => o.type === 'note' && o.payload.text === '캡처 확인 메모')); // 서버 저장 확인
     check('메모: 실제 키 입력 후 바깥 클릭으로 저장', saved && (await snapshotCount(a)) === before + 1);
-    await a.keyboard.down('Control'); // Ctrl
-    await a.keyboard.press('z'); // Z
-    await a.keyboard.up('Control'); // Ctrl 해제
-    await a.waitForFunction((n) => canvas.objects.length === n, {}, before); // 화면에서 사라짐 대기
-    await wait(300); // 서버 반영 여유
-    check('실행 취소: Ctrl+Z 로 방금 만든 메모 제거', (await snapshotCount(a)) === before);
+    const noteState = () => a.evaluate(async () =>
+    {
+        const o = (await window.api.get('/api/boards/' + state.board.board_id + '/snapshot')).objects.find((x) => x.type === 'note' && x.payload.text === '캡처 확인 메모'); // 서버에 저장된 그 메모
+        return o ? { size: o.style.size, height: o.height } : null;
+    }); // 서버 기준 메모 상태
+    const sizeOnScreen = (size) => a.waitForFunction((want) =>
+    {
+        const o = canvas.objects.find((x) => x.type === 'note' && x.payload.text === '캡처 확인 메모'); // 화면의 그 메모
+        return (want === null ? !o : !!o && o.style.size === want) && document.getElementById('save-status').dataset.state === 'saved';
+    }, {}, size); // 화면의 메모가 그 글자 크기가 될 때까지(null 이면 사라질 때까지)
+    const ctrl = async (key) =>
+    {
+        await a.keyboard.down('Control'); // Ctrl
+        await a.keyboard.press(key); // 조합 키
+        await a.keyboard.up('Control'); // Ctrl 해제
+    }; // Ctrl 조합 입력
+    await a.click('#toolbar [data-tool="select"]'); // 선택 도구
+    const made = await centerOf(a, '캡처 확인 메모'); // 방금 만든 메모
+    await a.mouse.click(made.x, made.y); // 메모 선택
+    const small = await noteState(); // 바꾸기 전 상태
+    await a.select('#prop-size', '40'); // 오른쪽 패널에서 글자 크기를 아주 크게
+    await sizeOnScreen(40); // 저장 대기
+    const large = await noteState(); // 바꾼 뒤 상태
+    check('글자 크기: 패널에서 고르면 저장되고 글이 넘치지 않게 높이도 맞춰짐', small.size === 16 && large.size === 40 && large.height >= small.height);
+    await ctrl('z'); // 글자 크기 되돌리기
+    await sizeOnScreen(16); // 원래 크기로
+    await ctrl('z'); // 메모 만들기 되돌리기
+    await sizeOnScreen(null); // 화면에서 사라짐
+    check('실행 취소: Ctrl+Z 두 번으로 글자 크기와 방금 만든 메모를 차례로 되돌림', (await snapshotCount(a)) === before);
+    await ctrl('y'); // 메모 다시 만들기
+    await sizeOnScreen(16); // 메모가 다시 나타남(새 ID)
+    await ctrl('y'); // 글자 크기 다시 적용
+    await sizeOnScreen(40); // 다시 큰 글자
+    const redone = await noteState(); // 다시 실행한 뒤 상태
+    check('다시 실행: Ctrl+Y 두 번으로 메모와 글자 크기가 돌아옴', (await snapshotCount(a)) === before + 1 && redone !== null && redone.size === 40 && redone.height === large.height);
+    await ctrl('z'); // 정리: 글자 크기
+    await sizeOnScreen(16); // 원래 크기로
+    await ctrl('z'); // 정리: 메모
+    await sizeOnScreen(null); // 화면에서 사라짐
+    if ((await snapshotCount(a)) !== before)
+    {
+        throw new Error('확인용 메모가 정리되지 않았습니다.'); // 캡처에 남으면 안 됨
+    }
 
     // 9) PNG 내보내기 결과(화면 요소 없이 보드 내용만)
     const dataUrl = await a.evaluate(() => canvas.exportDataUrl()); // 내보내기 그림

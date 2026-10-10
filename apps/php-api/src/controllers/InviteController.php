@@ -24,7 +24,12 @@ final class InviteController
         {
             throw new ApiException(400, 'BAD_REQUEST', 'days 값은 정수여야 합니다.'); // 타입 검사
         }
-        $issued = Invite::issue($projectId, $role, (int) $days); // 발급(역할·기간 검사 포함)
+        $maxUses = $request->json()['max_uses'] ?? null; // 인원 제한(없거나 null 이면 제한 없음)
+        if ($maxUses !== null && !is_int($maxUses) && !(is_string($maxUses) && ctype_digit($maxUses)))
+        {
+            throw new ApiException(400, 'BAD_REQUEST', 'max_uses 값은 정수이거나 비워 두어야 합니다.'); // 타입 검사
+        }
+        $issued = Invite::issue($projectId, $role, (int) $days, $maxUses === null ? null : (int) $maxUses); // 발급(역할·기간·인원 검사 포함)
         Response::ok([
             'invite' => Invite::format(Invite::find($issued['invite_id'])),
             'code' => $issued['code'],

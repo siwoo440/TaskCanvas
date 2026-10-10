@@ -9,7 +9,7 @@
 | `guests` | guest_id, display_name, created_at | 코드 입장을 위한 게스트 ID |
 | `guest_sessions` | session_token_hash, guest_id, expires_at | 세션 원문 저장 금지 |
 | `projects` | project_id, title, created_by | 프로젝트 |
-| `project_invites` | invite_id, project_id, code_hash, role, expires_at | 초대 코드 평문 금지 |
+| `project_invites` | invite_id, project_id, code_hash, role, max_uses, used_count, expires_at | 초대 코드 평문 금지. `max_uses` 가 NULL 이면 인원 제한 없음, `used_count` 는 그 코드로 새로 입장한 인원 |
 | `project_members` | project_id, guest_id, role | 복합 키로 중복 방지 |
 | `boards` | board_id, project_id, title | 프로젝트별 여러 보드 |
 | `board_objects` | object_id, board_id, task_id, type, x, y, width, height, payload_json, style_json, version | 최종 확정된 객체만 저장 |
@@ -39,7 +39,9 @@ erDiagram
 ## 데이터 동작 원칙
 
 - `board_objects`의 `type='task'`일 때만 `task_id`를 원본 업무에 연결. (7단계 구현: 블럭 자체는 `payload={}` 이고 제목·상태·담당자·마감일은 `tasks` 원본에서 가져와 그림)
-- `type='note'`(메모·텍스트)는 `payload_json.text` 에 글, `style_json` 에 `fill`(배경 색, null 이면 배경 없는 텍스트)·`color`(글자 색)를 저장. 별도 테이블 없이 `board_objects` 만 사용.
+- `type='note'`(메모·텍스트)는 `payload_json.text` 에 글, `style_json` 에 `fill`(배경 색, null 이면 배경 없는 텍스트)·`color`(글자 색)·`size`(글자 크기 10~72, 없으면 16)를 저장. 별도 테이블 없이 `board_objects` 만 사용.
+- 이미지 객체를 지워도 `media_assets` 행과 파일은 남습니다(지운 사람이 실행 취소로 되살릴 수 있어야 함). 어느 보드의 이미지 객체도 가리키지 않는 행은 `apps/php-api/bin/clean-uploads.php` 가 파일과 함께 정리합니다.
+- `database/schema.sql` 에 컬럼을 더하면 `apps/php-api/src/Schema.php` 에도 적어, 예전에 만든 DB 가 `bin/migrate.php` 로 따라올 수 있게 합니다.
 - 두 보드에 같은 원본 업무를 배치해도 각 보드의 객체 좌표는 독립.
 - 한 보드에서 공유 업무 블럭을 삭제하면 해당 `board_objects`만 삭제.
 - 잠금은 실시간 서버의 TTL 상태로 관리하며 DB에 영구 보관하지 않음.

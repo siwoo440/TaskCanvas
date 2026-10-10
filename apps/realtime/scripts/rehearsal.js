@@ -513,7 +513,7 @@ async function rehearse(browser, env)
         return '새로고침만으로 4대가 보던 보드·위치로 복귀, 객체 ' + expected.split('|').length + '개와 업무 상태 그대로';
     });
 
-    await step('8', '실행 취소와 PNG 저장', async () =>
+    await step('8', '실행 취소·다시 실행과 PNG 저장', async () =>
     {
         const before = await objectCount(a); // 그리기 전 객체 수
         await a.click('#fit-view'); // ⤢ 화면 맞춤: 멀리 놓인 이미지·영상까지 한눈에(빈 자리도 넓어짐)
@@ -526,6 +526,10 @@ async function rehearse(browser, env)
         await all(pages, (p) => waitOn(p, '새 사각형', (n) => canvas.objects.length === n + 1, before)); // 네 화면 모두 표시
         await pressUndo(a); // Ctrl+Z
         await all(pages, (p) => waitOn(p, '사각형 되돌리기', (n) => canvas.objects.length === n, before)); // 네 화면 모두 사라짐
+        await a.click('#tool-redo'); // ↷ 다시 실행
+        await all(pages, (p) => waitOn(p, '사각형 다시 실행', (n) => canvas.objects.length === n + 1 && canvas.objects.some((o) => o.type === 'rect' && o.width > 100), before)); // 네 화면 모두 다시 나타남
+        await pressUndo(a); // 다시 Ctrl+Z
+        await all(pages, (p) => waitOn(p, '다시 되돌리기', (n) => canvas.objects.length === n, before)); // 네 화면 모두 사라짐
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskcanvas-rehearsal-')); // 내려받기 폴더
         try
         {
@@ -541,7 +545,7 @@ async function rehearse(browser, env)
             expect(file !== null, 'PNG 파일이 저장되지 않았습니다.'); // 내려받기 실패
             const bytes = fs.readFileSync(path.join(dir, file)); // 파일 내용
             expect(bytes.length > 5000 && bytes.subarray(1, 4).toString() === 'PNG', '저장된 파일이 올바른 PNG 가 아닙니다.'); // 형식 확인
-            return '사각형이 4대에서 생겼다가 사라짐, ' + file + ' 저장(' + Math.round(bytes.length / 1024) + 'KB, ' + bytes.readUInt32BE(16) + '×' + bytes.readUInt32BE(20) + ')';
+            return '사각형이 4대에서 생기고·되돌리고·다시 실행하고·되돌려짐, ' + file + ' 저장(' + Math.round(bytes.length / 1024) + 'KB, ' + bytes.readUInt32BE(16) + '×' + bytes.readUInt32BE(20) + ')';
         }
         finally
         {
@@ -563,7 +567,7 @@ async function rehearse(browser, env)
         await openBoard(d, '기획 보드'); // 보드 열기
         const ui = await d.evaluate(() => ({
             tools: [...document.querySelectorAll('#toolbar [data-tool]')].every((btn) => btn.disabled || btn.dataset.tool === 'pan'), // 이동 말고는 모두 꺼짐
-            media: ['tool-image', 'tool-video', 'tool-task', 'tool-undo'].every((id) => document.getElementById(id).disabled), // 추가·되돌리기 버튼 꺼짐
+            media: ['tool-image', 'tool-video', 'tool-task', 'tool-undo', 'tool-redo'].every((id) => document.getElementById(id).disabled), // 추가·되돌리기·다시 실행 버튼 꺼짐
             note: document.getElementById('props-role-note').textContent, // 오른쪽 패널 안내
         })); // 열람자 화면 상태
         expect(ui.tools && ui.media && ui.note.startsWith('열람자'), '열람자 화면에서 도구가 꺼지지 않았습니다.'); // 화면 쪽 제한

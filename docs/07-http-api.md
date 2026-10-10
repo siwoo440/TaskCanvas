@@ -19,8 +19,8 @@
 | GET | `/api/images/{id}` | 프로젝트 권한 검증 후 이미지 반환 | 참여자 |
 | GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록(담당자 이름·버전 포함) | 참여자 |
 | GET | `/api/projects/{id}/members` | 프로젝트 참여자 목록(담당자 선택용) | 참여자 |
-| GET | `/api/projects/{id}/invites` | 초대 코드 목록(역할·만료·상태, 코드 원문 없음) | 관리자 |
-| POST | `/api/projects/{id}/invites` | 초대 코드 발급 `{role, days}` — 원문은 응답에서 한 번만 | 관리자 |
+| GET | `/api/projects/{id}/invites` | 초대 코드 목록(역할·만료·인원 제한과 입장 인원·상태, 코드 원문 없음) | 관리자 |
+| POST | `/api/projects/{id}/invites` | 초대 코드 발급 `{role, days, max_uses}` — `max_uses`(1~100)를 빼거나 null 로 주면 인원 제한 없음. 원문은 응답에서 한 번만 | 관리자 |
 | POST | `/api/invites/{id}/revoke` | 초대 코드 취소(이미 입장한 참여자는 유지) | 관리자 |
 | GET | `/api/health` | 서버·DB 상태 확인(개발용) | 공개 |
 
@@ -72,6 +72,7 @@
 | 코드 | 의미 |
 |---|---|
 | `INVALID_INVITE` | 초대 코드 오류·만료 |
+| `INVITE_EXHAUSTED` | 인원 제한이 있는 초대 코드의 인원이 모두 참(401). 이미 입장한 이름으로는 다시 들어올 수 있음 |
 | `FORBIDDEN` | 프로젝트/보드 접근 권한 없음 |
 | `OBJECT_LOCKED` | 타 사용자 잠금 존재 |
 | `VERSION_CONFLICT` | 객체 버전 충돌 |

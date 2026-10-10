@@ -22,7 +22,7 @@ realtime/
 │   ├── presence.js      # 보드별 참여자·커서 색상(메모리)
 │   ├── locks.js         # 객체 선점 잠금(메모리, TTL·연결 종료 해제)
 │   ├── video.js         # 외부 영상 URL 검증·임베드 URL 생성
-│   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거)
+│   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거, 글자 크기 10~72)
 │   ├── boards.js        # 보드 삭제·이름 변경 감시(주기적 DB 확인 → board:renamed / board:deleted)
 │   ├── origin.js        # 접속 출처 검사(CORS_ORIGIN: auto·*·목록)
 │   └── handlers/
@@ -36,7 +36,7 @@ realtime/
 │       ├── ping.js      # net:ping (접속 점검 화면의 왕복 시간 측정용 응답)
 │       └── reply.js     # ack 응답 형식, 보드 일치 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23 과 보안 점검 SEC01·운영 점검 OPS01 (서버를 직접 띄워 검사)
 ├── scripts/rehearsal.js    # 시연 리허설(브라우저 4개로 시연 대본 실행 + 전달 지연 측정)
 ├── scripts/capture-screens.js  # 실제 화면 캡처(임시 서버 + 설치된 Chrome 조작 → assets/screenshots)
 ├── scripts/check-env.js    # 사전 점검(Node·패키지·DB·포트·LAN 주소·방화벽·외부 영상)
@@ -69,7 +69,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01)도 검사해 요약 줄을 따로 냅니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01)과 업로드 정리(OPS01)도 검사해 요약 줄을 따로 냅니다. 업로드 정리는 러너가 만든 테스트 프로젝트의 이미지만 대상으로 합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 시연 리허설
 
@@ -118,7 +118,7 @@ npm run capture
 
 MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서버(3003)를 임시로 띄우고 "시연 프로젝트"를 만들어 예시 내용을 채운 뒤, 설치된 Chrome 을 창 없이 실행해 관리자와 편집자 두 사람으로 접속하고 `assets/screenshots/` 에 9장(소개·입장·작업실·초대 관리·보드·잠금·업무·메모 편집·PNG 내보내기)을 저장합니다.
 
-- 찍는 김에 실제 키보드·마우스 입력으로 세 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 초대 링크 입장, 메모 글 입력 후 바깥 클릭 저장, Ctrl+Z 로 그 메모 되돌리기. 하나라도 실패하면 종료 코드 1 입니다.
+- 찍는 김에 실제 키보드·마우스 입력으로 다섯 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 초대 링크 입장, 메모 글 입력 후 바깥 클릭 저장, 오른쪽 패널에서 글자 크기 변경, Ctrl+Z 두 번으로 차례로 되돌리기, Ctrl+Y 두 번으로 다시 실행. 하나라도 실패하면 종료 코드 1 입니다.
 - 실행할 때마다 `.env` 의 DB 에 "시연 프로젝트"가 하나 생깁니다. 다른 DB 에서 찍으려면 `DB_NAME` 환경 변수를 지정합니다. Chrome 경로는 `CHROME_BIN`, PHP 경로는 `PHP_BIN`, 포트는 `CAP_API_PORT`·`CAP_RT_PORT` 로 바꿀 수 있습니다.
 - 수용 테스트(8081·3002)나 개발 서버(8080·3001)와 포트가 달라 동시에 떠 있어도 됩니다.
 

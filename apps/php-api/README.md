@@ -26,12 +26,15 @@ php-api/
 │   ├── Invite.php     # 초대 코드 생성·발급·상태 (CLI 와 API 공용)
 │   ├── Storage.php    # 업로드 폴더 경로, 업로드 파일 이름 규칙
 │   ├── DemoSeed.php   # 시연용 예시 보드 내용(메모·도형·연결선·공유 업무) 채우기
+│   ├── Schema.php     # 나중에 추가된 컬럼이 있는지 확인하고 없으면 더함
 │   ├── ApiException.php
 │   └── controllers/   # Guest / Board / Project / Ticket / Image / Invite / System
 ├── bin/
 │   ├── create-project.php  # 프로젝트 + 보드 생성, 최초 관리자 초대 코드 출력
 │   ├── create-invite.php   # 초대 코드 발급(원문은 화면에만 출력)
 │   ├── check-env.php       # 사전 점검(PHP 버전·확장·업로드 한도·DB·스키마·업로드 폴더)
+│   ├── migrate.php         # 예전에 만든 DB 에 빠진 컬럼 추가(데이터는 그대로)
+│   ├── clean-uploads.php   # 어느 보드에서도 쓰지 않는 이미지 정리(기본은 미리보기)
 │   ├── reset-demo.php      # 시연 초기화(전체 데이터·업로드 삭제 후 시연 프로젝트 생성, --seed 로 예시 채움)
 │   └── seed-demo.php       # 빈 보드에 시연용 예시 내용 채우기
 ├── storage/
@@ -96,11 +99,17 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 
 | 메서드 | 경로 | 내용 |
 |---|---|---|
-| GET | `/api/projects/{id}/invites` | 초대 목록. `{invite_id, role, expires_at, revoked_at, created_at, status}` — `status` 는 `active`·`expired`·`revoked`. 코드 원문과 해시는 반환하지 않음 |
-| POST | `/api/projects/{id}/invites` | `{role, days}` 로 발급. `role` 은 admin·editor·viewer, `days` 는 1~30(기본 7). 응답 `{invite, code}` — **코드 원문은 이 응답에서만 한 번** |
+| GET | `/api/projects/{id}/invites` | 초대 목록. `{invite_id, role, max_uses, used_count, expires_at, revoked_at, created_at, status}` — `status` 는 `active`·`expired`·`revoked`·`exhausted`(인원 마감). 코드 원문과 해시는 반환하지 않음 |
+| POST | `/api/projects/{id}/invites` | `{role, days, max_uses}` 로 발급. `role` 은 admin·editor·viewer, `days` 는 1~30(기본 7), `max_uses` 는 1~100(빼거나 null 이면 인원 제한 없음). 응답 `{invite, code}` — **코드 원문은 이 응답에서만 한 번** |
 | POST | `/api/invites/{id}/revoke` | 초대 취소. 이미 입장한 참여자는 유지되고 그 코드로 새로 입장만 막힘 |
 
 세 경로 모두 해당 프로젝트의 관리자만 호출할 수 있습니다(그 외 403). 최초 관리자는 `create-project.php` 가 출력하는 관리자 코드로 지정합니다.
+
+인원 제한은 그 코드로 **새로** 입장하는 사람만 셉니다. 확인과 증가를 `UPDATE … WHERE used_count < max_uses` 한 문장으로 해서 동시에 들어와도 한도를 넘지 않습니다. 인원이 차면 새 이름은 `INVITE_EXHAUSTED`(401)로 거부하고, 이미 입장한 이름은 같은 코드로 다시 들어올 수 있습니다. 명령줄에서는 네 번째 인자로 줍니다.
+
+```bash
+C:/xampp/php/php.exe apps/php-api/bin/create-invite.php 1 editor 7 4
+```
 
 ## 보드 관리
 
@@ -147,6 +156,26 @@ C:/xampp/php/php.exe apps/php-api/bin/seed-demo.php 1
 - 첫 번째 보드에 객체가 하나라도 있으면 넣지 않습니다. `--force` 를 주면 기존 내용을 지우지 않고 그 위에 추가합니다.
 - 보드를 열어 둔 참여자에게는 알림이 가지 않으므로 새로고침해야 보입니다. 시연 전에 미리 실행합니다.
 
+## DB 스키마 보정
+
+```bash
+C:/xampp/php/php.exe apps/php-api/bin/migrate.php
+```
+
+`database/schema.sql` 은 테이블이 없을 때만 만들기 때문에, 예전에 만든 DB 에는 나중에 추가된 컬럼이 없습니다. 이 명령이 빠진 컬럼만 더합니다(지금은 초대 코드의 `max_uses`·`used_count`). 여러 번 실행해도 되고 데이터는 지우지 않습니다. `scripts\start-dev.bat` 과 `reset-demo.php` 가 자동으로 실행합니다.
+
+## 업로드 정리
+
+```bash
+C:/xampp/php/php.exe apps/php-api/bin/clean-uploads.php
+```
+
+어느 보드의 이미지 객체도 가리키지 않고 올린 지 24시간이 지난 이미지를 찾아 **보여 주기만** 합니다. 실제로 지우려면 `--apply` 를 붙입니다(되돌릴 수 없음).
+
+- 보드에서 이미지를 지워도 파일을 바로 지우지 않는 이유는, 지운 사람이 실행 취소로 되살릴 수 있어야 하기 때문입니다. 그래서 정리는 아무도 편집하지 않을 때 따로 합니다. 최근 30분 안에 보드 접속 기록이 있으면 멈추고, `--force` 를 붙여야 진행합니다.
+- `--older-than=N` 으로 기준 시간을, `--project=ID` 로 대상 프로젝트를 정합니다.
+- `--orphan-files` 는 DB 에 기록이 없는 업로드 파일까지 지웁니다. 업로드 폴더를 이 DB 하나만 쓸 때에만 씁니다.
+
 ## 사전 점검
 
 ```bash
@@ -169,5 +198,5 @@ curl -b cookies.txt http://localhost:8080/api/me
 
 ## 아직 없는 것
 
-- 이미지 객체가 보드에서 모두 지워졌을 때 원본 파일을 정리하는 정책(미정 사항, 현재는 시연 초기화로만 정리)
-- 초대 코드별 사용 횟수 제한(현재는 만료와 취소만)
+- 보드에서 이미지를 지웠을 때 파일을 즉시 자동으로 지우는 기능(실행 취소와 맞지 않아 `clean-uploads.php` 로 따로 정리)
+- 프로젝트를 지우는 API(시연 초기화로만 정리)

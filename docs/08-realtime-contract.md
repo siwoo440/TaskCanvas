@@ -60,7 +60,7 @@
 5. 다중 선택(P1)은 선택된 **모든** 객체 잠금 획득 실패 시 이동 전체 취소. (구현: 클라이언트가 객체마다 `object:lock` 을 순서대로 요청하고 하나라도 실패하면 이미 받은 토큰을 `object:unlock` 으로 반납. 성공 시 객체마다 `object:preview`/`object:commit`)
 6. `version`이 불일치하면 덮어쓰지 않고 `VERSION_CONFLICT` 응답 후 새 스냅샷 요청. (구현: 충돌 시 서버가 잠금도 해제하며, 클라이언트는 `GET /api/boards/{id}/snapshot` 으로 재동기화)
 7. 펜 획(`type='stroke'`)의 이동은 `changes.x/y` 만 보내고 서버가 `payload.points` 전체를 평행 이동해 저장. 크기 변경(`changes.width/height`, 1 이상)은 획을 제외한 도형·이미지·영상·업무 블럭에 허용하며 획에 보내면 무시. (9단계 구현: 클라이언트 모서리 핸들 → `object:lock` → `object:preview{x,y,width,height}` → `object:commit`)
-8. 메모(`type='note'`)의 글은 `object:commit` 의 `changes.text` 로 바꿈. 서버가 줄바꿈을 `\n` 으로 통일하고 제어 문자를 지우며 2000자를 넘으면 거부. 메모가 아닌 객체에 보낸 `text` 는 무시. 클라이언트는 편집하는 동안 10초마다 `object:preview` 를 보내 잠금을 연장하고, 방금 만든 메모를 비워 둔 채 끝내면 `object:delete` 로 지움.
+8. 메모(`type='note'`)의 글은 `object:commit` 의 `changes.text` 로 바꿈. 글자 크기는 `style.size`(10~72)에 저장하고 `changes.style` 로 바꾸며, 숫자가 아니거나 범위 밖이면 기본 16 으로 저장. 서버가 줄바꿈을 `\n` 으로 통일하고 제어 문자를 지우며 2000자를 넘으면 거부. 메모가 아닌 객체에 보낸 `text` 는 무시. 클라이언트는 편집하는 동안 10초마다 `object:preview` 를 보내 잠금을 연장하고, 방금 만든 메모를 비워 둔 채 끝내면 `object:delete` 로 지움.
 
 ---
 

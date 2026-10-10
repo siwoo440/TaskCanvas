@@ -21,6 +21,7 @@ if errorlevel 1 (
     echo [2/3] MariaDB 이미 실행 중
 )
 
+"C:\xampp\php\php.exe" apps\php-api\bin\migrate.php
 echo [3/3] 실시간 서버(3001)와 PHP 서버(8080) 시작
 start "TaskCanvas Realtime :3001" cmd /k "cd /d apps\realtime && node src\server.js"
 start "TaskCanvas PHP :8080" cmd /k "C:\xampp\php\php.exe -S 0.0.0.0:8080 -t apps\frontend\public apps\php-api\public\index.php"

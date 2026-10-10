@@ -182,6 +182,7 @@
                         </select>
                     </label>
                     <label>유효 기간(일) <input id="invite-days" type="number" min="1" max="30" step="1" value="7" required></label>
+                    <label>인원 제한 <input id="invite-uses" type="number" min="1" max="100" step="1" placeholder="제한 없음"></label>
                     <button type="submit" class="primary">초대 코드 발급</button>
                 </form>
                 <div id="invite-result" class="invite-result" hidden>
@@ -191,7 +192,7 @@
                     <p class="muted small" id="invite-link-note"></p>
                 </div>
                 <table class="invite-table">
-                    <thead><tr><th>역할</th><th>만료</th><th>상태</th><th></th></tr></thead>
+                    <thead><tr><th>역할</th><th>만료</th><th>입장 인원</th><th>상태</th><th></th></tr></thead>
                     <tbody id="invite-list"></tbody>
                 </table>
                 <p id="invite-error" class="error" role="alert"></p>
@@ -230,6 +231,7 @@
             <ul id="participants" class="participants" title="참여자"></ul>
             <span class="spacer"></span>
             <button id="tool-undo" type="button" title="실행 취소 (Ctrl+Z) — 이 보드에서 내가 한 마지막 작업부터 되돌림" disabled>↶ 실행 취소</button>
+            <button id="tool-redo" type="button" title="다시 실행 (Ctrl+Y) — 방금 되돌린 작업을 다시 적용" disabled>↷ 다시 실행</button>
             <button id="tool-export" type="button" title="보드 전체를 PNG 그림으로 저장 (영상은 자리 표시만)">⬇ PNG</button>
             <span id="conn-status" class="badge" data-state="offline">연결 끊김</span>
             <span id="save-status" class="badge" data-state="idle">대기</span>
@@ -267,6 +269,15 @@
             <label>굵기 <input id="prop-width" type="range" min="1" max="30" value="3"> <output id="prop-width-out">3</output></label>
             <label class="row"><input id="prop-fill-on" type="checkbox"> 채우기</label>
             <label>채우기 색 <input id="prop-fill" type="color" value="#fff59d" disabled></label>
+            <label>글자 크기 <span class="muted small">메모·텍스트</span>
+                <select id="prop-size">
+                    <option value="12">작게 (12)</option>
+                    <option value="16" selected>보통 (16)</option>
+                    <option value="20">크게 (20)</option>
+                    <option value="28">제목 (28)</option>
+                    <option value="40">아주 크게 (40)</option>
+                </select>
+            </label>
             <label class="row"><input id="prop-snap" type="checkbox"> 격자 맞춤 (10 단위)</label>
             <hr>
             <section id="task-props" hidden>
@@ -296,7 +307,7 @@
             </section>
             <p class="muted small" id="selection-info"></p>
             <p class="muted small" id="props-role-note"></p>
-            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>N: 메모, X: 텍스트 — 더블클릭해 글 수정 (바깥 클릭·Ctrl+Enter 저장, Esc 취소)<br>모서리 핸들: 크기 조절 (이미지·영상은 비율 유지, Shift: 비율 유지)<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>Ctrl+Z: 실행 취소, Ctrl+D: 복제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
+            <p class="muted small">V: 선택 후 드래그로 이동, 속성 변경 시 적용<br>N: 메모, X: 텍스트 — 더블클릭해 글 수정 (바깥 클릭·Ctrl+Enter 저장, Esc 취소)<br>모서리 핸들: 크기 조절 (이미지·영상은 비율 유지, Shift: 비율 유지)<br>Shift+클릭 / 빈 곳 드래그: 다중 선택 후 함께 이동<br>L: 연결선 (객체에서 객체로 드래그, 라벨은 오른쪽 패널)<br>Delete: 선택 객체 삭제<br>Ctrl+Z: 실행 취소, Ctrl+Y: 다시 실행, Ctrl+D: 복제<br>이미지: 🖼 버튼, 파일 드래그, Ctrl+V<br>영상: ▶ 버튼에 URL 입력, 제목 막대를 잡아 이동<br>T: 업무 블럭 추가 (여러 보드에서 같은 업무 공유)<br>마우스 휠: 확대·축소<br>Space+드래그: 화면 이동<br>Esc: 취소·선택 해제</p>
         </aside>
 
         <dialog id="video-dialog">

@@ -4,7 +4,7 @@
 
 ## 목적
 
-TaskCanvas는 팀원들이 같은 화이트보드에서 동시에 펜과 도형을 편집하고, 이미지·영상 링크·업무 블럭을 다룰 수 있는 웹 기반 협업 프로젝트 관리 서비스입니다. 수업에서 사용한 PHP·MySQL·HTML/CSS/JS에 Node.js/Socket.IO 실시간 모듈을 연동합니다.
+TaskCanvas는 팀원들이 같은 화이트보드에서 동시에 펜과 도형을 편집하고, 메모·이미지·영상 링크·업무 블럭을 다룰 수 있는 웹 기반 협업 프로젝트 관리 서비스입니다. 수업에서 사용한 PHP·MySQL·HTML/CSS/JS에 Node.js/Socket.IO 실시간 모듈을 연동합니다.
 
 ---
 
@@ -17,7 +17,7 @@ TaskCanvas는 팀원들이 같은 화이트보드에서 동시에 펜과 도형�
 | 사용자 | 수업 팀원, PC 웹브라우저 |
 | 서버 | 학교 PC, XAMPP+Node.js+MySQL |
 | 시연 | 같은 LAN의 서로 다른 PC 4대 |
-| 진입 | 게스트 이름·초대 코드 입력 → 프로젝트 보드 |
+| 진입 | 소개 페이지 → 게스트 이름·초대 코드 입력 → 작업실 → 보드 |
 | 최중요 성과 | 4명이 펜·도형·커서를 즉시 공유하고 완료 작업을 다시 불러오는 것 |
 
 ---
@@ -33,8 +33,9 @@ TaskCanvas는 팀원들이 같은 화이트보드에서 동시에 펜과 도형�
 
 ---
 
-## 현재 단계
+## 현재 단계 (16단계 기준)
 
-- Git 저장소 초기 기획 자료 및 설계 정리.
-- 실제 서버, 테스트 통과, 보안 인증 체계의 구현은 **미착수**.
-- [원본 Google 기획서](https://docs.google.com/document/d/1OYAsiMSTDTKa1uIx4RwsZnK_TBrR2bgbeYqXM2kE5Sc/edit)와 기존 PPT는 초기 대화 산출물로 보관하며 4차 결정 사항이 최신.
+- 위 성공 조건 가운데 2~6번은 구현되어 자동 검사를 통과했습니다. P0 기능 10개와 P1 기능, 그리고 계획에 없던 편의 기능(메모·텍스트, 실행 취소·다시 실행, PNG 내보내기 등)까지 `apps/` 에 들어 있습니다. 항목별 상태는 [기능 명세](02-requirements-mvp.md)에 있습니다.
+- 1번(PC 4대 접속)은 **아직 확인하지 못했습니다.** 한 PC 안에서 브라우저 네 개로 시연 순서를 돌리는 자동 리허설은 통과했지만, 학교 PC 4대를 LAN 으로 연결한 검증(AC15)은 현장에서 해야 합니다.
+- 검증 결과는 [수용 테스트](11-acceptance-tests.md), 시연 준비는 [배포·시연 가이드](15-deployment-school-pc.md)와 [시연 대본](16-demo-script.md), 발표 자료는 [발표 자료 관리](13-presentation-plan.md)에 있습니다.
+- [원본 Google 기획서](https://docs.google.com/document/d/1OYAsiMSTDTKa1uIx4RwsZnK_TBrR2bgbeYqXM2kE5Sc/edit)와 12장·10장 PPT는 초기 대화 산출물로 보관합니다. 요구사항은 4차 결정 사항이 최신입니다.

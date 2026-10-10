@@ -485,12 +485,12 @@ class BoardCanvas
     }
 
     // 메모 글 줄바꿈: 줄바꿈 문자로 나눈 뒤 폭에 맞춰 낱말 단위로, 낱말이 폭보다 길면 글자 단위로 자른다
-    wrapText(text, maxWidth)
+    wrapText(text, maxWidth, size = BoardCanvas.NOTE.font)
     {
         const ctx = this.ctx; // 측정용 컨텍스트
         const lines = []; // 결과 줄
         ctx.save(); // 글꼴 설정 보존
-        ctx.font = BoardCanvas.NOTE.font + 'px sans-serif'; // 메모 글꼴
+        ctx.font = size + 'px sans-serif'; // 메모 글꼴(글자 크기에 따라 줄바꿈 위치가 달라짐)
         for (const paragraph of String(text).split('\n'))
         {
             let line = ''; // 현재 줄
@@ -539,13 +539,14 @@ class BoardCanvas
     {
         const text = o.payload && typeof o.payload.text === 'string' ? o.payload.text : ''; // 메모 글
         const maxWidth = Math.max(10, o.width - BoardCanvas.NOTE.pad * 2); // 글이 들어갈 폭
-        const key = maxWidth + '|' + text; // 캐시 키(폭이나 글이 바뀌면 다시 계산)
+        const size = BoardCanvas.noteFont(o).size; // 글자 크기
+        const key = maxWidth + '|' + size + '|' + text; // 캐시 키(폭·글자 크기·글이 바뀌면 다시 계산)
         const cached = o.object_id !== undefined ? this.wrapCache.get(o.object_id) : null; // 캐시 조회
         if (cached && cached.key === key)
         {
             return cached.lines; // 캐시 사용
         }
-        const lines = this.wrapText(text, maxWidth); // 줄바꿈 계산
+        const lines = this.wrapText(text, maxWidth, size); // 줄바꿈 계산
         if (o.object_id !== undefined)
         {
             this.wrapCache.set(o.object_id, { key, lines }); // 캐시 저장
@@ -554,10 +555,11 @@ class BoardCanvas
     }
 
     // 글이 모두 보이려면 필요한 메모 높이
-    noteHeightFor(text, width)
+    noteHeightFor(text, width, size = BoardCanvas.NOTE.font)
     {
-        const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
-        return this.wrapText(text, Math.max(10, width - n.pad * 2)).length * n.line + n.pad * 2; // 줄 수 × 줄 높이 + 위아래 여백
+        const n = BoardCanvas.NOTE; // 안쪽 여백
+        const line = BoardCanvas.noteFont({ style: { size } }).line; // 이 글자 크기의 줄 높이
+        return this.wrapText(text, Math.max(10, width - n.pad * 2), size).length * line + n.pad * 2; // 줄 수 × 줄 높이 + 위아래 여백
     }
 
     // 보드 전체를 PNG 로 내보내기: 모든 객체가 들어가는 범위를 흰 배경에 그린다(격자·커서·선택 표시는 제외, 영상은 자리 표시만)
@@ -889,7 +891,8 @@ class BoardCanvas
         }
         else if (o.type === 'note')
         {
-            const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
+            const n = BoardCanvas.NOTE; // 안쪽 여백
+            const f = BoardCanvas.noteFont(o); // 글자 크기·줄 높이
             const text = o.payload && typeof o.payload.text === 'string' ? o.payload.text : ''; // 메모 글
             if (style.fill)
             {
@@ -912,7 +915,7 @@ class BoardCanvas
                 ctx.beginPath(); // 글이 메모 밖으로 넘치지 않게 자르는 영역
                 ctx.rect(o.x, o.y, o.width, o.height); // 메모 영역
                 ctx.clip(); // 영역 밖 숨김
-                ctx.font = n.font + 'px sans-serif'; // 메모 글꼴
+                ctx.font = f.size + 'px sans-serif'; // 메모 글꼴
                 ctx.textBaseline = 'top'; // 위쪽 기준 배치
                 if (text === '')
                 {
@@ -922,7 +925,7 @@ class BoardCanvas
                 else
                 {
                     ctx.fillStyle = style.color || '#222222'; // 글자 색
-                    this.noteLines(o).forEach((line, i) => ctx.fillText(line, o.x + n.pad, o.y + n.pad + 3 + i * n.line)); // 줄마다 그리기
+                    this.noteLines(o).forEach((line, i) => ctx.fillText(line, o.x + n.pad, o.y + n.pad + 3 + i * f.line)); // 줄마다 그리기
                 }
             }
         }
@@ -967,6 +970,13 @@ class BoardCanvas
 
 BoardCanvas.VIDEO_BAR = 28; // 영상 카드 제목 막대 높이(월드 단위)
 BoardCanvas.RESIZABLE = ['rect', 'ellipse', 'image', 'video', 'task', 'note']; // 크기 조절 핸들을 표시할 객체 유형
-BoardCanvas.NOTE = { font: 16, line: 22, pad: 10 }; // 메모 글꼴 크기·줄 높이·안쪽 여백(월드 단위)
+BoardCanvas.NOTE = { font: 16, line: 22, pad: 10 }; // 메모 기본 글자 크기·그때의 줄 높이·안쪽 여백(월드 단위)
+
+// 메모 한 개의 글자 크기와 줄 높이. style.size 가 없으면(예전에 만든 메모) 기본 크기
+BoardCanvas.noteFont = (o) =>
+{
+    const size = o && o.style && Number.isFinite(o.style.size) ? o.style.size : BoardCanvas.NOTE.font; // 글자 크기
+    return { size, line: Math.round(size * BoardCanvas.NOTE.line / BoardCanvas.NOTE.font) }; // 줄 높이는 글자 크기에 비례
+};
 
 window.BoardCanvas = BoardCanvas; // 전역 노출

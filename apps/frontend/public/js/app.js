@@ -7,7 +7,7 @@ const state = {
     boards: [], // 프로젝트 보드 목록
     board: null, // 현재 보드
     tool: 'pen', // 현재 도구
-    style: { color: '#222222', width: 3, fill: null }, // 그리기 스타일
+    style: { color: '#222222', width: 3, fill: null, size: 16 }, // 그리기 스타일(size 는 메모·텍스트의 글자 크기)
     pendingSaves: 0, // 저장 응답 대기 수
     requestSeq: 0, // 요청 ID 일련번호
     tasks: new Map(), // 공유 업무 원본 task_id → task
@@ -525,7 +525,7 @@ $('boards-leave').addEventListener('click', async () =>
 // ---------- 초대 코드 관리 (관리자) ----------
 
 const ROLE_LABELS = { admin: '관리자', editor: '편집자', viewer: '열람자' }; // 역할 이름
-const INVITE_STATUS_LABELS = { active: '사용 가능', expired: '만료', revoked: '취소됨' }; // 초대 상태 이름
+const INVITE_STATUS_LABELS = { active: '사용 가능', expired: '만료', revoked: '취소됨', exhausted: '인원 마감' }; // 초대 상태 이름
 const COPY_LABELS = { 'invite-copy-code': '코드 복사', 'invite-copy-link': '링크 복사' }; // 복사 버튼 기본 문구
 
 async function loadInvites()
@@ -548,7 +548,8 @@ function renderInvites(invites)
     for (const invite of invites)
     {
         const tr = document.createElement('tr'); // 행
-        for (const text of [ROLE_LABELS[invite.role] ?? invite.role, invite.expires_at.slice(0, 16), INVITE_STATUS_LABELS[invite.status] ?? invite.status])
+        const uses = invite.used_count + '명' + (invite.max_uses === null ? '' : ' / ' + invite.max_uses + '명'); // 이 코드로 새로 입장한 인원(제한이 있으면 한도와 함께)
+        for (const text of [ROLE_LABELS[invite.role] ?? invite.role, invite.expires_at.slice(0, 16), uses, INVITE_STATUS_LABELS[invite.status] ?? invite.status])
         {
             const td = document.createElement('td'); // 칸
             td.textContent = text; // 서버 값은 textContent 로만 표시
@@ -626,7 +627,7 @@ $('invite-form').addEventListener('submit', async (e) =>
     $('invite-error').textContent = ''; // 오류 초기화
     try
     {
-        const data = await window.api.post('/api/projects/' + state.project.project_id + '/invites', { role: $('invite-role').value, days: Number($('invite-days').value) }); // 초대 코드 발급
+        const data = await window.api.post('/api/projects/' + state.project.project_id + '/invites', { role: $('invite-role').value, days: Number($('invite-days').value), max_uses: $('invite-uses').value === '' ? null : Number($('invite-uses').value) }); // 초대 코드 발급(인원 제한을 비우면 제한 없음)
         const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname); // 서버 PC 자신으로 접속 중인지
         $('invite-code').textContent = data.code; // 코드 원문(이 응답에서만 받음)
         $('invite-link').textContent = inviteLink(data.code); // 초대 링크
@@ -826,6 +827,25 @@ $('prop-fill').addEventListener('input', (e) =>
     }
 });
 $('prop-fill').addEventListener('change', () => restyleSelected()); // 선택 객체에 채우기 색 적용
+$('prop-size').addEventListener('change', (e) =>
+{
+    state.style.size = Number(e.target.value); // 글자 크기 변경(새 메모에도 적용)
+    restyleSelected(); // 선택한 메모·텍스트에 적용
+});
+
+// 글자 크기 목록에서 값을 고른다. 목록에 없는 크기(다른 경로로 저장된 값)는 항목을 하나 만들어 보여 준다
+function showNoteSize(size)
+{
+    const select = $('prop-size'); // 글자 크기 목록
+    if (![...select.options].some((opt) => Number(opt.value) === size))
+    {
+        const opt = document.createElement('option'); // 임시 항목
+        opt.value = String(size); // 값
+        opt.textContent = '사용자 지정 (' + size + ')'; // 표시 이름
+        select.appendChild(opt); // 목록에 추가
+    }
+    select.value = String(size); // 선택
+}
 
 // ---------- 선택·이동·삭제 (다중 선택, 연결선 선택) ----------
 
@@ -891,6 +911,8 @@ function syncPropsToSelection()
     {
         color = o.style.color; // 글자 색
         fill = o.style.fill ?? null; // 배경
+        state.style.size = BoardCanvas.noteFont(o).size; // 글자 크기
+        showNoteSize(state.style.size); // 패널 반영
     }
     else
     {
@@ -1297,13 +1319,20 @@ async function restyleSelected()
         {
             style = { color: state.style.color, width: state.style.width }; // 획 스타일
         }
-        else if (object.type === 'note')
+        const changes = { style }; // 저장할 변경
+        if (object.type === 'note')
         {
-            style = { color: state.style.color, fill: state.style.fill }; // 메모: 글자 색·배경
+            changes.style = { color: state.style.color, fill: state.style.fill, size: state.style.size }; // 메모: 글자 색·배경·글자 크기
+            const text = object.payload && typeof object.payload.text === 'string' ? object.payload.text : ''; // 메모 글
+            const needed = canvas.noteHeightFor(text, object.width, state.style.size); // 이 글자 크기에서 글이 모두 보이는 높이
+            if (needed > object.height)
+            {
+                changes.height = needed; // 글자를 키워 글이 넘치면 높이도 함께 늘림(되돌리면 함께 돌아감)
+            }
         }
         try
         {
-            const item = await withLock(object, (token) => commitObject(object, token, { style }, false)); // 잠금 후 스타일 저장
+            const item = await withLock(object, (token) => commitObject(object, token, changes, false)); // 잠금 후 스타일 저장
             if (item)
             {
                 items.push(item); // 이전 스타일 기억
@@ -1324,10 +1353,11 @@ async function restyleSelected()
 
 const UNDO_LIMIT = 50; // 기억할 작업 수
 const undoStack = []; // 이 보드에서 내가 한 작업(최근 것이 뒤). 보드를 바꾸거나 재접속하면 비움
+const redoStack = []; // 방금 되돌린 작업(다시 실행용). 새 작업을 하면 비움
 const myVersions = new Map(); // object_id → 내가 만들거나 바꾼 직후의 버전. 지금 버전과 다르면 그 뒤에 다른 사람이 고친 것
 const idAlias = new Map(); // 삭제를 되돌려 다시 만든 객체의 예전 ID → 새 ID
 const linkAlias = new Map(); // 다시 만든 연결선의 예전 ID → 새 ID
-let undoRunning = false; // 되돌리는 중(이 동안 일어나는 저장은 새 기록으로 쌓지 않음)
+let undoRunning = false; // 되돌리거나 다시 실행하는 중(이 동안 일어나는 저장은 새 기록으로 쌓지 않음)
 
 function resolveAlias(map, id)
 {
@@ -1342,6 +1372,7 @@ function resolveAlias(map, id)
 function updateUndoButton()
 {
     $('tool-undo').disabled = undoStack.length === 0 || !canEdit(); // 되돌릴 작업이 있을 때만 활성화
+    $('tool-redo').disabled = redoStack.length === 0 || !canEdit(); // 다시 실행할 작업이 있을 때만 활성화
 }
 
 function pushUndo(entry)
@@ -1351,6 +1382,7 @@ function pushUndo(entry)
         return; // 되돌리기 자체는 기록하지 않음
     }
     undoStack.push(entry); // 작업 기록
+    redoStack.length = 0; // 새 작업을 하면 다시 실행할 것은 없어짐
     if (undoStack.length > UNDO_LIMIT)
     {
         undoStack.shift(); // 오래된 기록부터 버림
@@ -1361,6 +1393,7 @@ function pushUndo(entry)
 function clearUndo()
 {
     undoStack.length = 0; // 기록 비움
+    redoStack.length = 0; // 다시 실행 기록 비움
     myVersions.clear(); // 버전 기록 비움
     idAlias.clear(); // ID 대응 비움
     linkAlias.clear(); // 연결선 ID 대응 비움
@@ -1464,12 +1497,15 @@ async function restoreLink(link)
     }
 }
 
-// 기록 하나를 되돌린다. done: 되돌린 항목 수, skipped: 다른 사람이 손대서(또는 실패해서) 그대로 둔 항목 수
+// 기록 하나를 되돌린다. done: 되돌린 항목 수, skipped: 다른 사람이 손대서(또는 실패해서) 그대로 둔 항목 수,
+// inverse: 방금 되돌린 것을 다시 적용하는 기록(다시 실행용. 되돌린 것이 없으면 null). 다시 실행도 이 함수로 처리한다
 async function applyUndo(entry)
 {
-    const result = { done: 0, skipped: 0 }; // 결과
+    const result = { done: 0, skipped: 0, inverse: null }; // 결과
     if (entry.kind === 'create')
     {
+        const removed = []; // 지운 객체(반대 기록용)
+        const removedLinks = new Map(); // 함께 사라진 연결선 link_id → 연결선
         for (const id of entry.ids)
         {
             if (!canvas.findObject(resolveAlias(idAlias, id)))
@@ -1485,6 +1521,14 @@ async function applyUndo(entry)
             try
             {
                 await withLock(object, (token) => realtime.request('object:delete', { board_id: boardId(), object_id: object.object_id, lock_token: token, version: object.version, request_id: nextRequestId() })); // 만든 객체 삭제
+                for (const l of canvas.links)
+                {
+                    if (l.from_object_id === object.object_id || l.to_object_id === object.object_id)
+                    {
+                        removedLinks.set(l.link_id, { ...l }); // 객체와 함께 지워지는 연결선 기억
+                    }
+                }
+                removed.push(object); // 지운 객체 기억
                 canvas.removeObject(object.object_id); // 화면에서 제거
                 result.done += 1;
             }
@@ -1493,9 +1537,14 @@ async function applyUndo(entry)
                 result.skipped += 1; // 삭제 실패
             }
         }
+        if (removed.length > 0)
+        {
+            result.inverse = { kind: 'delete', objects: removed, links: [...removedLinks.values()] }; // 반대: 지운 것을 다시 만들기
+        }
     }
     else if (entry.kind === 'update')
     {
+        const items = []; // 되돌리기 직전 값(반대 기록용)
         for (const item of entry.items)
         {
             const object = undoTarget(item.id); // 되돌릴 대상
@@ -1506,7 +1555,11 @@ async function applyUndo(entry)
             }
             try
             {
-                const restored = await withLock(object, (token) => commitObject(object, token, item.before, false)); // 이전 값으로 다시 저장
+                const restored = await withLock(object, (token) => commitObject(object, token, item.before, false)); // 이전 값으로 다시 저장(돌려받는 값은 저장 직전의 값)
+                if (restored)
+                {
+                    items.push(restored); // 반대 기록에 추가
+                }
                 result[restored ? 'done' : 'skipped'] += 1;
             }
             catch (err)
@@ -1514,15 +1567,21 @@ async function applyUndo(entry)
                 result.skipped += 1; // 잠금 실패
             }
         }
+        if (items.length > 0)
+        {
+            result.inverse = { kind: 'update', items }; // 반대: 되돌리기 직전 값으로
+        }
     }
     else if (entry.kind === 'delete')
     {
+        const ids = []; // 다시 만든 객체 ID(반대 기록용)
         for (const o of entry.objects)
         {
             try
             {
                 const created = await recreateObject(o); // 지운 객체 다시 생성(새 ID)
                 idAlias.set(o.object_id, created.object_id); // 예전 ID → 새 ID
+                ids.push(created.object_id); // 반대 기록에 추가
                 result.done += 1;
             }
             catch (err)
@@ -1534,16 +1593,22 @@ async function applyUndo(entry)
         {
             await restoreLink(link); // 함께 사라졌던 연결선 복원(끝 객체가 없으면 건너뜀)
         }
+        if (ids.length > 0)
+        {
+            result.inverse = { kind: 'create', ids }; // 반대: 다시 만든 것을 지우기
+        }
     }
     else if (entry.kind === 'link-create')
     {
         const id = resolveAlias(linkAlias, entry.id); // 지금 연결선 ID
-        if (canvas.links.some((l) => l.link_id === id))
+        const link = canvas.links.find((l) => l.link_id === id); // 지울 연결선
+        if (link)
         {
             try
             {
                 await realtime.request('link:delete', { board_id: boardId(), link_id: id, request_id: nextRequestId() }); // 만든 연결선 삭제
                 canvas.removeLink(id); // 화면에서 제거
+                result.inverse = { kind: 'link-delete', link: { ...link } }; // 반대: 연결선 되살리기
                 result.done += 1;
             }
             catch (err)
@@ -1554,16 +1619,26 @@ async function applyUndo(entry)
     }
     else if (entry.kind === 'link-delete')
     {
-        result[(await restoreLink(entry.link)) ? 'done' : 'skipped'] += 1; // 지운 연결선 복원
+        if (await restoreLink(entry.link))
+        {
+            result.inverse = { kind: 'link-create', id: resolveAlias(linkAlias, entry.link.link_id) }; // 반대: 되살린 연결선 지우기
+            result.done += 1;
+        }
+        else
+        {
+            result.skipped += 1; // 끝 객체가 없어 되살리지 못함
+        }
     }
     else if (entry.kind === 'link-label')
     {
         const id = resolveAlias(linkAlias, entry.id); // 지금 연결선 ID
+        const current = canvas.links.find((l) => l.link_id === id); // 바꾸기 전 연결선
         try
         {
             const reply = await realtime.request('link:update', { board_id: boardId(), link_id: id, label: entry.before, request_id: nextRequestId() }); // 이전 라벨로
             canvas.updateLink(reply.link); // 반영
             refreshLinkProps(); // 패널 갱신
+            result.inverse = { kind: 'link-label', id, before: current ? current.label ?? '' : '' }; // 반대: 바꾸기 직전 라벨로
             result.done += 1;
         }
         catch (err)
@@ -1574,25 +1649,26 @@ async function applyUndo(entry)
     return result; // 결과
 }
 
-async function undoLast()
+// 실행 취소(redo=false) 또는 다시 실행(redo=true) 한 단계. 한쪽 기록에서 꺼내 적용하고, 그 반대 작업을 다른 쪽 기록에 쌓는다
+async function stepHistory(redo)
 {
     if (undoRunning || move || noteEdit || !canEdit() || !realtime || !realtime.joined)
     {
         return; // 다른 작업 중·권한 없음·미연결
     }
-    const entry = undoStack.pop(); // 가장 최근 작업
+    const entry = (redo ? redoStack : undoStack).pop(); // 가장 최근 기록
     if (!entry)
     {
         updateUndoButton(); // 버튼 상태 갱신
-        return toast('되돌릴 작업이 없습니다.'); // 안내
+        return toast(redo ? '다시 실행할 작업이 없습니다.' : '되돌릴 작업이 없습니다.'); // 안내
     }
-    let result = { done: 0, skipped: 0 }; // 결과
-    undoRunning = true; // 되돌리는 중
+    let result = { done: 0, skipped: 0, inverse: null }; // 결과
+    undoRunning = true; // 기록을 적용하는 중(이 동안의 저장은 새 기록으로 쌓지 않음)
     state.pendingSaves += 1; // 저장 대기 표시
     setSaveStatus('saving'); // 저장 중
     try
     {
-        result = await applyUndo(entry); // 되돌리기 실행
+        result = await applyUndo(entry); // 기록 적용
     }
     catch (err)
     {
@@ -1601,6 +1677,15 @@ async function undoLast()
     finally
     {
         undoRunning = false; // 종료
+        if (result.inverse)
+        {
+            const target = redo ? undoStack : redoStack; // 반대 기록을 쌓을 곳
+            target.push(result.inverse); // 되돌린 것은 다시 실행할 수 있게, 다시 실행한 것은 다시 되돌릴 수 있게
+            if (target.length > UNDO_LIMIT)
+            {
+                target.shift(); // 오래된 기록부터 버림
+            }
+        }
         state.pendingSaves -= 1; // 대기 수 감소
         if (state.pendingSaves === 0 && $('save-status').dataset.state !== 'failed')
         {
@@ -1609,18 +1694,29 @@ async function undoLast()
         updateUndoButton(); // 버튼 상태 갱신
         setSelection([...canvas.selectedIds].filter((id) => canvas.findObject(id))); // 사라진 객체는 선택에서 제외
     }
+    const verb = redo ? '다시 실행' : '실행 취소'; // 안내에 쓸 낱말
     if (result.skipped === 0)
     {
-        toast('실행 취소했습니다.'); // 모두 되돌림
+        toast(verb + '했습니다.'); // 모두 적용
     }
     else if (result.done === 0)
     {
-        toast('다른 사용자가 이후에 수정했거나 편집 중이라 되돌리지 않았습니다.', 4000); // 되돌리지 않음
+        toast('다른 사용자가 이후에 수정했거나 편집 중이라 ' + (redo ? '다시 실행하지' : '되돌리지') + ' 않았습니다.', 4000); // 적용하지 않음
     }
     else
     {
-        toast('일부만 되돌렸습니다. 다른 사용자가 이후에 수정한 항목은 그대로 둡니다.', 4000); // 일부만
+        toast('일부만 ' + (redo ? '다시 실행했습니다' : '되돌렸습니다') + '. 다른 사용자가 이후에 수정한 항목은 그대로 둡니다.', 4000); // 일부만
     }
+}
+
+function undoLast()
+{
+    return stepHistory(false); // 실행 취소
+}
+
+function redoLast()
+{
+    return stepHistory(true); // 다시 실행
 }
 
 async function duplicateSelected()
@@ -1674,6 +1770,7 @@ function exportBoard()
 }
 
 $('tool-undo').addEventListener('click', () => undoLast()); // 실행 취소 버튼
+$('tool-redo').addEventListener('click', () => redoLast()); // 다시 실행 버튼
 $('tool-export').addEventListener('click', exportBoard); // PNG 내보내기 버튼
 
 // ---------- 메모 글 편집 ----------
@@ -1736,13 +1833,14 @@ function positionNoteEditor()
     const r = canvas.displayRect(o); // 표시 사각형
     const s = canvas.toScreen(r.x, r.y); // 화면 좌표
     const scale = canvas.view.scale; // 확대 배율
-    const n = BoardCanvas.NOTE; // 글꼴·줄 높이·여백
+    const n = BoardCanvas.NOTE; // 안쪽 여백
+    const f = BoardCanvas.noteFont(o); // 글자 크기·줄 높이
     const area = $('note-editor'); // 글 입력 요소
     area.style.transform = 'translate(' + s.x + 'px, ' + s.y + 'px)'; // 위치
     area.style.width = r.width * scale + 'px'; // 너비
     area.style.height = r.height * scale + 'px'; // 높이
-    area.style.fontSize = n.font * scale + 'px'; // 글자 크기
-    area.style.lineHeight = n.line * scale + 'px'; // 줄 높이
+    area.style.fontSize = f.size * scale + 'px'; // 글자 크기
+    area.style.lineHeight = f.line * scale + 'px'; // 줄 높이
     area.style.padding = Math.max(0, n.pad * scale - 2) + 'px'; // 테두리 2px 를 뺀 안쪽 여백
     area.style.background = (o.style && o.style.fill) || '#ffffff'; // 메모 배경
     area.style.color = (o.style && o.style.color) || '#222222'; // 글자 색
@@ -1795,7 +1893,7 @@ async function finishNoteEdit(save)
         return;
     }
     const changes = { text }; // 글 변경
-    const needed = canvas.noteHeightFor(text, o.width); // 글이 모두 보이는 높이
+    const needed = canvas.noteHeightFor(text, o.width, BoardCanvas.noteFont(o).size); // 글이 모두 보이는 높이
     if (needed > o.height)
     {
         changes.height = needed; // 글이 넘치면 메모를 아래로 늘림
@@ -2365,6 +2463,7 @@ const toolHandlers = {
     },
     onDeleteKey: () => deleteSelected(), // 선택 객체 삭제
     onUndo: () => undoLast(), // Ctrl+Z
+    onRedo: () => redoLast(), // Ctrl+Y, Ctrl+Shift+Z
     onDuplicate: () => duplicateSelected(), // Ctrl+D
 }; // 도구 콜백
 

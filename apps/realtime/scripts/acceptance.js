@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 과 보안 점검 SEC01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23 과 보안 점검 SEC01, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -408,11 +408,21 @@ async function run(envInfo)
     const revoked = await api('POST', '/api/invites/' + issued.json.invite.invite_id + '/revoke', {}, admin.cookie); // 취소
     const afterRevoke = await join('AC-Late', issued.json.code); // 취소된 코드로 입장 시도
     const stillMember = await api('GET', '/api/me', undefined, viaIssued.cookie); // 이미 입장한 사람은 유지
+    const limited = await api('POST', invitesPath, { role: 'viewer', days: 1, max_uses: 1 }, admin.cookie); // 한 명만 들어올 수 있는 코드
+    const badUses = await Promise.all([0, 101, 'x'].map((n) => api('POST', invitesPath, { role: 'viewer', days: 1, max_uses: n }, admin.cookie))); // 허용 범위 밖·형식 오류
+    const firstIn = await join('AC-Limit-1', limited.json.code); // 첫 사람
+    const secondIn = await join('AC-Limit-2', limited.json.code); // 두 번째 사람(인원 마감)
+    const firstAgain = await join('AC-Limit-1', limited.json.code); // 이미 입장한 이름은 다시 들어올 수 있음
+    const limitedRow = (await api('GET', invitesPath, undefined, admin.cookie)).json.invites.find((i) => i.invite_id === limited.json.invite.invite_id); // 관리 목록의 그 코드
+    const unlimitedRow = inviteList.json.invites[0]; // 인원 제한 없이 만든 코드
     record('AC20', '초대 코드 관리', admin.status === 201 && admin.json.role === 'admin' && inviteList.status === 200 && inviteList.json.invites.length >= 3
         && inviteList.json.invites.every((i) => i.code === undefined && i.code_hash === undefined) && editorList.status === 403 && editorIssue.status === 403
         && issued.status === 201 && /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(issued.json.code) && issued.json.invite.status === 'active' && badDays.status === 400 && badRole.status === 400
         && viaIssued.status === 201 && viaIssued.json.role === 'viewer' && revoked.status === 200 && revoked.json.invite.status === 'revoked'
-        && afterRevoke.status === 401 && afterRevoke.json.error.code === 'INVALID_INVITE' && stillMember.status === 200, '관리자만 목록·발급·취소(편집자 403), 발급 코드 입장, 취소 후 거부, 목록에 코드 원문 없음');
+        && afterRevoke.status === 401 && afterRevoke.json.error.code === 'INVALID_INVITE' && stillMember.status === 200
+        && limited.status === 201 && limited.json.invite.max_uses === 1 && limited.json.invite.used_count === 0 && badUses.every((r) => r.status === 400)
+        && firstIn.status === 201 && secondIn.status === 401 && secondIn.json.error.code === 'INVITE_EXHAUSTED' && firstAgain.status === 201
+        && limitedRow.used_count === 1 && limitedRow.status === 'exhausted' && unlimitedRow.max_uses === null, '관리자만 목록·발급·취소(편집자 403), 발급 코드 입장, 취소 후 거부, 목록에 코드 원문 없음, 인원 제한 1명 코드는 두 번째 사람 거부·기존 참여자 재입장 허용');
 
     // AC21 크기 조절: 미리보기에 크기 포함, 확정 저장, 너무 작은 크기 거부, 펜 획은 크기 변경 무시
     const rz = await ack(B.socket, 'object:create', { board_id: boardA, type: 'rect', x: 0, y: 0, width: 40, height: 20 }); // 크기 조절 대상
@@ -443,11 +453,17 @@ async function run(envInfo)
     const badNote = await ack(B.socket, 'object:create', { board_id: boardA, type: 'note', x: 0, y: 0, width: 100, height: 60, payload: { text: 123 } }); // 문자열이 아닌 글
     const viewerNote = await ack(V.socket, 'object:create', { board_id: boardA, type: 'note', x: 0, y: 0, width: 100, height: 60, payload: { text: 'v' } }); // 열람자 생성 시도
     const snapNote = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json.objects.find((o) => o.object_id === noteObj.object_id); // 저장 결과
+    const bigNote = await ack(B.socket, 'object:create', { board_id: boardA, type: 'note', x: 300, y: 10, width: 200, height: 80, style: { fill: null, color: '#111111', size: 28 }, payload: { text: '제목' } }); // 큰 글자 메모
+    const wrongSizes = await Promise.all([999, 3, '24', null].map((size) => ack(B.socket, 'object:create', { board_id: boardA, type: 'note', x: 300, y: 120, width: 100, height: 60, style: { size }, payload: { text: 's' } }))); // 범위 밖·숫자가 아닌 크기
+    const bigLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: bigNote.object_id }); // 글자 크기 변경용 잠금
+    const resized = await ack(B.socket, 'object:commit', { board_id: boardA, object_id: bigNote.object_id, lock_token: bigLock.lock_token, version: 1, changes: { style: { fill: null, color: '#111111', size: 40 }, height: 120 } }); // 글자 크기와 높이를 함께 변경
     record('AC22', '메모', noteObj.ok && noteObj.object.payload.text === '첫 줄\n둘째 줄' && noteObj.object.style.fill === '#fff59d' && noteCreated !== null
         && noteTooLong.ok === false && noteTooLong.error.code === 'BAD_REQUEST' && noteCommit.ok && noteCommit.object.payload.text === '회의 메모' && noteCommit.object.height === 160
         && noteCommit.object.style.fill === null && noteCommit.object.style.color === '#e53935' && noteUpdated !== null && noteUpdated.object.payload.text === '회의 메모'
         && rectText.ok && rectText.object.payload.text === undefined && rectText.object.text === undefined && badNote.ok === false && badNote.error.code === 'BAD_REQUEST'
-        && viewerNote.ok === false && viewerNote.error.code === 'FORBIDDEN' && snapNote && snapNote.payload.text === '회의 메모' && snapNote.version === 2, '생성·글 수정 전파, 제어 문자 제거, 2001자 거부, 다른 객체의 text 무시, 열람자 거부');
+        && viewerNote.ok === false && viewerNote.error.code === 'FORBIDDEN' && snapNote && snapNote.payload.text === '회의 메모' && snapNote.version === 2
+        && noteObj.object.style.size === 16 && bigNote.ok && bigNote.object.style.size === 28 && wrongSizes.every((r) => r.ok && r.object.style.size === 16)
+        && resized.ok && resized.object.style.size === 40 && resized.object.height === 120, '생성·글 수정 전파, 제어 문자 제거, 2001자 거부, 다른 객체의 text 무시, 열람자 거부, 글자 크기 10~72 저장(범위 밖·형식 오류는 기본 16)');
 
     // AC23 보드 관리: 이름 변경(편집자 이상)·삭제(관리자), 보드 안 참여자에게 실시간 알림 후 연결 정리
     const tempBoard = (await api('POST', '/api/projects/' + projectId + '/boards', { title: 'AC Temp' }, B.cookie)).json.board; // 임시 보드
@@ -483,6 +499,32 @@ async function run(envInfo)
     const plainPoll = await pollingHandshake(null); // 출처 없는 클라이언트(테스트 스크립트)
     record('SEC01', '접속 출처 제한', foreignWs === false && nullWs === false && sameWs === true && foreignPoll.status === 403 && foreignPoll.allow === null
         && samePoll.status === 200 && samePoll.allow === sameHostOrigin && plainPoll.status === 200, '다른 사이트 출처의 웹소켓·폴링 연결 403, 같은 호스트의 페이지와 출처 없는 클라이언트는 허용');
+
+    // OPS01 업로드 정리(수용 기준과 별도의 운영 점검): 보드에서 쓰지 않는 이미지만 지워지는지
+    const keepUpload = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'tiny.png')), 'image/png', 'keep.png'), B.cookie); // 계속 쓸 이미지
+    const dropUpload = await api('POST', '/api/images', imageForm(projectId, fs.readFileSync(path.join(FIXTURES, 'tiny.jpg')), 'image/jpeg', 'drop.jpg'), B.cookie); // 지웠다가 정리될 이미지
+    const keepObj = await ack(B.socket, 'object:create', { board_id: boardA, type: 'image', x: 0, y: 300, width: 40, height: 40, payload: { asset_id: keepUpload.json.asset.asset_id } }); // 보드에 놓은 이미지
+    const dropObj = await ack(B.socket, 'object:create', { board_id: boardA, type: 'image', x: 60, y: 300, width: 40, height: 40, payload: { asset_id: dropUpload.json.asset.asset_id } }); // 곧 지울 이미지
+    const dropLock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: dropObj.object_id }); // 삭제용 잠금
+    const dropDelete = await ack(B.socket, 'object:delete', { board_id: boardA, object_id: dropObj.object_id, lock_token: dropLock.lock_token, version: 1 }); // 보드에서 이미지 삭제
+    const afterDelete = await api('GET', '/api/images/' + dropUpload.json.asset.asset_id, undefined, B.cookie); // 보드에서 지워도 파일은 남아 있어야 함(실행 취소용)
+    const scope = '--project=' + projectId; // 이 테스트 프로젝트의 이미지만 정리(같은 DB 의 다른 프로젝트는 건드리지 않음)
+    const cleanPreview = phpCli('clean-uploads.php', ['--older-than=0', scope]); // 미리보기(아무것도 지우지 않음)
+    const afterPreview = await api('GET', '/api/images/' + dropUpload.json.asset.asset_id, undefined, B.cookie); // 미리보기 뒤에도 그대로
+    let guarded = false; // 접속 중 보호가 동작했는지
+    try
+    {
+        phpCli('clean-uploads.php', ['--apply', '--older-than=0', scope]); // 방금 보드에 접속한 기록이 있으므로 멈춰야 함
+    }
+    catch (err)
+    {
+        guarded = err.status === 1; // 종료 코드 1 로 거절
+    }
+    const applied = phpCli('clean-uploads.php', ['--apply', '--older-than=0', '--force', scope]); // 실제 정리
+    const dropGone = await api('GET', '/api/images/' + dropUpload.json.asset.asset_id, undefined, B.cookie); // 쓰지 않는 이미지는 사라짐
+    const keepStays = await api('GET', '/api/images/' + keepUpload.json.asset.asset_id, undefined, B.cookie); // 보드에 놓인 이미지는 남음
+    record('OPS01', '업로드 정리', keepObj.ok && dropDelete.ok && afterDelete.status === 200 && /미리보기/.test(cleanPreview) && afterPreview.status === 200 && guarded
+        && /지웠습니다/.test(applied) && dropGone.status === 404 && keepStays.status === 200, '보드에서 지운 이미지는 정리 전까지 남고, 미리보기는 지우지 않으며, 접속 중에는 멈추고, 정리 후 쓰지 않는 이미지만 사라짐');
 
     // AC15 실제 LAN
     record('AC15', '실제 LAN', null, '학교 PC 4대 환경에서 수동 확인 (docs/15-deployment-school-pc.md)');
@@ -525,9 +567,11 @@ async function main()
     }
     const accept = results.filter((r) => r.id.startsWith('AC')); // 수용 기준 항목
     const security = results.filter((r) => r.id.startsWith('SEC')); // 보안 점검 항목
+    const operations = results.filter((r) => r.id.startsWith('OPS')); // 운영 점검 항목
     const count = (list, status) => list.filter((r) => r.status === status).length; // 상태별 개수
     console.log('\n자동 ' + count(accept, 'PASS') + ' 통과, ' + count(accept, 'FAIL') + ' 실패, ' + count(accept, 'MANUAL') + ' 수동'); // 수용 기준 요약
     console.log('보안 점검 ' + count(security, 'PASS') + ' 통과, ' + count(security, 'FAIL') + ' 실패'); // 보안 점검 요약
+    console.log('운영 점검 ' + count(operations, 'PASS') + ' 통과, ' + count(operations, 'FAIL') + ' 실패'); // 운영 점검 요약
     process.exit(exitCode || (failed.length > 0 ? 1 : 0)); // 종료
 }
 

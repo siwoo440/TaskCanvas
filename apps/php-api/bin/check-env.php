@@ -139,7 +139,15 @@ if ($connected)
     $missing = array_diff($required, $existing); // 없는 테이블
     if ($missing === array())
     {
-        report('ok', 'DB 스키마', '테이블 ' . count($required) . '개 확인'); // 스키마 적용됨
+        $columns = Schema::missing(); // 나중에 추가된 컬럼 가운데 없는 것
+        if ($columns === array())
+        {
+            report('ok', 'DB 스키마', '테이블 ' . count($required) . '개 확인'); // 스키마 적용됨
+        }
+        else
+        {
+            report('fail', 'DB 스키마', '예전 스키마입니다(없는 컬럼: ' . implode(', ', $columns) . '). C:\\xampp\\php\\php.exe apps\\php-api\\bin\\migrate.php 를 실행하세요.'); // 보정 필요
+        }
         $projects = (int) Database::one('SELECT COUNT(*) AS n FROM projects')['n']; // 프로젝트 수
         $invites = (int) Database::one('SELECT COUNT(*) AS n FROM project_invites WHERE revoked_at IS NULL AND expires_at > NOW()')['n']; // 쓸 수 있는 초대 코드 수
         if ($projects === 0)
