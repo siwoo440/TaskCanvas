@@ -19,7 +19,7 @@ realtime/
 │   ├── env.js           # .env 로더
 │   ├── db.js            # mysql2 커넥션 풀
 │   ├── auth.js          # 티켓 일회성 검증, 역할 재확인
-│   ├── presence.js      # 보드별 참여자·커서 색상(메모리)
+│   ├── presence.js      # 보드별 참여자·커서 색상·마지막 커서 위치·선택(메모리)
 │   ├── locks.js         # 객체 선점 잠금(메모리, TTL·연결 종료 해제)
 │   ├── video.js         # 외부 영상 URL 검증·임베드 URL 생성
 │   ├── note.js          # 메모 글·스타일 검증(2000자, 제어 문자 제거, 글자 크기 10~72)
@@ -30,6 +30,7 @@ realtime/
 │       ├── board.js     # board:join, disconnect → presence:update
 │       ├── project.js   # project:join (작업실 연결: 보드 없이 프로젝트 방에만 참여)
 │       ├── cursor.js    # cursor:move 중계(약 30Hz 제한)
+│       ├── selection.js # selection:set (고른 객체·연결선 표시 중계, 참여자 목록에 기억)
 │       ├── stroke.js    # stroke:preview 중계, stroke:commit DB 저장
 │       ├── object.js    # object:create 도형·이미지·영상·업무 블럭 저장
 │       ├── edit.js      # object:lock·preview·commit·delete·unlock
@@ -38,7 +39,7 @@ realtime/
 │       ├── ping.js      # net:ping (접속 점검 화면의 왕복 시간 측정용 응답)
 │       └── reply.js     # ack 응답 형식, 보드·프로젝트 참여 검사
 ├── scripts/test-client.js  # 2인 통합 테스트(실행 중인 서버 대상)
-├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23, AC26~AC28 과 보안 점검 SEC01·SEC02·운영 점검 OPS01 (서버를 직접 띄워 검사)
+├── scripts/acceptance.js   # 수용 테스트 AC01~AC14, AC16~AC23, AC26~AC29 와 보안 점검 SEC01·SEC02·운영 점검 OPS01 (서버를 직접 띄워 검사)
 ├── scripts/rehearsal.js    # 시연 리허설(브라우저 4개로 시연 대본 실행 + 전달 지연 측정)
 ├── scripts/capture-screens.js  # 실제 화면 캡처(임시 서버 + 설치된 Chrome 조작 → assets/screenshots)
 ├── scripts/check-env.js    # 사전 점검(Node·패키지·DB·포트·LAN 주소·방화벽·외부 영상)
@@ -71,7 +72,7 @@ node apps/realtime/scripts/test-client.js <초대코드>
 npm run test:acceptance
 ```
 
-MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23, AC26~AC28 을 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01), 요청 제한(SEC02), 업로드 정리(OPS01)도 검사해 요약 줄을 따로 냅니다. 요청 제한 검사 중에는 서버가 `요청 제한: …` 경고를 한두 줄 찍는데 정상입니다. 업로드 정리는 러너가 만든 테스트 프로젝트의 이미지만 대상으로 합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
+MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8081)와 실시간 서버(3002, 잠금 TTL 1.5초)를 직접 띄우고 테스트 프로젝트·초대 코드를 만든 뒤 `docs/11-acceptance-tests.md` 의 AC01~AC14, AC16~AC23, AC26~AC29 를 검사해 마크다운 표로 출력합니다(AC10·AC15 는 수동). 수용 기준과 별도로 접속 출처 제한(SEC01), 요청 제한(SEC02), 업로드 정리(OPS01)도 검사해 요약 줄을 따로 냅니다. 요청 제한 검사 중에는 서버가 `요청 제한: …` 경고를 한두 줄 찍는데 정상입니다. 업로드 정리는 러너가 만든 테스트 프로젝트의 이미지만 대상으로 합니다. PHP 경로가 다르면 `PHP_BIN` 환경 변수로 지정합니다. 실행 환경 변수(`PORT`, `LOCK_TTL_MS`, `LOCK_SWEEP_MS` 등)는 `.env` 보다 우선합니다.
 
 ## 시연 리허설
 
@@ -103,7 +104,7 @@ Node 버전, 패키지 설치, `.env` 와 접속 출처 설정, DB 연결, 두 �
 
 | 종류 | 대상 | 기본값 | 넘치면 |
 |---|---|---|---|
-| 저장 요청 | 응답을 돌려주는 모든 이벤트(참여·잠금·저장·삭제·업무·연결선·`net:ping`) | `RATE_SAVE_BURST=300`, `RATE_SAVE_PER_SEC=50` | `RATE_LIMITED` 로 거절(처리하지 않음). 화면에는 "저장 실패: 요청이 너무 잦습니다" |
+| 저장 요청 | 응답을 돌려주는 모든 이벤트(참여·잠금·저장·삭제·업무·연결선·선택 알림·`net:ping`) | `RATE_SAVE_BURST=300`, `RATE_SAVE_PER_SEC=50` | `RATE_LIMITED` 로 거절(처리하지 않음). 화면에는 "저장 실패: 요청이 너무 잦습니다" |
 | 미리보기 중계 | `stroke:preview`, `object:preview` | `RATE_RELAY_BURST=1200`, `RATE_RELAY_PER_SEC=600` | 조용히 버림(확정 저장에는 영향 없음) |
 | 커서 | `cursor:move` | `CURSOR_INTERVAL_MS=33` | 간격보다 잦은 것은 버림(기존 동작) |
 
@@ -134,7 +135,7 @@ npm run capture
 
 MariaDB 만 켜져 있으면 됩니다. PHP 내장 서버(8082)와 실시간 서버(3003)를 임시로 띄우고 "시연 프로젝트"를 만들어 예시 내용을 채운 뒤, 설치된 Chrome 을 창 없이 실행해 관리자와 편집자 두 사람으로 접속하고 `assets/screenshots/` 에 9장(소개·입장·작업실·초대 관리·보드·잠금·업무·메모 편집·PNG 내보내기)을 저장합니다.
 
-- 찍는 김에 실제 키보드·마우스 입력으로 열 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 소개 화면의 기능 카드를 화살표·점·방향키로 넘기기, 초대 링크 입장, 업무 현황판의 카드를 끌어 상태 변경(보드 화면에 전달되는지와 마감 표시 포함), 카드를 눌러 수정(그 사이 다른 사람이 바꾼 업무는 최신 내용으로 다시 채우는지), 메모 글 입력 후 바깥 클릭 저장, 오른쪽 패널에서 글자 크기 변경, Ctrl+Z 두 번으로 차례로 되돌리기, Ctrl+Y 두 번으로 다시 실행, 초대 코드 없이 작업실 직접 만들기(관리자·첫 보드·내 코드), 나갔다가 같은 이름과 내 코드로 재입장(다른 이름은 거부). 하나라도 실패하면 종료 코드 1 입니다.
+- 찍는 김에 실제 키보드·마우스 입력으로 열한 가지를 확인해 `PASS`/`FAIL` 로 출력합니다: 소개 화면의 기능 카드를 화살표·점·방향키로 넘기기, 초대 링크 입장, 업무 현황판의 카드를 끌어 상태 변경(보드 화면에 전달되는지와 마감 표시 포함), 카드를 눌러 수정(그 사이 다른 사람이 바꾼 업무는 최신 내용으로 다시 채우는지), 다른 사람이 고른 메모의 선택 표시(풀면 사라지는지), 메모 글 입력 후 바깥 클릭 저장, 오른쪽 패널에서 글자 크기 변경, Ctrl+Z 두 번으로 차례로 되돌리기, Ctrl+Y 두 번으로 다시 실행, 초대 코드 없이 작업실 직접 만들기(관리자·첫 보드·내 코드), 나갔다가 같은 이름과 내 코드로 재입장(다른 이름은 거부). 하나라도 실패하면 종료 코드 1 입니다.
 - 실행할 때마다 `.env` 의 DB 에 "시연 프로젝트"가 하나 생깁니다. 다른 DB 에서 찍으려면 `DB_NAME` 환경 변수를 지정합니다. Chrome 경로는 `CHROME_BIN`, PHP 경로는 `PHP_BIN`, 포트는 `CAP_API_PORT`·`CAP_RT_PORT` 로 바꿀 수 있습니다.
 - 수용 테스트(8081·3002)나 개발 서버(8080·3001)와 포트가 달라 동시에 떠 있어도 됩니다.
 

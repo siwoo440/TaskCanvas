@@ -32,7 +32,7 @@ function take(b, now)
 
 function attach(socket)
 {
-    const save = bucket(env.int('RATE_SAVE_BURST'), env.int('RATE_SAVE_PER_SEC')); // 응답을 돌려주는 요청(참여·잠금·저장·삭제·업무·연결선·점검)
+    const save = bucket(env.int('RATE_SAVE_BURST'), env.int('RATE_SAVE_PER_SEC')); // 응답을 돌려주는 요청(참여·잠금·저장·삭제·업무·연결선·선택 알림·점검)
     const relay = bucket(env.int('RATE_RELAY_BURST'), env.int('RATE_RELAY_PER_SEC')); // 미리보기 중계
     let loggedAt = 0; // 마지막으로 로그를 남긴 시각
 

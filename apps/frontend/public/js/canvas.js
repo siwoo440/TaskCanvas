@@ -1,4 +1,4 @@
-// 보드 캔버스 렌더링: 격자, 확정 객체, 미리보기, 커서, 선택·잠금 표시, 뷰포트(확대·이동)
+// 보드 캔버스 렌더링: 격자, 확정 객체, 미리보기, 내 선택과 다른 참여자의 커서·선택·잠금 표시, 뷰포트(확대·이동)
 'use strict';
 
 class BoardCanvas
@@ -11,7 +11,10 @@ class BoardCanvas
         this.objects = []; // 저장 완료 객체
         this.previews = new Map(); // 타인 펜 미리보기 stroke_id → {points, style, at}
         this.pending = new Map(); // 저장 응답 대기 중인 내 객체 request_id → 초안
-        this.cursors = new Map(); // 타인 커서 guest_id → {x, y, display_name, color, at}
+        this.cursors = new Map(); // 타인 커서 guest_id → {x, y, tx, ty, display_name, color, at, idle} (x·y: 지금 그리는 위치, tx·ty: 알려 온 위치)
+        this.cursorTick = 0; // 커서를 마지막으로 옮겨 그린 시각(부드러운 이동 계산용)
+        this.selections = new Map(); // 타인 선택 guest_id → {display_name, color, object_ids, link_id}
+        this.onSelectionChange = null; // 지워진 객체·연결선이 내 선택에서 빠졌을 때 알림(app 이 채움)
         this.locks = new Map(); // 타인 잠금 object_id → {display_name, color}
         this.moves = new Map(); // 이동·크기 조절 중 상태 object_id → {x, y, width?, height?} (내 드래그·타인 미리보기)
         this.selectedIds = new Set(); // 선택한 객체 ID 집합(다중 선택)
@@ -29,7 +32,7 @@ class BoardCanvas
         this.resize = this.resize.bind(this); // 크기 변경 핸들러
         new ResizeObserver(this.resize).observe(el.parentElement); // 부모 크기 추적
         this.resize(); // 초기 크기 적용
-        setInterval(() => this.prune(), 1000); // 오래된 커서·미리보기 정리
+        setInterval(() => this.prune(), 1000); // 멈춘 커서 흐리게, 오래된 미리보기 정리
     }
 
     resize()
@@ -116,6 +119,7 @@ class BoardCanvas
         this.setObjects([]); // 객체 비움
         this.locks.clear(); // 잠금 비움
         this.cursors.clear(); // 커서 비움
+        this.selections.clear(); // 타인 선택 비움
         this.selectedIds.clear(); // 선택 해제
         this.selectedLinkId = null; // 연결선 선택 해제
         this.links = []; // 연결선 비움
@@ -186,8 +190,13 @@ class BoardCanvas
         this.moves.delete(id); // 이동 미리보기 제거
         this.locks.delete(id); // 잠금 표시 제거
         this.wrapCache.delete(id); // 메모 줄바꿈 캐시 제거
-        this.selectedIds.delete(id); // 선택에서 제거
+        const linkBefore = this.selectedLinkId; // 지우기 전에 선택돼 있던 연결선
+        const wasSelected = this.selectedIds.delete(id); // 선택에서 제거
         this.removeLinksOf(id); // 연결된 연결선 제거(서버도 FK 로 함께 삭제)
+        if ((wasSelected || linkBefore !== this.selectedLinkId) && this.onSelectionChange)
+        {
+            this.onSelectionChange(); // 내 선택이 줄었음을 알림(다른 참여자 화면의 표시도 맞춤)
+        }
         this.invalidate(); // 다시 그리기
     }
 
@@ -202,17 +211,62 @@ class BoardCanvas
 
     setCursor(data)
     {
-        this.cursors.set(data.guest_id, { ...data, at: Date.now() }); // 커서 갱신
+        const prev = this.cursors.get(data.guest_id); // 지금 그려져 있는 커서
+        this.cursors.set(data.guest_id, { ...data, x: prev ? prev.x : data.x, y: prev ? prev.y : data.y, tx: data.x, ty: data.y, at: Date.now(), idle: false }); // 알려 온 위치를 목표로 두고 지금 위치에서 부드럽게 옮김
         this.invalidate(); // 다시 그리기
     }
 
-    removeCursorsExcept(guestIds)
+    // 다른 참여자가 알려 온 선택을 반영한다
+    setRemoteSelection(data)
     {
+        this.storeSelection(data, data); // 선택 기억
+        this.invalidate(); // 다시 그리기
+    }
+
+    // who: 누구의 선택인지(guest_id·이름·색), selection: 고른 객체들과 연결선. 아무것도 고르지 않았으면 표시를 지운다
+    storeSelection(who, selection)
+    {
+        const ids = Array.isArray(selection.object_ids) ? selection.object_ids : []; // 고른 객체 번호
+        const linkId = selection.link_id ?? null; // 고른 연결선 번호
+        if (ids.length === 0 && linkId === null)
+        {
+            this.selections.delete(who.guest_id); // 선택 없음
+            return;
+        }
+        this.selections.set(who.guest_id, { display_name: who.display_name, color: who.color, object_ids: ids, link_id: linkId }); // 그 사람의 현재 선택
+    }
+
+    // 참여자 목록이 올 때마다: 나간 사람의 커서·선택을 지우고, 목록에 실려 온 다른 사람의 선택과 마지막 커서 위치를 채운다
+    syncParticipants(list, myGuestId)
+    {
+        const present = new Set(list.map((p) => p.guest_id)); // 지금 보드에 있는 사람
         for (const id of [...this.cursors.keys()])
         {
-            if (!guestIds.includes(id))
+            if (!present.has(id))
             {
-                this.cursors.delete(id); // 퇴장한 참여자의 커서 제거
+                this.cursors.delete(id); // 나간 참여자의 커서 제거
+            }
+        }
+        for (const id of [...this.selections.keys()])
+        {
+            if (!present.has(id))
+            {
+                this.selections.delete(id); // 나간 참여자의 선택 표시 제거
+            }
+        }
+        for (const p of list)
+        {
+            if (p.guest_id === myGuestId)
+            {
+                continue; // 나 자신은 표시하지 않음
+            }
+            if (p.selection)
+            {
+                this.storeSelection(p, p.selection); // 내가 들어오기 전에 고른 것도 표시
+            }
+            if (p.cursor && !this.cursors.has(p.guest_id))
+            {
+                this.cursors.set(p.guest_id, { guest_id: p.guest_id, display_name: p.display_name, color: p.color, x: p.cursor.x, y: p.cursor.y, tx: p.cursor.x, ty: p.cursor.y, at: 0, idle: true }); // 마지막으로 있던 자리에 흐린 커서
             }
         }
         this.invalidate(); // 다시 그리기
@@ -222,11 +276,11 @@ class BoardCanvas
     {
         const now = Date.now(); // 현재 시각
         let changed = false; // 변경 여부
-        for (const [id, c] of this.cursors)
+        for (const c of this.cursors.values())
         {
-            if (now - c.at > 5000)
+            if (!c.idle && now - c.at > BoardCanvas.CURSOR_IDLE_MS)
             {
-                this.cursors.delete(id); // 5초 이상 멈춘 커서 제거
+                c.idle = true; // 한동안 멈춘 커서는 흐리게(그 사람이 보드에 있는 동안은 지우지 않음)
                 changed = true;
             }
         }
@@ -404,6 +458,10 @@ class BoardCanvas
         if (this.selectedLinkId === linkId)
         {
             this.selectedLinkId = null; // 선택 해제
+            if (this.onSelectionChange)
+            {
+                this.onSelectionChange(); // 내 선택이 사라졌음을 알림
+            }
         }
         this.invalidate(); // 다시 그리기
     }
@@ -464,12 +522,25 @@ class BoardCanvas
         return null; // 맞은 연결선 없음
     }
 
-    drawLink(ctx, link, selected)
+    drawLink(ctx, link, selected, remoteColor = null)
     {
         const e = this.linkEndpoints(link); // 끝점
         if (!e)
         {
             return; // 그릴 수 없음
+        }
+        if (remoteColor)
+        {
+            ctx.save(); // 띠 스타일 시작
+            ctx.strokeStyle = remoteColor; // 고른 사람의 색
+            ctx.globalAlpha = 0.45; // 선이 비쳐 보이게
+            ctx.lineWidth = 12; // 선보다 굵은 띠
+            ctx.lineCap = 'round'; // 끝을 둥글게
+            ctx.beginPath(); // 띠 경로
+            ctx.moveTo(e.x1, e.y1); // 시작
+            ctx.lineTo(e.x2, e.y2); // 끝
+            ctx.stroke(); // 다른 참여자가 고른 연결선 밑에 깔리는 띠
+            ctx.restore(); // 띠 스타일 끝
         }
         ctx.save(); // 스타일 시작
         ctx.strokeStyle = selected ? '#2563eb' : '#374151'; // 선 색
@@ -665,9 +736,17 @@ class BoardCanvas
         ctx.save(); // 뷰포트 변환 시작
         ctx.translate(this.view.x, this.view.y); // 이동
         ctx.scale(this.view.scale, this.view.scale); // 확대
+        const linkColors = new Map(); // link_id → 그 연결선을 고른 다른 참여자의 색
+        for (const sel of this.selections.values())
+        {
+            if (sel.link_id !== null && !linkColors.has(sel.link_id))
+            {
+                linkColors.set(sel.link_id, sel.color); // 먼저 고른 사람의 색
+            }
+        }
         for (const l of this.links)
         {
-            this.drawLink(ctx, l, l.link_id === this.selectedLinkId); // 연결선(객체 아래)
+            this.drawLink(ctx, l, l.link_id === this.selectedLinkId, linkColors.get(l.link_id) ?? null); // 연결선(객체 아래)
         }
         for (const o of this.objects)
         {
@@ -711,12 +790,30 @@ class BoardCanvas
             ctx.strokeRect(m.x, m.y, m.width, m.height); // 테두리
             ctx.restore(); // 스타일 끝
         }
+        const marks = new Map(); // object_id → 그 객체에 그린 테두리 겹 수(겹치면 한 겹씩 바깥에 그림)
+        const nextLevel = (id) => marks.get(id) ?? (this.selectedIds.has(id) ? 1 : 0); // 내 선택 테두리가 있으면 그 바깥부터
         for (const [id, lock] of this.locks)
         {
             const o = this.findObject(id); // 잠긴 객체
             if (o)
             {
-                this.drawOutline(ctx, o, lock.color || '#999999'); // 타인 잠금 테두리
+                const level = nextLevel(id); // 이 표시가 놓일 겹
+                this.drawOutline(ctx, o, lock.color || '#999999', level); // 타인 잠금 테두리(점선)
+                marks.set(id, level + 1); // 겹 수 기록
+            }
+        }
+        for (const [guestId, sel] of this.selections)
+        {
+            for (const id of sel.object_ids)
+            {
+                const o = this.findObject(id); // 그 사람이 고른 객체
+                if (!o || this.lockedBy(id, guestId))
+                {
+                    continue; // 이 보드에 없거나, 같은 사람이 편집 중이라 잠금 표시가 이미 있음
+                }
+                const level = nextLevel(id); // 이 표시가 놓일 겹
+                this.drawOutline(ctx, o, sel.color, level, true); // 그 사람 색의 실선 테두리
+                marks.set(id, level + 1); // 겹 수 기록
             }
         }
         for (const id of this.selectedIds)
@@ -743,16 +840,39 @@ class BoardCanvas
             ctx.restore(); // 핸들 스타일 끝
         }
         ctx.restore(); // 뷰포트 변환 끝
+        const tagWidths = new Map(); // object_id → 그 객체 위에 이미 놓은 이름표들의 폭(옆으로 나란히 놓기 위함)
+        const placeTag = (o, text, color) =>
+        {
+            const pos = this.displayPosition(o); // 표시 위치
+            const s = this.toScreen(pos.x, pos.y); // 화면 좌표
+            const used = tagWidths.get(o.object_id) ?? 0; // 먼저 놓인 이름표 폭
+            const top = s.y - BoardCanvas.outlinePad((marks.get(o.object_id) ?? 1) - 1) - 18; // 가장 바깥 테두리 바로 위
+            tagWidths.set(o.object_id, used + this.drawLabel(ctx, s.x + used, top, text, color) + 4); // 이름표를 그리고 폭 기록
+        }; // 객체 왼쪽 위에 이름표 놓기
         for (const [id, lock] of this.locks)
         {
             const o = this.findObject(id); // 잠긴 객체
             if (o)
             {
-                const pos = this.displayPosition(o); // 표시 위치
-                const s = this.toScreen(pos.x, pos.y); // 화면 좌표
-                this.drawLabel(ctx, s.x, s.y - 22, lock.display_name + ' 편집 중', lock.color || '#999999'); // 잠금 이름표
+                placeTag(o, lock.display_name + ' 편집 중', lock.color || '#999999'); // 잠금 이름표
             }
         }
+        for (const [guestId, sel] of this.selections)
+        {
+            const anchor = this.selectionAnchor(guestId, sel, width, height); // 이름표를 붙일 객체(여러 개를 골랐어도 이름표는 하나)
+            if (anchor)
+            {
+                placeTag(anchor, sel.display_name || '', sel.color); // 고른 사람 이름표
+            }
+            const link = sel.link_id === null ? null : this.links.find((l) => l.link_id === sel.link_id); // 그 사람이 고른 연결선
+            const e = link ? this.linkEndpoints(link) : null; // 연결선 끝점
+            if (e)
+            {
+                const mid = this.toScreen((e.x1 + e.x2) / 2, (e.y1 + e.y2) / 2); // 연결선 가운데
+                this.drawLabel(ctx, mid.x + 8, mid.y - 34, sel.display_name || '', sel.color); // 연결선 위 이름표(라벨을 가리지 않게 비켜 놓음)
+            }
+        }
+        const moving = this.stepCursors(); // 커서를 알려 온 위치 쪽으로 한 걸음 옮김
         for (const c of this.cursors.values())
         {
             this.drawCursor(ctx, c); // 타인 커서(화면 좌표)
@@ -761,6 +881,67 @@ class BoardCanvas
         {
             this.afterRender(); // 영상 오버레이 위치 동기화
         }
+        if (moving)
+        {
+            this.invalidate(); // 아직 가는 중인 커서가 있으면 다음 프레임에도 그림
+        }
+    }
+
+    // 그 객체를 그 참여자가 잠그고 있는지(편집 중 표시와 선택 표시를 겹쳐 그리지 않기 위함)
+    lockedBy(objectId, guestId)
+    {
+        const lock = this.locks.get(objectId); // 그 객체의 잠금
+        return !!lock && lock.guest_id === guestId; // 같은 사람의 잠금
+    }
+
+    // 이름표를 붙일 객체: 그 사람이 고른 객체 가운데 화면에 보이는 것을 먼저, 그중 가장 위(같으면 왼쪽)의 것
+    selectionAnchor(guestId, sel, width, height)
+    {
+        let best = null; // 고른 객체
+        let bestKey = null; // 그 객체의 순위 [화면 밖 여부, 세로, 가로]
+        for (const id of sel.object_ids)
+        {
+            const o = this.findObject(id); // 그 사람이 고른 객체
+            if (!o || this.lockedBy(id, guestId))
+            {
+                continue; // 이 보드에 없거나 편집 중 이름표가 대신 붙음
+            }
+            const r = this.displayRect(o); // 표시 사각형
+            const s = this.toScreen(r.x, r.y); // 왼쪽 위의 화면 좌표
+            const hidden = s.x > width || s.y > height || s.x + r.width * this.view.scale < 0 || s.y + r.height * this.view.scale < 0; // 화면 밖 여부
+            const key = [hidden ? 1 : 0, s.y, s.x]; // 순위
+            if (bestKey === null || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2]))))
+            {
+                best = o; // 더 앞선 객체
+                bestKey = key; // 순위 기록
+            }
+        }
+        return best; // 없으면 null
+    }
+
+    // 커서를 알려 온 위치 쪽으로 조금씩 옮긴다(약 30Hz 로 오는 위치 사이를 메워 끊기지 않게). 아직 가는 중인 커서가 있으면 true
+    stepCursors()
+    {
+        const now = performance.now(); // 현재 시각
+        const dt = now - this.cursorTick > 100 ? 16 : now - this.cursorTick; // 지난 프레임부터 흐른 시간(쉬었다 다시 그릴 때는 한 프레임으로 침)
+        this.cursorTick = now; // 시각 기록
+        const k = 1 - Math.exp(-dt / BoardCanvas.CURSOR_EASE_MS); // 이번 프레임에 좁힐 거리의 비율
+        let moving = false; // 가는 중인 커서 여부
+        for (const c of this.cursors.values())
+        {
+            const dx = c.tx - c.x; // 남은 가로 거리
+            const dy = c.ty - c.y; // 남은 세로 거리
+            if (Math.abs(dx) * this.view.scale < 0.5 && Math.abs(dy) * this.view.scale < 0.5)
+            {
+                c.x = c.tx; // 화면에서 반 픽셀 안이면 도착
+                c.y = c.ty;
+                continue;
+            }
+            c.x += dx * k; // 가로로 다가감
+            c.y += dy * k; // 세로로 다가감
+            moving = true; // 다음 프레임에도 이어서
+        }
+        return moving;
     }
 
     drawGrid(ctx, width, height)
@@ -961,43 +1142,80 @@ class BoardCanvas
         ctx.restore(); // 객체 변환 끝
     }
 
-    drawOutline(ctx, o, color)
+    // level: 같은 객체에 여러 표시가 겹칠 때의 겹(0 이 가장 안쪽), solid: 실선(다른 참여자의 선택) 여부
+    drawOutline(ctx, o, color, level = 0, solid = false)
     {
         const r = this.displayRect(o); // 표시 사각형(이동·크기 조절 반영)
-        const pad = 4 / this.view.scale; // 화면 4px 여백
+        const pad = BoardCanvas.outlinePad(level) / this.view.scale; // 화면 기준 여백
         ctx.save(); // 테두리 스타일 시작
         ctx.strokeStyle = color; // 테두리 색
-        ctx.lineWidth = 1.5 / this.view.scale; // 화면 기준 1.5px
-        ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]); // 점선
+        ctx.lineWidth = (solid ? 2 : 1.5) / this.view.scale; // 화면 기준 굵기
+        if (!solid)
+        {
+            ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]); // 점선(내 선택·편집 중)
+        }
         ctx.strokeRect(r.x - pad, r.y - pad, r.width + pad * 2, r.height + pad * 2); // 경계 사각형
         ctx.restore(); // 테두리 스타일 끝
     }
 
+    // 색 바탕의 이름표를 그리고 그 너비를 돌려준다
     drawLabel(ctx, sx, sy, text, color)
     {
         ctx.font = '12px sans-serif'; // 글꼴
-        const w = ctx.measureText(text).width + 10; // 라벨 너비
+        const w = ctx.measureText(text).width + 12; // 라벨 너비
         ctx.fillStyle = color; // 배경 색
-        ctx.fillRect(sx, sy, w, 18); // 배경
-        ctx.fillStyle = '#fff'; // 글자 색
-        ctx.fillText(text, sx + 5, sy + 13); // 글자
+        ctx.beginPath(); // 배경 경로
+        if (ctx.roundRect)
+        {
+            ctx.roundRect(sx, sy, w, 18, 4); // 둥근 모서리
+        }
+        else
+        {
+            ctx.rect(sx, sy, w, 18); // 둥근 사각형을 모르는 브라우저는 각진 모서리
+        }
+        ctx.fill(); // 배경
+        ctx.fillStyle = BoardCanvas.inkOn(color); // 배경 밝기에 맞춘 글자 색
+        ctx.fillText(text, sx + 6, sy + 13); // 글자
+        return w; // 그린 너비
     }
 
     drawCursor(ctx, c)
     {
         const s = this.toScreen(c.x, c.y); // 화면 좌표
-        ctx.fillStyle = c.color; // 커서 색
-        ctx.beginPath(); // 화살표 경로
-        ctx.moveTo(s.x, s.y); // 꼭짓점
-        ctx.lineTo(s.x + 12, s.y + 5); // 오른쪽 아래
-        ctx.lineTo(s.x + 5, s.y + 12); // 왼쪽 아래
+        ctx.save(); // 커서 스타일 시작
+        ctx.globalAlpha = c.idle ? 0.5 : 1; // 한동안 멈춘 커서는 흐리게
+        ctx.beginPath(); // 마우스 화살표 모양 경로
+        ctx.moveTo(s.x, s.y); // 화살표 끝
+        ctx.lineTo(s.x, s.y + 17); // 왼쪽 변
+        ctx.lineTo(s.x + 4.6, s.y + 12.8); // 꼬리로 꺾이는 곳
+        ctx.lineTo(s.x + 7.7, s.y + 19.6); // 꼬리 왼쪽 끝
+        ctx.lineTo(s.x + 10.4, s.y + 18.4); // 꼬리 오른쪽 끝
+        ctx.lineTo(s.x + 7.4, s.y + 11.8); // 꼬리에서 돌아오는 곳
+        ctx.lineTo(s.x + 12.4, s.y + 11.8); // 오른쪽 날개
         ctx.closePath(); // 닫기
+        ctx.fillStyle = c.color; // 그 사람의 색
         ctx.fill(); // 화살표 채우기
-        this.drawLabel(ctx, s.x + 12, s.y + 12, c.display_name || '', c.color); // 이름표
+        ctx.strokeStyle = '#ffffff'; // 흰 테두리(어떤 그림 위에서도 보이게)
+        ctx.lineWidth = 1.5; // 테두리 굵기
+        ctx.lineJoin = 'round'; // 모서리 둥글게
+        ctx.stroke(); // 테두리
+        this.drawLabel(ctx, s.x + 13, s.y + 20, c.display_name || '', c.color); // 이름표
+        ctx.restore(); // 커서 스타일 끝
     }
 }
 
 BoardCanvas.VIDEO_BAR = 28; // 영상 카드 제목 막대 높이(월드 단위)
+BoardCanvas.CURSOR_IDLE_MS = 5000; // 이만큼 움직이지 않은 타인 커서는 흐리게 그림
+BoardCanvas.CURSOR_EASE_MS = 50; // 타인 커서가 알려 온 위치로 다가가는 빠르기(작을수록 빠름)
+BoardCanvas.outlinePad = (level) => 4 + level * 4; // 객체와 테두리 사이 여백(화면 px). 겹이 늘 때마다 4px 씩 바깥
+
+// 색 바탕 위에 올릴 글자 색: 밝은 바탕에는 어두운 글자, 어두운 바탕에는 흰 글자
+BoardCanvas.inkOn = (color) =>
+{
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color || ''); // #rrggbb 만 계산
+    const light = m ? (parseInt(m[1], 16) * 299 + parseInt(m[2], 16) * 587 + parseInt(m[3], 16) * 114) / 1000 : 0; // 눈에 보이는 밝기(0~255)
+    return light > 170 ? '#111827' : '#ffffff'; // 기준보다 밝으면 어두운 글자
+};
 BoardCanvas.RESIZABLE = ['rect', 'ellipse', 'image', 'video', 'task', 'note']; // 크기 조절 핸들을 표시할 객체 유형
 BoardCanvas.NOTE = { font: 16, line: 22, pad: 10 }; // 메모 기본 글자 크기·그때의 줄 높이·안쪽 여백(월드 단위)
 

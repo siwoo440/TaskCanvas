@@ -382,7 +382,7 @@ async function rehearse(browser, env)
         return '참여자 4명(관리자 1·편집자 3), B 는 초대 링크로 입장';
     });
 
-    await step('2', '보드 열기와 커서', async () =>
+    await step('2', '보드 열기, 커서와 선택 표시', async () =>
     {
         for (const page of pages)
         {
@@ -396,7 +396,18 @@ async function rehearse(browser, env)
             await pages[i].mouse.move(spot.from.x, spot.from.y, { steps: 6 }); // 커서 위치 공유
         }
         await all(pages, (p) => waitOn(p, '다른 사람 커서 3개', () => canvas.cursors.size === 3)); // 서로의 커서
-        return '4대 모두 참여자 4명과 서로의 커서 3개 표시';
+
+        // B 가 메모를 눌러 고르면 나머지 3대에 B 의 이름으로 표시되고, Esc 로 풀면 사라진다
+        const picked = await findObject(b, '아이디어'); // B 가 고를 메모
+        expect(picked !== null, '예시 보드의 초록 메모를 찾지 못했습니다.'); // 예시가 바뀐 경우
+        const pickAt = await centerOf(b, '아이디어'); // 메모 가운데
+        await b.click('#toolbar [data-tool="select"]'); // B 는 선택 도구
+        await b.mouse.click(pickAt.x, pickAt.y); // 눌러서 선택
+        await all([a, c, d], (p) => waitOn(p, 'B 가 고른 메모의 표시', (id, name) => [...canvas.selections.values()].some((s) => s.display_name === name && s.object_ids.length === 1 && s.object_ids[0] === id) && canvas.locks.size === 0, picked.id, NAMES.b)); // 다른 화면의 표시(누르는 동안의 잠금은 풀린 뒤)
+        expect((await b.evaluate(() => canvas.selections.size)) === 0, 'B 자신의 화면에 남의 선택으로 표시되었습니다.'); // 내 선택은 내 화면에서 남의 것으로 그리지 않음
+        await b.keyboard.press('Escape'); // 선택 해제
+        await all([a, c, d], (p) => waitOn(p, 'B 의 선택 표시 사라짐', () => canvas.selections.size === 0)); // 표시 제거
+        return '4대 모두 참여자 4명과 서로의 커서 3개 표시. B 가 고른 메모가 3대에 B 의 이름으로 표시되고 풀면 사라짐';
     });
 
     await step('3', '펜 — 그리는 중 표시', async () =>

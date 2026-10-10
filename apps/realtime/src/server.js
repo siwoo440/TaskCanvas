@@ -8,6 +8,7 @@ const db = require('./db'); // DB 연결 확인용
 const boardHandler = require('./handlers/board'); // 보드 참여
 const projectHandler = require('./handlers/project'); // 작업실 연결
 const cursorHandler = require('./handlers/cursor'); // 커서 중계
+const selectionHandler = require('./handlers/selection'); // 선택 표시 중계
 const strokeHandler = require('./handlers/stroke'); // 펜 중계·저장
 const objectHandler = require('./handlers/object'); // 객체 생성
 const editHandler = require('./handlers/edit'); // 잠금·이동·삭제
@@ -43,6 +44,7 @@ io.on('connection', (socket) =>
     boardHandler.register(io, socket); // board:join·disconnect
     projectHandler.register(io, socket); // project:join
     cursorHandler.register(io, socket); // cursor:move
+    selectionHandler.register(io, socket); // selection:set
     strokeHandler.register(io, socket); // stroke:preview·commit
     objectHandler.register(io, socket); // object:create
     editHandler.register(io, socket); // object:lock·preview·commit·delete·unlock

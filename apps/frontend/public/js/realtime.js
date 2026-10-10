@@ -68,6 +68,7 @@ class Realtime
         });
         socket.on('presence:update', (data) => this.handlers.onPresence(data.participants)); // 참여자 갱신
         socket.on('cursor:move', (data) => this.handlers.onCursor(data)); // 타인 커서
+        socket.on('selection:update', (data) => this.handlers.onSelection(data)); // 타인 선택
         socket.on('stroke:preview', (data) => this.handlers.onStrokePreview(data)); // 타인 펜 미리보기
         socket.on('object:created', (data) => this.handlers.onObjectCreated(data.object, data.guest_id)); // 확정 객체
         socket.on('object:locked', (data) => this.handlers.onObjectLocked(data)); // 타인 잠금

@@ -1,13 +1,13 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·선택 표시·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
 const path = require('path'); // 경로 계산
 const puppeteer = require('puppeteer-core'); // 설치된 브라우저 조작(브라우저를 내려받지 않음)
-const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
+const { ROOT, wait, findChrome, waitFor, startServers, phpCli, newUser, joinWorkspace, openBoard, screenPoint, findObject, centerOf, waitTaskBoard, taskCards, dragCard } = require('./lib/browser-kit'); // 리허설 스크립트와 함께 쓰는 도우미
 
 const OUT = path.join(ROOT, 'assets', 'screenshots'); // 캡처 저장 폴더
 const API_PORT = Number(process.env.CAP_API_PORT || 8082); // 캡처용 PHP 포트
@@ -164,15 +164,34 @@ async function capture(browser, env)
     await openBoard(a, '기획 보드'); // 관리자 입장
     await a.waitForFunction(() => document.querySelectorAll('#participants li').length === 2); // 참여자 2명 표시 대기
     const cursorAt = await screenPoint(b, 660, 500); // 편집자 커서를 둘 곳(빈 영역)
-    await b.mouse.move(cursorAt.x - 40, cursorAt.y - 30); // 커서 이동 시작
-    await b.mouse.move(cursorAt.x, cursorAt.y, { steps: 8 }); // 커서 위치 공유
+
+    // 실제 입력 확인: 편집자가 메모를 눌러 고르면 관리자 화면에 그 사람의 이름과 색으로 표시되고, 풀면 사라지는지
+    await b.click('#toolbar [data-tool="select"]'); // 편집자는 선택 도구
+    const picked = await findObject(b, '아이디어'); // 고를 메모
+    const pickAt = await centerOf(b, '아이디어'); // 메모 가운데
+    await b.mouse.move(pickAt.x - 40, pickAt.y - 30); // 커서 이동 시작
+    await b.mouse.move(pickAt.x, pickAt.y, { steps: 8 }); // 메모 위로(커서 위치 공유)
+    await b.mouse.click(pickAt.x, pickAt.y); // 눌러서 선택
+    await b.mouse.move(pickAt.x + 46, pickAt.y + 28, { steps: 4 }); // 커서를 조금 비켜 둠
     await a.mouse.move(640, 20); // 관리자 마우스는 상단으로 치움
-    await a.waitForFunction(() => canvas.cursors.size === 1); // 상대 커서 표시 대기
+    const shownTo = (id) => a.evaluate((oid) =>
+    {
+        const mine = state.guest.guest_id; // 관리자 자신
+        const other = participants.find((p) => p.guest_id !== mine); // 편집자
+        const sel = other ? canvas.selections.get(other.guest_id) : null; // 관리자 화면에 표시된 편집자의 선택
+        return { cursors: canvas.cursors.size, named: !!sel && sel.display_name === other.display_name && sel.color === other.color, ids: sel ? sel.object_ids : [], mineSelected: canvas.selectedIds.has(oid) };
+    }, id); // 관리자 화면의 표시 상태
+    await a.waitForFunction((id) => canvas.cursors.size === 1 && canvas.locks.size === 0 && [...canvas.selections.values()].some((s) => s.object_ids.includes(id)), {}, picked.id); // 상대 커서와 선택 표시 대기(누르는 동안의 잠금은 풀린 뒤)
+    const whilePicked = await shownTo(picked.id); // 고른 동안
     await wait(200); // 그리기 여유
-    await shot(a, '05-board'); // 화이트보드 전체(상대 커서 포함)
+    await shot(a, '05-board'); // 화이트보드 전체(상대 커서와 상대가 고른 메모 포함)
+    await b.keyboard.press('Escape'); // 편집자가 선택을 풂
+    await a.waitForFunction(() => canvas.selections.size === 0); // 표시 사라짐
+    const afterEscape = await shownTo(picked.id); // 푼 뒤
+    check('선택 표시: 다른 사람이 고른 메모가 그 사람의 이름과 색으로 표시되고, 풀면 사라짐', whilePicked.cursors === 1 && whilePicked.named && whilePicked.ids.length === 1 && whilePicked.ids[0] === picked.id
+        && !whilePicked.mineSelected && afterEscape.ids.length === 0 && afterEscape.cursors === 1);
 
     // 5) 선점 잠금: 편집자가 메모를 잡고 끄는 동안 관리자 화면
-    await b.click('#toolbar [data-tool="select"]'); // 선택 도구
     const grab = await centerOf(b, '이번 주 할 일'); // 잡을 메모
     await b.mouse.move(grab.x, grab.y); // 메모 위로
     await b.mouse.down(); // 잡기(잠금 요청)
@@ -184,6 +203,8 @@ async function capture(browser, env)
     await b.mouse.move(grab.x, grab.y, { steps: 6 }); // 제자리로 되돌림
     await b.mouse.up(); // 놓기(이동 없음 → 잠금만 해제)
     await a.waitForFunction(() => canvas.locks.size === 0); // 잠금 해제 대기
+    await b.keyboard.press('Escape'); // 잡았던 메모의 선택을 풂(뒤의 화면에 선택 표시가 남지 않게)
+    await a.waitForFunction(() => canvas.selections.size === 0); // 표시 사라짐
     await b.mouse.move(cursorAt.x, cursorAt.y); // 커서를 빈 곳으로
 
     // 6) 공유 업무 블럭 선택 → 오른쪽 업무 패널

@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC28 과 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC29 와 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -612,6 +612,39 @@ async function run(envInfo)
     record('AC28', '참여자 따라가기', cursorRelayed !== null && cursorRelayed.x === 321 && !!listedB && !!listedB.cursor && listedB.cursor.x === 321 && listedB.cursor.y === -45
         && !!listedSelf && listedSelf.cursor === null && !!updateB && !!updateB.cursor && updateB.cursor.x === 321 && joinedList.every((p) => p.socket_id === undefined),
         '참여자의 마지막 커서 위치가 나중에 들어온 사람의 참여자 목록과 목록 갱신에 실림, 움직인 적 없는 사람은 null (화면 동작은 리허설 10번이 확인)');
+
+    // AC29 참여자 선택 표시(서버 쪽): 고른 객체·연결선을 알리면 같은 보드의 참여자에게만 전달되고, 나중에 들어온 사람의 참여자 목록에도 실린다
+    const pick = [target.object_id, n1.object_id]; // B 가 고를 객체 둘
+    const pickLink = linkCreate.link.link_id; // B 가 고를 연결선 번호(서버는 번호 형식만 보고 전달)
+    const selSeen = until(C2.socket, 'selection:update', (d) => d.guest_id === B.guestId); // 같은 보드의 참여자가 받을 선택
+    const selElsewhere = once(C.socket, 'selection:update', 600); // 다른 보드의 참여자는 받지 않아야 함
+    const selSet = await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: [...pick, pick[0]], link_id: pickLink }); // B 가 선택을 알림(같은 번호를 두 번 넣어 봄)
+    const selUpdate = await selSeen; // 수신
+    const selLeaked = await selElsewhere; // 다른 보드로 새지 않았는지
+    const picker = await enter('AC-Picker', editorCode, boardA); // B 가 고른 뒤에 들어온 사람
+    const pickerList = picker.reply.ok ? picker.reply.participants : []; // 들어온 사람이 받은 목록
+    const pickedB = pickerList.find((p) => p.guest_id === B.guestId); // 목록의 B
+    const pickedSelf = pickerList.find((p) => p.guest_id === picker.guestId); // 목록의 자기 자신(아무것도 고르지 않음)
+    const selBad = [
+        await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: 'x', link_id: null }), // 목록이 아님
+        await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: [1.5], link_id: null }), // 번호가 정수가 아님
+        await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: Array.from({ length: 201 }, (_, i) => i + 1), link_id: null }), // 한 번에 200개를 넘김
+        await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: [], link_id: 'a' }), // 연결선 번호가 숫자가 아님
+    ]; // 형식이 잘못된 요청들
+    const selWrongBoard = await ack(B.socket, 'selection:set', { board_id: boardB, object_ids: [], link_id: null }); // 참여하지 않은 보드
+    const selCleared = until(C2.socket, 'selection:update', (d) => d.guest_id === B.guestId && d.object_ids.length === 0); // 선택을 풀 때의 전달
+    await ack(B.socket, 'selection:set', { board_id: boardA, object_ids: [], link_id: null }); // B 가 선택을 풂
+    const selEmpty = await selCleared; // 수신
+    const pickerGone = until(C2.socket, 'presence:update', (d) => !d.participants.some((p) => p.guest_id === picker.guestId)); // 고른 사람이 나갈 때의 목록 갱신
+    await ack(picker.socket, 'selection:set', { board_id: boardA, object_ids: [pick[0]], link_id: null }); // 나중에 들어온 사람도 하나 고름
+    picker.socket.disconnect(); // 고른 채로 나감
+    const afterLeave = await pickerGone; // 남은 참여자가 받은 목록(나간 사람과 그 선택이 함께 빠짐)
+    record('AC29', '참여자 선택 표시', selSet.ok && selUpdate !== null && selUpdate.display_name === 'AC-B' && selUpdate.color === B.reply.you.color
+        && selUpdate.object_ids.length === 2 && pick.every((id) => selUpdate.object_ids.includes(id)) && selUpdate.link_id === pickLink && selLeaked === null
+        && !!pickedB && pickedB.selection.object_ids.length === 2 && pickedB.selection.link_id === pickLink && !!pickedSelf && pickedSelf.selection.object_ids.length === 0 && pickedSelf.selection.link_id === null
+        && selBad.every((r) => r.ok === false && r.error.code === 'BAD_REQUEST') && selWrongBoard.ok === false && selWrongBoard.error.code === 'FORBIDDEN'
+        && selEmpty !== null && selEmpty.link_id === null && afterLeave !== null,
+        '고른 객체 2개와 연결선이 같은 보드의 참여자에게 이름·색과 함께 전달(같은 번호는 하나로), 다른 보드로는 전달 안 됨, 나중에 들어온 사람의 참여자 목록에도 실림, 잘못된 형식은 BAD_REQUEST, 참여하지 않은 보드는 FORBIDDEN, 풀면 빈 선택 전달 (화면 표시는 리허설 2번과 캡처가 확인)');
 
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)

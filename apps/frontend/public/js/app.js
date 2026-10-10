@@ -28,7 +28,9 @@ let noteEdit = null; // 글을 편집 중인 메모 {object, token, heartbeat, i
 let busyOps = 0; // 진행 중인 잠금 요청·확정·삭제 수(다음 잠금 요청이 앞선 작업의 반납보다 먼저 나가지 않게 한다)
 let boardDialogTarget = null; // 이름 변경·삭제 대화상자의 대상 보드
 let participants = []; // 지금 보드의 참여자 목록(실시간 서버가 알려 준 그대로)
-const lastSeen = new Map(); // guest_id → {x, y}: 다른 참여자가 마지막으로 있던 곳(커서는 5초 멈추면 화면에서 사라지지만 위치는 기억)
+const lastSeen = new Map(); // guest_id → {x, y}: 다른 참여자가 마지막으로 있던 곳(따라가기가 찾아갈 자리)
+let sentSelection = ''; // 서버에 마지막으로 알린 내 선택의 서명(같은 내용을 다시 보내지 않기 위함, 빈 문자열: 선택 없음)
+let selectionTimer = 0; // 선택 알림 예약 타이머
 const follow = { guestId: null, armed: null }; // 계속 따라가는 참여자, 방금 그 사람 자리로 한 번 이동한 참여자(한 번 더 누르면 따라가기 시작)
 
 // 앞선 잠금 요청·확정이 모두 끝날 때까지 기다린다. 같은 객체를 연달아 잠글 때 서버에 도착하는 순서를 보장하기 위함
@@ -925,6 +927,7 @@ async function openBoard(board, resumeView = null)
         attachNoteEditor(); // 메모 글 입력 연결
         attachMediaInputs(); // 이미지·영상 입력 연결
         canvas.tasks = state.tasks; // 업무 블럭 렌더링용 공유 Map
+        canvas.onSelectionChange = announceSelection; // 지워진 객체가 내 선택에서 빠지면 다른 참여자에게도 알림
         attachTaskInputs(); // 업무 블럭 입력 연결
         attachLinkInputs(); // 연결선 입력 연결
     }
@@ -1039,7 +1042,7 @@ function renderParticipants(list)
     renderFollowBanner(); // 따라가는 중 안내 갱신
     if (canvas)
     {
-        canvas.removeCursorsExcept(list.map((p) => p.guest_id)); // 퇴장자 커서 제거
+        canvas.syncParticipants(list, state.guest ? state.guest.guest_id : null); // 나간 사람의 커서·선택 제거, 다른 사람의 선택과 마지막 위치 표시
     }
 }
 
@@ -1252,6 +1255,40 @@ function setSelection(ids, linkId = null)
     updateSelectionInfo(); // 안내 갱신
     refreshTaskProps(); // 업무 패널 갱신
     refreshLinkProps(); // 연결선 패널 갱신
+    announceSelection(); // 다른 참여자 화면에 내 선택 표시
+}
+
+// ---------- 내 선택을 다른 참여자에게 알리기 ----------
+
+function selectionSignature()
+{
+    const ids = [...canvas.selectedIds].sort((x, y) => x - y).join(','); // 고른 객체 번호(순서 무관)
+    return ids + (canvas.selectedLinkId !== null ? '|' + canvas.selectedLinkId : ''); // 연결선까지 포함한 서명
+}
+
+// 선택이 바뀔 때마다 부른다. 영역 선택처럼 연달아 바뀌는 경우를 묶어 잠시 뒤 한 번만 보낸다
+function announceSelection()
+{
+    if (!selectionTimer)
+    {
+        selectionTimer = setTimeout(flushSelection, 80); // 묶음 전송 예약
+    }
+}
+
+function flushSelection()
+{
+    selectionTimer = 0; // 타이머 해제
+    if (!canvas || !realtime || !realtime.joined || realtime.boardId === null)
+    {
+        return; // 보드에 연결되지 않음(연결되면 onJoined 가 다시 알림)
+    }
+    const signature = selectionSignature(); // 지금 선택
+    if (signature === sentSelection)
+    {
+        return; // 서버가 이미 아는 내용
+    }
+    sentSelection = signature; // 알린 내용 기록
+    realtime.emit('selection:set', { board_id: boardId(), object_ids: [...canvas.selectedIds].slice(0, 200), link_id: canvas.selectedLinkId }); // 고른 객체들과 연결선(서버가 받는 최대 200개까지)
 }
 
 // 속성 패널을 선택한 객체의 스타일로 맞춘다. 패널이 실제 값을 보여 줘야 한 항목만 바꿔도 나머지가 유지된다
@@ -2881,6 +2918,8 @@ const realtimeHandlers = {
             toast('재접속되었습니다. 마지막 저장 상태를 불러왔습니다.'); // 안내
         }
         canvas.setLocks(reply.locks); // 현재 잠금 표시
+        sentSelection = ''; // 새 연결의 서버는 내 선택을 모름
+        announceSelection(); // 이미 고른 것이 있으면(재접속) 다시 알림
     },
     onJoinError: (err) =>
     {
@@ -2904,6 +2943,7 @@ const realtimeHandlers = {
         canvas.setCursor(data); // 타인 커서
         noteCursor(data); // 위치 기억, 따라가는 대상이면 화면 이동
     },
+    onSelection: (data) => canvas.setRemoteSelection(data), // 타인이 고른 객체·연결선
     onStrokePreview: (data) => canvas.applyPreview(data), // 타인 펜 미리보기
     onObjectCreated: (object) => canvas.addObject(object), // 타인 확정 객체
     onObjectLocked: (lock) =>
