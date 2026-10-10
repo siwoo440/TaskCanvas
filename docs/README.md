@@ -15,7 +15,7 @@
 | [08 실시간 계약](08-realtime-contract.md) | Socket.IO 이벤트·잠금·저장·복원 |
 | [09 이미지·미디어](09-media-handling.md) | 업로드 10MB·임베드·보안 |
 | [10 역할과 일정](10-wbs-timeline.md) | A~D 담당·W01~W22·3주 일정, 단계별 구현 기록과 이후 단계 계획 |
-| [11 수용 테스트](11-acceptance-tests.md) | AC01~AC30 통과 조건과 결과, 보안 점검, 자동 리허설 |
+| [11 수용 테스트](11-acceptance-tests.md) | AC01~AC32 통과 조건과 결과, 보안 점검, 자동 리허설 |
 | [12 위험·보안](12-risks-security.md) | 주요 장애 요소·대체 계획 |
 | [13 발표 자료](13-presentation-plan.md) | 14장 개정판 구성, 이전 12장/10장 자료, 발표 전에 손볼 곳 |
 | [14 미결정 사항](14-open-decisions.md) | 개발 전에 정하려던 항목과 지금의 결정·제안 |

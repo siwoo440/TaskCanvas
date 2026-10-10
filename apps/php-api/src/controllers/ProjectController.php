@@ -1,5 +1,5 @@
 <?php
-// 작업실(프로젝트) 직접 만들기·이름 변경, 참여자·공유 업무 조회
+// 작업실(프로젝트) 직접 만들기·이름 변경·삭제, 참여자·공유 업무 조회
 declare(strict_types=1);
 
 final class ProjectController
@@ -66,6 +66,54 @@ final class ProjectController
         }
         Database::run('UPDATE projects SET title = ? WHERE project_id = ?', [$title, $projectId]); // 이름 변경
         Response::ok(['project' => ['project_id' => $projectId, 'title' => $title]]); // 변경 응답(다른 참여자는 다음에 작업실을 열 때 새 이름을 봄)
+    }
+
+    // 작업실 삭제(관리자): 보드·객체·연결선·업무·초대 코드·참여 기록과 이 작업실이 올린 이미지 파일을 모두 지운다. 되돌릴 수 없다
+    public function delete(Request $request): void
+    {
+        Auth::requireMutationHeader($request); // CSRF 헤더 검사
+        $guest = Auth::requireGuest($request); // 현재 게스트
+        $projectId = $request->params['id']; // 작업실 ID
+        Auth::requireRole((int) $guest['guest_id'], $projectId, 'admin'); // 관리자만
+        if (!Env::bool('ALLOW_WORKSPACE_DELETE'))
+        {
+            throw new ApiException(403, 'DELETE_DISABLED', '이 서버에서는 작업실을 지울 수 없습니다.'); // 서버 설정으로 꺼 둠
+        }
+        $project = Database::one('SELECT title FROM projects WHERE project_id = ?', [$projectId]); // 지울 작업실
+        if ($request->string('confirm_title', 120) !== $project['title'])
+        {
+            throw new ApiException(400, 'CONFIRM_MISMATCH', '작업실 이름이 일치하지 않습니다. 지울 작업실의 이름을 그대로 입력해야 합니다.'); // 실수로 지우는 것을 막는 확인
+        }
+        $files = array_column(Database::all('SELECT stored_path FROM media_assets WHERE project_id = ?', [$projectId]), 'stored_path'); // 이 작업실이 올린 이미지(기록이 지워지기 전에 적어 둠)
+        $memberIds = array_map('intval', array_column(Database::all('SELECT guest_id FROM project_members WHERE project_id = ?', [$projectId]), 'guest_id')); // 참여자들
+
+        $pdo = Database::pdo(); // 트랜잭션용 PDO
+        $pdo->beginTransaction(); // 작업실과 그 참여자 정리는 함께 되거나 함께 취소
+        try
+        {
+            Database::run('DELETE FROM projects WHERE project_id = ?', [$projectId]); // 작업실 삭제(참여 기록·초대 코드·보드·객체·연결선·업무·체크리스트·이미지 기록·접속 티켓은 외래키로 함께 삭제)
+            if ($memberIds !== [])
+            {
+                $marks = implode(', ', array_fill(0, count($memberIds), '?')); // 참여자 수만큼의 자리표
+                Database::run(
+                    "DELETE g FROM guests g LEFT JOIN project_members m ON m.guest_id = g.guest_id
+                      WHERE g.guest_id IN ({$marks}) AND m.guest_id IS NULL",
+                    $memberIds
+                ); // 다른 작업실에 속하지 않은 게스트는 세션과 함께 삭제(남의 브라우저에 남은 세션으로 더는 들어올 수 없음)
+            }
+            $pdo->commit(); // 확정
+        }
+        catch (Throwable $e)
+        {
+            $pdo->rollBack(); // 실패 시 전부 취소
+            throw $e;
+        }
+        $removed = Storage::removeProjectFiles($projectId, $files); // DB 에서 지워진 것이 확정된 뒤에 파일 삭제(이 작업실의 것만)
+        if (Database::one('SELECT guest_id FROM guests WHERE guest_id = ?', [(int) $guest['guest_id']]) === null)
+        {
+            Auth::destroySession($request); // 지운 사람의 게스트도 함께 정리되었으면 브라우저의 세션 쿠키를 지움
+        }
+        Response::ok(['deleted' => true, 'project_id' => $projectId, 'removed_files' => $removed]); // 삭제 응답(접속 중인 다른 참여자에게는 실시간 서버가 알림)
     }
 
     public function members(Request $request): void

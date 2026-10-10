@@ -93,6 +93,7 @@ Alias /api "C:/경로/TaskCanvas/apps/php-api/public"
 - 입장 성공 시 세션 토큰은 **HttpOnly·SameSite=Strict 쿠키(`tc_session`)** 로만 전달됩니다. 응답 JSON에는 토큰이 없습니다.
 - 실시간 티켓(`POST /api/realtime-ticket`)은 60초 유효·일회용이며 DB에는 해시만 저장됩니다. Node.js 서버가 `realtime_tickets` 테이블로 검증합니다. `{board_id}` 를 보내면 그 보드에 참여하는 티켓, `{project_id}` 를 보내면 작업실의 업무 현황판이 쓰는 작업실 연결용 티켓이 나옵니다. 둘 중 하나만 보내야 하고, 두 티켓은 서로 바꿔 쓸 수 없습니다.
 - 같은 프로젝트에 같은 표시 이름으로 다시 입장하면 기존 게스트와 역할을 재사용합니다(MVP 단순화).
+- 작업실 삭제(`POST /api/projects/{id}/delete`)는 관리자만 할 수 있고 본문의 `confirm_title` 이 작업실 이름과 같아야 합니다. `projects` 행을 지우면 나머지는 외래키로 함께 지워지고, 다른 작업실에 속하지 않은 게스트도 세션과 함께 지웁니다. 이미지 파일은 DB 가 확정된 뒤 `Storage::removeProjectFiles` 가 그 작업실의 기록에 있던 것만 지웁니다. `.env` 의 `ALLOW_WORKSPACE_DELETE=0` 이면 403(`DELETE_DISABLED`)입니다.
 - 작업실 직접 만들기(`POST /api/projects`)는 초대 코드 없이 게스트·작업실·첫 보드를 만들고 만든 사람을 관리자로 입장시킵니다. 응답의 `owner_code` 는 만든 사람의 재입장 전용 코드(90일)이며 이 응답에서만 원문이 나갑니다. `.env` 의 `ALLOW_WORKSPACE_CREATE=0` 으로 끌 수 있습니다(403 `CREATE_DISABLED`).
 - 같은 이름으로 다시 입장하면 기존 참여자와 역할을 그대로 쓰지만, 코드의 역할이 그 참여자의 역할보다 낮으면 거부합니다(403 `NAME_IN_USE`). 재입장 전용 코드에 새 이름을 쓰면 401 `REENTRY_ONLY` 입니다.
 - 입장과 작업실 만들기 요청은 합쳐서 같은 IP 에서 10분에 20회(`RATE_LIMIT`, `RATE_WINDOW`)로 제한됩니다. 거부된 입장도 횟수에 들어갑니다. 입장 요청 20번 중 1번꼴로 만료 세션·티켓·시도 기록을 정리합니다.

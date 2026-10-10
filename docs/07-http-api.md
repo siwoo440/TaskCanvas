@@ -9,6 +9,7 @@
 | POST | `/api/guest/join` | 표시 이름+초대 코드 검증 후 세션 발급 | 공개(요청 제한 필요) |
 | POST | `/api/projects` | 작업실 직접 만들기 `{display_name, title}`. 게스트·작업실·첫 보드를 만들고 만든 사람을 관리자로 입장시킴. 응답 `{guest, project, board, owner_code, owner_code_days}` — 재입장 코드 원문은 이 응답에서 한 번만 | 공개(요청 제한, `ALLOW_WORKSPACE_CREATE=0` 이면 403) |
 | POST | `/api/projects/{id}/rename` | 작업실 이름 변경 `{title}` | 관리자 |
+| POST | `/api/projects/{id}/delete` | 작업실 삭제 `{confirm_title}`. 작업실 이름을 그대로 보내야 함. 보드·객체·업무·초대 코드·참여 기록과 그 작업실이 올린 이미지 파일을 지움. 응답 `{deleted, project_id, removed_files}`. 되돌릴 수 없음 | 관리자(`ALLOW_WORKSPACE_DELETE=0` 이면 403) |
 | POST | `/api/guest/leave` | 게스트 세션 종료 | 참여자 |
 | GET | `/api/me` | 현재 세션의 게스트와 참여 프로젝트·역할 | 참여자 |
 | POST | `/api/realtime-ticket` | Socket.IO 단기 접속 티켓 발급. `{board_id}` 는 보드 참여용, `{project_id}` 는 작업실 연결용. 둘 중 하나만 보냄(둘 다 있거나 없으면 400) | 참여자 |
@@ -78,6 +79,8 @@
 | `REENTRY_ONLY` | 재입장 전용 코드에 아직 참여하지 않은 이름을 씀(401) |
 | `NAME_IN_USE` | 코드의 역할보다 높은 권한의 참여자가 쓰는 이름으로 입장 시도(403) |
 | `CREATE_DISABLED` | 서버 설정으로 작업실 직접 만들기를 꺼 둠(403) |
+| `DELETE_DISABLED` | 서버 설정으로 작업실 삭제를 꺼 둠(403) |
+| `CONFIRM_MISMATCH` | 작업실 삭제 요청의 `confirm_title` 이 작업실 이름과 다름(400) |
 | `FORBIDDEN` | 프로젝트/보드 접근 권한 없음 |
 | `OBJECT_LOCKED` | 타 사용자 잠금 존재 |
 | `VERSION_CONFLICT` | 객체 버전 충돌 |

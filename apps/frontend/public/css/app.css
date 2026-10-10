@@ -415,6 +415,10 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
 .board-actions { display: flex; gap: 14px; padding: 0 6px; }
 .board-actions .text-link { font-size: 13px; }
 .text-link.danger-link { color: var(--danger); }
+.text-link.danger-link:disabled { color: var(--muted); text-decoration: none; }
+.push-left { margin-right: auto; } /* 버튼 줄에서 혼자 왼쪽 끝에 두는 버튼(업무 삭제) */
+.notice.home-notice { margin: 20px 0 0; } /* 소개 화면 맨 위의 알림(작업실이 삭제된 뒤). 뒤에 나오는 .notice 의 여백 0 보다 우선 */
+#task-delete { align-self: flex-start; font-size: 13px; }
 .notice { margin: 0; padding: 10px 14px; border-radius: 8px; background: #fef3c7; border: 1px solid #fde68a; color: #92400e; font-size: 14px; }
 .board-grid .empty { color: var(--muted); padding: 14px 0; grid-column: 1 / -1; }
 .member-row { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }

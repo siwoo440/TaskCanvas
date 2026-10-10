@@ -45,7 +45,7 @@ C:/xampp/mysql/bin/mysql.exe -u root < database/schema.sql
 
 ### 2-2. 설정 파일
 
-`apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다. 접속한 사람이 소개 화면에서 작업실을 직접 만들지 못하게 하려면 `apps/php-api/.env` 에 `ALLOW_WORKSPACE_CREATE=0` 을 적습니다(기본은 허용).
+`apps/php-api/.env.example` → `apps/php-api/.env`, `apps/realtime/.env.example` → `apps/realtime/.env` 로 복사합니다. 시연 중에 누가 실수로 작업실을 지우는 일을 막고 싶으면 `apps/php-api/.env` 에 `ALLOW_WORKSPACE_DELETE=0` 을 넣습니다(화면의 작업실 삭제가 거부됨). 기본값(root, 비밀번호 없음, 3306)은 XAMPP 기본 설치와 같습니다. 시연 후 DB 비밀번호를 설정했다면 두 파일의 `DB_PASS` 를 같이 바꿉니다. 접속한 사람이 소개 화면에서 작업실을 직접 만들지 못하게 하려면 `apps/php-api/.env` 에 `ALLOW_WORKSPACE_CREATE=0` 을 적습니다(기본은 허용).
 
 `apps/realtime/.env` 의 `CORS_ORIGIN` 은 `auto`(기본)로 둡니다. 실시간 서버와 같은 주소(같은 IP)에서 열린 화면만 붙을 수 있고, 서버 IP 가 바뀌어도 고칠 필요가 없습니다.
 

@@ -18,6 +18,7 @@ $router->add('GET', '/api/me', [GuestController::class, 'me']); // 현재 세션
 $router->add('POST', '/api/realtime-ticket', [TicketController::class, 'issue']); // 실시간 티켓 발급
 $router->add('POST', '/api/projects', [ProjectController::class, 'create']); // 작업실 직접 만들기(초대 코드 없이, 만든 사람이 관리자)
 $router->add('POST', '/api/projects/{id}/rename', [ProjectController::class, 'rename']); // 작업실 이름 변경(관리자)
+$router->add('POST', '/api/projects/{id}/delete', [ProjectController::class, 'delete']); // 작업실 삭제(관리자, 되돌릴 수 없음)
 $router->add('GET', '/api/projects/{id}/boards', [BoardController::class, 'list']); // 보드 목록
 $router->add('POST', '/api/projects/{id}/boards', [BoardController::class, 'create']); // 보드 생성
 $router->add('GET', '/api/boards/{id}/snapshot', [BoardController::class, 'snapshot']); // 보드 스냅샷

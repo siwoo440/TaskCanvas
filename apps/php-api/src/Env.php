@@ -18,6 +18,7 @@ final class Env
         'RATE_LIMIT' => '20',
         'RATE_WINDOW' => '600',
         'ALLOW_WORKSPACE_CREATE' => '1',
+        'ALLOW_WORKSPACE_DELETE' => '1',
         'COOKIE_SECURE' => '0',
         'APP_DEBUG' => '0',
         'UPLOAD_DIR' => 'storage/uploads',

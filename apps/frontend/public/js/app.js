@@ -23,6 +23,7 @@ let workspaceOnline = false; // 작업실 연결이 참여까지 끝났는지(�
 let taskBoard = null; // TaskBoard(작업실의 업무 현황판)
 let workspaceTaskTarget = null; // 업무 대화상자에서 고치는 업무(null 이면 새 업무)
 let workspaceChecklist = null; // 업무 대화상자의 체크리스트
+let taskDeleteTarget = null; // 삭제 확인 대화상자가 가리키는 업무
 let taskChecklist = null; // 보드의 업무 패널에 있는 체크리스트
 let shownTaskKey = null; // 업무 패널의 입력란에 채워 둔 업무("번호:버전"). 같은 업무·같은 버전이면 적는 중인 값을 덮어쓰지 않음
 let overlay = null; // VideoOverlay
@@ -213,6 +214,7 @@ function setHomeMode(member)
 
 function showIntro()
 {
+    $('home-notice').hidden = true; // 이전 알림은 지움(작업실이 삭제된 직후에만 다시 띄움)
     setHomeMode(false); // 소개 구성
     showView('home'); // 홈 화면
     window.scrollTo(0, 0); // 맨 위부터 표시
@@ -220,6 +222,7 @@ function showIntro()
 
 function showJoin()
 {
+    $('home-notice').hidden = true; // 소개 화면의 알림은 다른 화면으로 넘어가면 지움
     showView('join'); // 입장 화면
     if (pendingInviteCode)
     {
@@ -232,6 +235,7 @@ function showJoin()
 
 function showCreate()
 {
+    $('home-notice').hidden = true; // 소개 화면의 알림은 다른 화면으로 넘어가면 지움
     showView('create'); // 작업실 만들기 화면
     $('create-error').textContent = ''; // 오류 초기화
     $('create-name').focus(); // 이름 입력 포커스
@@ -296,6 +300,7 @@ async function openWorkspace()
     $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
     $('ws-summary').textContent = state.guest.display_name + (canEdit() ? ' 님, 보드를 골라 작업을 이어가세요.' : ' 님은 열람자로 입장했습니다. 보드를 열어 볼 수 있습니다.'); // 안내 문구
     $('ws-rename').hidden = state.project.role !== 'admin'; // 작업실 이름 변경은 관리자만
+    $('ws-delete').hidden = state.project.role !== 'admin'; // 작업실 삭제도 관리자만(서버도 따로 검사)
     renderOwnerCode(); // 방금 만든 작업실이면 재입장 코드 안내
     $('board-create-form').hidden = !canEdit(); // 열람자는 생성 불가
     $('boards-error').textContent = ''; // 오류 초기화
@@ -352,6 +357,73 @@ $('ws-owner-done').addEventListener('click', () =>
 {
     ownerCode = null; // 화면에서 지움
     renderOwnerCode(); // 카드 숨김
+});
+
+// ---------- 작업실 삭제 (관리자) ----------
+
+// 작업실이 지워졌을 때(내가 지웠거나, 관리자가 지웠다는 알림을 받았을 때): 연결과 화면 상태를 모두 정리하고 소개 화면으로 돌아간다
+function leaveDeletedWorkspace(message)
+{
+    cancelMove(); // 진행 중 이동 취소
+    finishNoteEdit(false); // 메모 편집 취소
+    clearUndo(); // 실행 취소 기록 비움
+    stopFollow(); // 따라가기 해제
+    lastSeen.clear(); // 위치 기억 비움
+    if (realtime)
+    {
+        realtime.leave(); // 보드 연결 종료
+    }
+    disconnectWorkspace(); // 작업실 연결 종료
+    for (const dialog of document.querySelectorAll('dialog[open]'))
+    {
+        dialog.close(); // 열려 있던 대화상자 닫기
+    }
+    ownerCode = null; // 재입장 코드는 화면에서 지움
+    state.board = null; // 보드 비움
+    state.boards = []; // 보드 목록 비움
+    state.members = []; // 참여자 비움
+    state.tasks.clear(); // 업무 비움
+    state.guest = null; // 게스트 비움(서버에서도 세션이 지워짐)
+    state.project = null; // 작업실 비움
+    showIntro(); // 소개 화면으로
+    $('home-notice').textContent = message; // 무슨 일이 있었는지 안내
+    $('home-notice').hidden = false; // 알림 표시
+}
+
+$('ws-delete').addEventListener('click', () =>
+{
+    $('project-delete-text').textContent = "'" + state.project.title + "' 작업실을 삭제합니다."; // 확인 문구(textContent 로만 표시)
+    $('project-delete-detail').textContent = '보드 ' + state.boards.length + '개, 업무 ' + state.tasks.size + '건, 참여자 ' + state.members.length + '명의 참여 기록, 초대 코드, 올린 이미지가 모두 지워지며 되돌릴 수 없습니다. '
+        + '지금 접속해 있는 사람은 소개 화면으로 돌아가고, 이 작업실의 초대 코드와 내 코드로는 다시 들어올 수 없습니다.'; // 지워지는 것
+    $('project-delete-confirm').value = ''; // 입력 비움
+    $('project-delete-error').textContent = ''; // 오류 초기화
+    $('project-delete-submit').disabled = true; // 이름을 맞게 적어야 누를 수 있음
+    $('project-delete-dialog').showModal(); // 대화상자 열기
+    $('project-delete-confirm').focus(); // 바로 입력할 수 있게
+});
+$('project-delete-confirm').addEventListener('input', (e) =>
+{
+    $('project-delete-submit').disabled = !state.project || e.target.value.trim() !== state.project.title; // 작업실 이름과 같을 때만 삭제 버튼을 켬
+});
+$('project-delete-cancel').addEventListener('click', () => $('project-delete-dialog').close()); // 삭제 취소
+$('project-delete-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    const typed = $('project-delete-confirm').value.trim(); // 입력한 이름
+    if (!state.project || typed !== state.project.title)
+    {
+        return; // Enter 로 제출해도 이름이 맞아야 함
+    }
+    try
+    {
+        const title = state.project.title; // 안내에 쓸 이름
+        await window.api.post('/api/projects/' + state.project.project_id + '/delete', { confirm_title: typed }); // 작업실 삭제(관리자만, 서버도 이름을 다시 확인)
+        leaveDeletedWorkspace("'" + title + "' 작업실을 삭제했습니다."); // 소개 화면으로
+    }
+    catch (err)
+    {
+        $('project-delete-error').textContent = err.message; // 오류 표시
+    }
 });
 
 $('ws-rename').addEventListener('click', () =>
@@ -696,12 +768,96 @@ function openWorkspaceTask(task)
     $('ws-task-assignee').value = task && task.assignee_id !== null ? String(task.assignee_id) : ''; // 담당자
     $('ws-task-due').value = task ? (task.due_at ?? '') : ''; // 마감일
     $('ws-task-dialog-error').textContent = ''; // 오류 초기화
+    $('ws-task-delete').hidden = !task; // 삭제는 있는 업무를 고칠 때만
     $('ws-task-dialog').showModal(); // 대화상자 열기
     renderWorkspaceChecklist(); // 고치는 업무의 체크리스트(새 업무면 안내만)
     $('ws-task-title').focus(); // 바로 입력할 수 있게
 }
 
 $('ws-task-add').addEventListener('click', () => openWorkspaceTask(null)); // 새 업무
+$('ws-task-delete').addEventListener('click', () =>
+{
+    if (workspaceTaskTarget)
+    {
+        openTaskDelete(state.tasks.get(workspaceTaskTarget.task_id) ?? workspaceTaskTarget); // 삭제 확인(고치던 창 위에 뜸)
+    }
+});
+
+// ---------- 업무 삭제(작업실의 업무 대화상자·보드의 업무 패널 공용) ----------
+
+function openTaskDelete(task)
+{
+    taskDeleteTarget = task; // 지울 업무
+    $('task-delete-text').textContent = "'" + task.title + "' 업무를 삭제합니다."; // 확인 문구(textContent 로만 표시)
+    $('task-delete-error').textContent = ''; // 오류 초기화
+    $('task-delete-dialog').showModal(); // 대화상자 열기
+}
+
+// 화면에서 업무를 치운다(내가 지웠을 때와 다른 사람이 지웠다는 알림을 받았을 때 모두). 보드에서는 그 업무의 블럭도 함께 치운다
+function forgetTask(taskId, notice)
+{
+    const known = state.tasks.delete(taskId); // 목록에서 제거(이미 없었으면 false)
+    if ($('task-delete-dialog').open && taskDeleteTarget && taskDeleteTarget.task_id === taskId)
+    {
+        $('task-delete-dialog').close(); // 지우려던 업무가 이미 사라짐
+    }
+    if (state.board)
+    {
+        for (const o of canvas.objects.filter((x) => x.type === 'task' && x.task_id === taskId))
+        {
+            realtimeHandlers.onObjectDeleted(o.object_id); // 블럭 제거(블럭 삭제 알림을 놓쳐도 화면에 남지 않게)
+        }
+        canvas.invalidate(); // 다시 그리기
+        refreshTaskProps(); // 업무 패널 갱신
+        if (known && notice)
+        {
+            toast(notice, 3500); // 다른 사람이 지웠음을 안내
+        }
+        return;
+    }
+    if ($('ws-task-dialog').open && workspaceTaskTarget && workspaceTaskTarget.task_id === taskId)
+    {
+        $('ws-task-dialog').close(); // 고치던 업무가 사라짐
+        $('ws-task-error').textContent = notice ?? ''; // 왜 닫혔는지 안내(내가 지운 경우는 안내 없음)
+    }
+    renderTaskBoard(); // 현황판 갱신
+}
+
+$('task-delete-cancel').addEventListener('click', () => $('task-delete-dialog').close()); // 삭제 취소
+$('task-delete-form').addEventListener('submit', async (e) =>
+{
+    e.preventDefault(); // 대화상자 자동 닫힘 방지
+    const task = taskDeleteTarget; // 지울 업무
+    if (!task)
+    {
+        return;
+    }
+    const onBoard = !!state.board; // 보드 화면에서 지우는지
+    try
+    {
+        const link = onBoard ? realtime : workspaceLink; // 쓸 연결
+        if (!link || !link.joined)
+        {
+            throw new Error('실시간 서버에 연결되어 있지 않습니다. 연결된 뒤 다시 시도하세요.'); // 연결 전·끊김
+        }
+        await link.request('task:delete', onBoard ? { board_id: boardId(), task_id: task.task_id, request_id: nextRequestId() } : { task_id: task.task_id, request_id: nextRequestId() }); // 업무와 모든 보드의 블럭 삭제(되돌릴 수 없음)
+    }
+    catch (err)
+    {
+        if (err.code !== 'NOT_FOUND')
+        {
+            $('task-delete-error').textContent = err.message; // 오류 표시
+            return;
+        }
+        // 다른 사람이 먼저 지운 업무: 화면에서만 치우면 됨
+    }
+    $('task-delete-dialog').close(); // 닫기
+    forgetTask(task.task_id, null); // 화면에서 치움
+    if (onBoard)
+    {
+        toast("'" + task.title + "' 업무를 삭제했습니다."); // 안내
+    }
+});
 $('ws-task-cancel').addEventListener('click', () => $('ws-task-dialog').close()); // 취소
 $('ws-task-form').addEventListener('submit', async (e) =>
 {
@@ -783,6 +939,14 @@ const workspaceHandlers = {
     {
         state.tasks.set(task.task_id, task); // 보드나 다른 작업실에서 바꾼 업무
         renderTaskBoard(); // 현황판 갱신
+    },
+    onTaskDeleted: (taskId) => forgetTask(taskId, '고치던 업무를 다른 사람이 삭제했습니다.'), // 보드나 다른 작업실에서 지운 업무
+    onProjectDeleted: (data) =>
+    {
+        if (state.project && data.project_id === state.project.project_id)
+        {
+            leaveDeletedWorkspace('이 작업실은 관리자가 삭제했습니다.'); // 소개 화면으로
+        }
     },
 }; // 작업실 실시간 콜백
 
@@ -1202,6 +1366,7 @@ function applyRole()
     $('tool-task').disabled = !editable; // 열람자는 업무 블럭 추가 불가
     updateUndoButton(); // 열람자는 실행 취소 불가
     $('task-save').disabled = !editable; // 열람자는 업무 수정 불가
+    $('task-delete').disabled = !editable; // 열람자는 업무 삭제 불가
     $('props-role-note').textContent = editable ? '편집자: 그리거나 옮기면 마우스를 놓는 순간 저장됩니다.' : '열람자: 보드를 볼 수만 있습니다.'; // 안내 문구
 }
 
@@ -2782,6 +2947,15 @@ function attachTaskInputs()
     $('task-cancel').addEventListener('click', () => $('task-dialog').close()); // 취소
     $('task-form').addEventListener('submit', submitTaskDialog); // 추가
     $('task-save').addEventListener('click', saveTask); // 업무 저장
+    $('task-delete').addEventListener('click', () =>
+    {
+        const o = selectedTaskObject(); // 선택한 업무 블럭
+        const task = o ? state.tasks.get(o.task_id) : null; // 업무 원본
+        if (task && canEdit())
+        {
+            openTaskDelete(task); // 삭제 확인
+        }
+    });
     $('prop-snap').addEventListener('change', (e) => { state.snap = e.target.checked; }); // 격자 맞춤
 }
 
@@ -3074,6 +3248,18 @@ const realtimeHandlers = {
         state.tasks.set(task.task_id, task); // 다른 보드·사용자의 변경 반영
         canvas.invalidate(); // 블럭 다시 그리기
         refreshTaskProps(); // 선택 중이면 패널 갱신
+    },
+    onTaskDeleted: (taskId) =>
+    {
+        const task = state.tasks.get(taskId); // 지워진 업무(안내에 쓸 이름)
+        forgetTask(taskId, task ? "'" + task.title + "' 업무를 다른 사람이 삭제했습니다." : null); // 업무와 이 보드의 블럭을 화면에서 치움
+    },
+    onProjectDeleted: (data) =>
+    {
+        if (state.project && data.project_id === state.project.project_id)
+        {
+            leaveDeletedWorkspace('이 작업실은 관리자가 삭제했습니다.'); // 보던 보드를 닫고 소개 화면으로
+        }
     },
     onBoardRenamed: (data) =>
     {

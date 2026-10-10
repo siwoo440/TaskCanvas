@@ -701,6 +701,86 @@ async function rehearse(browser, env)
         return '객체 ' + expected.split('|').length + '개·연결선 ' + links[0] + '개가 4대와 서버에서 같고 스크립트 오류 없음';
     });
 
+    let projectDeleted = false; // 지우기 장면에서 리허설 프로젝트까지 지웠는지
+    await step('지우기', '업무 삭제와 작업실 삭제', async () =>
+    {
+        const UNPLACED = '리허설에서 만든 업무'; // 9번에서 만든 업무(보드에 놓지 않음)
+        const PLACED = 'DB 스키마 검토'; // 기획 보드에 블럭이 놓인 업무
+        const SLOW = 12000; // 작업실 삭제 알림은 실시간 서버가 5초마다 확인해 보내므로 넉넉히 기다림
+        const blockId = await a.evaluate((title) =>
+        {
+            const t = [...state.tasks.values()].find((x) => x.title === title); // 블럭이 놓인 업무
+            const o = t ? canvas.objects.find((x) => x.type === 'task' && x.task_id === t.task_id) : null; // 그 블럭
+            return o ? o.object_id : null;
+        }, PLACED); // 지워질 블럭
+        expect(blockId !== null, "기획 보드에 '" + PLACED + "' 블럭이 없습니다."); // 예시가 바뀐 경우
+
+        // B 가 작업실로 나가 현황판에서 업무 두 개를 지운다(하나는 보드에 놓이지 않은 업무, 하나는 블럭이 놓인 업무)
+        await b.click('#board-back'); // ‹ 작업실
+        await b.waitForSelector('#home-workspace', { visible: true }); // 작업실
+        await waitTaskBoard(b, 5).catch(() => { throw new Error(NAMES.b + ' 화면: 업무 현황판이 실시간으로 연결되지 않았습니다.'); }); // 카드 다섯 장과 연결 대기
+        for (const title of [UNPLACED, PLACED])
+        {
+            const at = await b.evaluate((wanted) =>
+            {
+                const card = [...document.querySelectorAll('#ws-taskboard .tb-card')].find((el) => el.querySelector('strong').textContent === wanted); // 지울 카드
+                if (!card)
+                {
+                    return null;
+                }
+                card.scrollIntoView({ block: 'center' }); // 화면 안으로
+                const r = card.getBoundingClientRect(); // 카드 위치
+                return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            }, title); // 카드 가운데
+            expect(at !== null, "현황판에 '" + title + "' 카드가 없습니다."); // 앞 장면이 바뀐 경우
+            await b.mouse.click(at.x, at.y); // 카드 누르기
+            await b.waitForSelector('#ws-task-dialog[open]'); // 업무 대화상자
+            await b.click('#ws-task-delete'); // 업무 삭제
+            await b.waitForSelector('#task-delete-dialog[open]'); // 확인 대화상자
+            await b.click('#task-delete-form button[type="submit"]'); // 삭제
+            await waitOn(b, "'" + title + "' 카드 사라짐", (wanted) => !document.getElementById('task-delete-dialog').open && !document.getElementById('ws-task-dialog').open
+                && ![...document.querySelectorAll('#ws-taskboard .tb-card strong')].some((el) => el.textContent === wanted), title); // 두 대화상자가 닫히고 카드가 없어짐
+        }
+        await all([a, c, d], (p) => waitOn(p, '보드에서 업무와 블럭 사라짐', (id, t1, t2) => ![...state.tasks.values()].some((t) => t.title === t1 || t.title === t2) && !canvas.objects.some((o) => o.object_id === id), blockId, UNPLACED, PLACED)); // 보드에 있는 세 화면
+        const saved = await a.evaluate(async (id) =>
+        {
+            const snapshot = await window.api.get('/api/boards/' + state.board.board_id + '/snapshot'); // 서버의 보드
+            const tasks = await window.api.get('/api/projects/' + state.project.project_id + '/tasks'); // 서버의 업무
+            return { block: snapshot.objects.some((o) => o.object_id === id), titles: tasks.tasks.map((t) => t.title) };
+        }, blockId); // 서버에 남은 것
+        expect(!saved.block && !saved.titles.includes(UNPLACED) && !saved.titles.includes(PLACED), '지운 업무나 블럭이 서버에 남아 있습니다.'); // 서버에서도 삭제
+        expect((await d.$eval('#task-delete', (el) => el.disabled)) === true, '열람자 화면의 업무 삭제 버튼이 켜져 있습니다.'); // 열람자는 지울 수 없음
+
+        // A 가 작업실로 나가 작업실을 지운다. 이름을 그대로 적어야 삭제 버튼이 켜진다
+        await a.click('#board-back'); // ‹ 작업실
+        await a.waitForSelector('#home-workspace', { visible: true }); // 작업실
+        const title = await a.$eval('#boards-project-title', (el) => el.textContent); // 작업실 이름
+        await a.click('#ws-delete'); // 작업실 삭제
+        await a.waitForSelector('#project-delete-dialog[open]'); // 확인 대화상자(입력 칸에 초점)
+        await a.keyboard.type(title.slice(0, -1)); // 이름을 한 글자 덜 적음
+        expect(await a.$eval('#project-delete-submit', (el) => el.disabled), '이름이 다른데 삭제 버튼이 켜졌습니다.'); // 버튼 꺼짐
+        await a.keyboard.press('Enter'); // Enter 로 제출해도
+        await wait(300); // 처리 여유
+        expect((await a.$eval('#project-delete-dialog', (el) => el.open)) && (await a.evaluate(() => window.api.get('/api/me').then(() => true, () => false))), '이름이 다른데 작업실이 지워졌습니다.'); // 지워지지 않음
+        await a.keyboard.type(title.slice(-1)); // 마지막 글자까지 적음
+        await a.click('#project-delete-submit'); // 작업실 삭제
+        const onIntro = (page, words) => page.waitForFunction((text) => !document.getElementById('view-home').hidden && !document.getElementById('home-intro').hidden
+            && !document.getElementById('home-notice').hidden && document.getElementById('home-notice').textContent.includes(text), { timeout: SLOW }, words)
+            .catch(() => { throw new Error(labels.get(page) + ' 화면: 소개 화면의 삭제 안내 — ' + SLOW / 1000 + '초 안에 되지 않음'); }); // 소개 화면과 안내 대기
+        await onIntro(a, '작업실을 삭제했습니다'); // 지운 사람
+        await all([b, c, d], (p) => onIntro(p, '관리자가 삭제했습니다')); // 작업실에 있던 B, 보드에 있던 C 와 열람자 D
+        const sessions = await all(pages, (p) => p.evaluate(() => window.api.get('/api/me').then(() => 200, (err) => err.status))); // 네 화면의 세션
+        expect(sessions.every((s) => s === 401), '작업실을 지운 뒤에도 세션이 남은 화면이 있습니다: ' + sessions.join(',')); // 모두 끝남
+        expect(pageErrors.length === 0, '화면 스크립트 오류 ' + pageErrors.length + '건: ' + pageErrors[0]); // 스크립트 오류 없음
+        projectDeleted = true; // 초대 코드도 함께 사라짐
+        return 'B 가 현황판에서 업무 두 개를 지우자 보드의 3대에서 업무와 블럭이 사라짐. A 가 이름을 적고 작업실을 지우자 4대 모두 소개 화면으로 돌아가고 세션이 끝남';
+    });
+
+    if (projectDeleted)
+    {
+        console.log('정리: 리허설 프로젝트를 화면에서 지웠습니다(초대 코드와 올린 이미지도 함께 삭제).'); // 정리 안내
+        return;
+    }
     const revoked = await a.evaluate(async () =>
     {
         const list = (await window.api.get('/api/projects/' + state.project.project_id + '/invites')).invites.filter((i) => i.status === 'active'); // 아직 쓸 수 있는 코드

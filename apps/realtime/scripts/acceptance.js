@@ -1,4 +1,4 @@
-// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC30 과 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
+// 수용 테스트 러너: PHP 내장 서버(8081)와 실시간 서버(3002)를 직접 띄우고 docs/11 의 AC01~AC14, AC16~AC23, AC26~AC32 와 보안 점검 SEC01·SEC02, 운영 점검 OPS01 을 자동 검사
 // 사용법: node scripts/acceptance.js   (MariaDB 실행 중, apps/php-api/.env 준비 필요. PHP 경로는 PHP_BIN 환경 변수로 변경)
 'use strict';
 
@@ -224,6 +224,24 @@ async function createWhenDisabled()
     {
         await waitFor('http://127.0.0.1:' + port + '/api/health'); // 준비 대기
         const res = await fetch('http://127.0.0.1:' + port + '/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TaskCanvas': '1' }, body: JSON.stringify({ display_name: 'AC-Off', title: 'AC Off' }) }); // 만들기 시도
+        const body = await res.json(); // 응답 본문
+        return { status: res.status, code: body.error ? body.error.code : null }; // 결과 요약
+    }
+    finally
+    {
+        php.kill(); // 임시 서버 종료
+    }
+}
+
+// 작업실 삭제를 꺼 둔 서버(ALLOW_WORKSPACE_DELETE=0)를 잠깐 띄워 관리자의 삭제 요청도 거부되는지 본다
+async function deleteWhenDisabled(url, cookie, title)
+{
+    const port = API_PORT + 101; // 임시 포트
+    const php = spawn(PHP, ['-S', '127.0.0.1:' + port, '-t', 'apps/frontend/public', 'apps/php-api/public/index.php'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, RATE_LIMIT: '1000', ALLOW_WORKSPACE_DELETE: '0' } }); // 삭제를 끈 임시 서버(같은 DB)
+    try
+    {
+        await waitFor('http://127.0.0.1:' + port + '/api/health'); // 준비 대기
+        const res = await fetch('http://127.0.0.1:' + port + url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-TaskCanvas': '1', Cookie: cookie }, body: JSON.stringify({ confirm_title: title }) }); // 관리자의 올바른 삭제 요청
         const body = await res.json(); // 응답 본문
         return { status: res.status, code: body.error ? body.error.code : null }; // 결과 요약
     }
@@ -719,6 +737,99 @@ async function run(envInfo)
         && itemMissing.every((r) => r.ok === false && r.error.code === 'NOT_FOUND') && itemForbidden.every((r) => r.ok === false && r.error.code === 'FORBIDDEN')
         && itemDelete.ok && boardSawDelete !== null && itemDeleteAgain.ok === false && itemDeleteAgain.error.code === 'NOT_FOUND',
         '보드에서 더한 항목이 다른 보드와 작업실에 전달, 다른 보드의 체크와 작업실의 이름 변경이 저장되고 목록 조회에도 실림, 항목을 바꿔도 업무 버전은 그대로라 앞선 버전의 업무 수정이 충돌하지 않음, 업무 12개를 동시에 고쳐도 모두 저장, 항목을 한꺼번에 31개 보내도 ' + manyOk + '개만 저장, 잘못된 형식 BAD_REQUEST·없는 대상 NOT_FOUND·열람자와 미참여 FORBIDDEN, 삭제 전달 (화면 조작은 리허설 6·9번과 캡처가 확인)');
+
+    // AC31 작업실 삭제: 관리자가 이름을 확인하고 지우면 그 작업실의 모든 것과 올린 이미지가 사라지고, 접속해 있던 사람은 알림을 받고 연결이 끊긴다. 다른 작업실은 그대로 남는다
+    const DOOMED = 'AC 지울 작업실'; // 지울 작업실 이름
+    const doomed = await api('POST', '/api/projects', { display_name: 'AC-Doomed-Owner', title: DOOMED }); // 지울 작업실(만든 사람이 관리자)
+    const doomedId = doomed.status === 201 ? doomed.json.project.project_id : 0; // 그 작업실 번호
+    const doomedBoard = doomed.status === 201 ? doomed.json.board.board_id : 0; // 첫 보드
+    const doomedInvite = await api('POST', '/api/projects/' + doomedId + '/invites', { role: 'editor', days: 1 }, doomed.cookie); // 편집자 코드
+    const doomedEditor = await join('AC-Doomed-Editor', doomedInvite.json.code); // 그 작업실의 편집자
+    const doomedUpload = await api('POST', '/api/images', imageForm(doomedId, fs.readFileSync(path.join(FIXTURES, 'tiny.png')), 'image/png', 'doomed.png'), doomedEditor.cookie); // 그 작업실에 올린 이미지
+    const uploadRoot = process.env.UPLOAD_DIR || path.join(PHP_API, 'storage', 'uploads'); // 업로드 폴더
+    const doomedDir = path.join(uploadRoot, String(doomedId)); // 지울 작업실의 이미지 폴더
+    const mainDir = path.join(uploadRoot, String(projectId)); // 남아야 하는 작업실의 이미지 폴더
+    const filesBefore = { doomed: fs.existsSync(doomedDir) ? fs.readdirSync(doomedDir).length : 0, main: fs.existsSync(mainDir) ? fs.readdirSync(mainDir).length : 0 }; // 지우기 전 파일 수
+    const doomedSocket = await connect(); // 편집자의 보드 연결
+    const doomedJoin = await ack(doomedSocket, 'board:join', { board_id: doomedBoard, ticket: await ticket(doomedEditor.cookie, doomedBoard) }); // 보드 참여
+    const doomedTask = await ack(doomedSocket, 'task:create', { board_id: doomedBoard, title: '지워질 업무' }); // 함께 지워질 업무
+    await ack(doomedSocket, 'checklist:add', { board_id: doomedBoard, task_id: doomedTask.ok ? doomedTask.task.task_id : 0, title: '지워질 항목' }); // 함께 지워질 체크리스트 항목
+    await ack(doomedSocket, 'object:create', { board_id: doomedBoard, type: 'task', x: 0, y: 0, width: 240, height: 110, payload: { task_id: doomedTask.ok ? doomedTask.task.task_id : 0 } }); // 함께 지워질 블럭
+    const doomedWorkspace = await connect(); // 만든 사람의 작업실 연결
+    const doomedWsJoin = await ack(doomedWorkspace, 'project:join', { project_id: doomedId, ticket: (await projectTicket(doomed.cookie, doomedId)).json.ticket }); // 작업실 참여
+    const delUrl = '/api/projects/' + doomedId + '/delete'; // 삭제 API
+    const delByEditor = await api('POST', delUrl, { confirm_title: DOOMED }, doomedEditor.cookie); // 편집자의 삭제 시도
+    const delByOutsider = await api('POST', delUrl, { confirm_title: DOOMED }, admin.cookie); // 다른 작업실 관리자의 삭제 시도
+    const delWrongName = await api('POST', delUrl, { confirm_title: 'AC 지울 작업' }, doomed.cookie); // 관리자지만 이름을 다르게 적음
+    const delNoHeader = await fetch(API + delUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: doomed.cookie }, body: JSON.stringify({ confirm_title: DOOMED }) }); // CSRF 방어 헤더 없이
+    const delDisabled = await deleteWhenDisabled(delUrl, doomed.cookie, DOOMED); // 서버 설정으로 삭제를 꺼 둔 경우
+    const stillThere = await api('GET', '/api/projects/' + doomedId + '/boards', undefined, doomed.cookie); // 거부된 시도들 뒤에도 그대로 있는지
+    const boardTold = until(doomedSocket, 'project:deleted', (d) => d.project_id === doomedId, 4000); // 보드 연결이 받을 삭제 알림
+    const workspaceTold = until(doomedWorkspace, 'project:deleted', (d) => d.project_id === doomedId, 4000); // 작업실 연결이 받을 삭제 알림
+    let boardEventToo = false; // 작업실째 지울 때 보드 삭제 알림까지 따로 왔는지
+    doomedSocket.on('board:deleted', () => { boardEventToo = true; }); // 오면 안 됨(화면이 작업실로 돌아가려다 실패함)
+    const boardClosed = new Promise((resolve) => doomedSocket.on('disconnect', () => resolve(true))); // 알림 뒤 서버가 연결을 끊음
+    const del = await api('POST', delUrl, { confirm_title: DOOMED }, doomed.cookie); // 관리자가 이름을 맞게 적고 삭제
+    const toldBoard = await boardTold; // 수신
+    const toldWorkspace = await workspaceTold; // 수신
+    const closed = await Promise.race([boardClosed, sleep(3000).then(() => false)]); // 연결 종료 확인
+    const ownerAfter = await api('GET', '/api/me', undefined, doomed.cookie); // 지운 사람의 세션
+    const editorAfter = await api('GET', '/api/me', undefined, doomedEditor.cookie); // 그 작업실에만 있던 편집자의 세션
+    const codeAfter = await join('AC-Doomed-Editor', doomedInvite.json.code); // 지워진 작업실의 초대 코드
+    const ownerCodeAfter = await join('AC-Doomed-Owner', doomed.json.owner_code); // 지워진 작업실의 재입장 코드
+    const delAgain = await api('POST', delUrl, { confirm_title: DOOMED }, admin.cookie); // 이미 지워진 작업실
+    const filesAfter = { doomed: fs.existsSync(doomedDir), main: fs.existsSync(mainDir) ? fs.readdirSync(mainDir).length : 0 }; // 지운 뒤 파일
+    const mainAfter = await api('GET', '/api/projects/' + projectId + '/boards', undefined, B.cookie); // 다른 작업실은 그대로
+    doomedWorkspace.disconnect(); // 정리(이미 끊겼어도 무해)
+    record('AC31', '작업실 삭제', doomed.status === 201 && doomedUpload.status === 201 && filesBefore.doomed === 1 && filesBefore.main > 0 && doomedJoin.ok && doomedTask.ok && doomedWsJoin.ok
+        && delByEditor.status === 403 && delByOutsider.status === 403 && delWrongName.status === 400 && delWrongName.json.error.code === 'CONFIRM_MISMATCH' && delNoHeader.status === 403
+        && delDisabled.status === 403 && delDisabled.code === 'DELETE_DISABLED' && stillThere.status === 200 && stillThere.json.boards.length === 1
+        && del.status === 200 && del.json.deleted === true && del.json.removed_files === 1 && toldBoard !== null && toldWorkspace !== null && boardEventToo === false && closed === true
+        && ownerAfter.status === 401 && editorAfter.status === 401 && codeAfter.status === 401 && ownerCodeAfter.status === 401 && delAgain.status === 403
+        && filesAfter.doomed === false && filesAfter.main === filesBefore.main && mainAfter.status === 200 && mainAfter.json.boards.length >= 1,
+        '편집자·다른 작업실 관리자·이름 불일치(CONFIRM_MISMATCH)·헤더 없음·꺼 둔 서버(DELETE_DISABLED)는 거부되고 작업실은 그대로, 관리자가 이름을 맞게 적으면 삭제. 보드·작업실 연결에 project:deleted 가 가고 연결 종료, 참여자 세션과 초대 코드·재입장 코드는 무효, 그 작업실의 이미지 폴더만 사라지고 다른 작업실의 파일 ' + filesBefore.main + '개는 그대로');
+
+    // AC32 업무 삭제: 업무를 지우면 체크리스트와 모든 보드의 블럭, 블럭의 연결선이 함께 사라지고 그 업무를 보던 모든 화면에 전달된다
+    const victim = await ack(B.socket, 'task:create', { board_id: boardA, title: 'AC 지울 업무' }); // 지울 업무
+    const victimId = victim.ok ? victim.task.task_id : 0; // 그 업무 번호
+    await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: victimId, title: '함께 지워질 항목' }); // 체크리스트 항목
+    const victimBlockA = await ack(B.socket, 'object:create', { board_id: boardA, type: 'task', x: 300, y: 300, width: 240, height: 110, payload: { task_id: victimId } }); // 보드 A 의 블럭
+    const victimBlockB = await ack(C.socket, 'object:create', { board_id: boardB, type: 'task', x: 300, y: 300, width: 240, height: 110, payload: { task_id: victimId } }); // 보드 B 의 블럭
+    const victimLink = await ack(B.socket, 'link:create', { board_id: boardA, from_object_id: n1.object_id, to_object_id: victimBlockA.object_id, label: '지워질 연결선' }); // 블럭에 이은 연결선
+    const victimLock = await ack(C2.socket, 'object:lock', { board_id: boardA, object_id: victimBlockA.object_id }); // 다른 사람이 그 블럭을 잡고 있는 중
+    const W3 = await connect(); // 편집자의 작업실 연결
+    const w3Join = await ack(W3, 'project:join', { project_id: projectId, ticket: (await projectTicket(B.cookie)).json.ticket }); // 작업실 참여
+    const delByViewer = await ack(V.socket, 'task:delete', { board_id: boardA, task_id: victimId }); // 열람자의 삭제 시도
+    const delOtherBoard = await ack(B.socket, 'task:delete', { board_id: boardB, task_id: victimId }); // 참여하지 않은 보드 번호
+    const delMissing = await ack(B.socket, 'task:delete', { board_id: boardA, task_id: 99999999 }); // 없는 업무
+    const delBadId = await ack(B.socket, 'task:delete', { board_id: boardA, task_id: 'x' }); // 번호가 아님
+    const blockGoneAtA = until(C2.socket, 'object:deleted', (d) => d.object_id === victimBlockA.object_id); // 보드 A 참여자(블럭을 잡고 있던 사람)가 받을 블럭 삭제
+    const blockGoneAtB = until(C.socket, 'object:deleted', (d) => d.object_id === victimBlockB.object_id); // 보드 B 참여자가 받을 블럭 삭제
+    const taskGoneAtA = until(B.socket, 'task:deleted', (d) => d.task_id === victimId); // 보드 A 가 받을 업무 삭제
+    const taskGoneAtB = until(C.socket, 'task:deleted', (d) => d.task_id === victimId); // 보드 B 가 받을 업무 삭제
+    const delTask = await ack(W3, 'task:delete', { task_id: victimId }); // 작업실에서 업무 삭제(보드 번호 없음)
+    const sawBlockA = await blockGoneAtA; // 수신
+    const sawBlockB = await blockGoneAtB; // 수신
+    const sawTaskA = await taskGoneAtA; // 수신
+    const sawTaskB = await taskGoneAtB; // 수신
+    const tasksLeft = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, B.cookie)).json.tasks; // 남은 업무
+    const snapADel = (await api('GET', '/api/boards/' + boardA + '/snapshot', undefined, B.cookie)).json; // 보드 A 스냅샷
+    const snapBDel = (await api('GET', '/api/boards/' + boardB + '/snapshot', undefined, B.cookie)).json; // 보드 B 스냅샷
+    const lockAfterDel = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: victimBlockA.object_id }); // 지워진 블럭 잠금 시도
+    const delTaskAgain = await ack(W3, 'task:delete', { task_id: victimId }); // 이미 지운 업무
+    const blockAfterDel = await ack(B.socket, 'object:create', { board_id: boardA, type: 'task', x: 0, y: 0, width: 240, height: 110, payload: { task_id: victimId } }); // 지워진 업무의 블럭을 다시 놓으려는 시도(실행 취소가 보내는 요청과 같음)
+    const itemAfterDel = await ack(B.socket, 'checklist:add', { board_id: boardA, task_id: victimId, title: '없는 업무의 항목' }); // 지워진 업무에 항목 추가
+    W3.disconnect(); // 정리
+    record('AC32', '업무 삭제', victim.ok && victimBlockA.ok && victimBlockB.ok && victimLink.ok && victimLock.ok && w3Join.ok
+        && delByViewer.ok === false && delByViewer.error.code === 'FORBIDDEN' && delOtherBoard.ok === false && delOtherBoard.error.code === 'FORBIDDEN'
+        && delMissing.ok === false && delMissing.error.code === 'NOT_FOUND' && delBadId.ok === false && delBadId.error.code === 'BAD_REQUEST'
+        && delTask.ok && delTask.removed_objects.length === 2 && sawBlockA !== null && sawBlockB !== null && sawTaskA !== null && sawTaskB !== null
+        && !tasksLeft.some((t) => t.task_id === victimId) && tasksLeft.some((t) => t.task_id === taskId)
+        && !snapADel.objects.some((o) => o.object_id === victimBlockA.object_id) && !snapBDel.objects.some((o) => o.object_id === victimBlockB.object_id)
+        && !snapADel.links.some((l) => l.link_id === victimLink.link.link_id) && snapADel.objects.some((o) => o.object_id === n1.object_id)
+        && lockAfterDel.ok === false && delTaskAgain.ok === false && delTaskAgain.error.code === 'NOT_FOUND'
+        && blockAfterDel.ok === false && blockAfterDel.error.code === 'BAD_REQUEST' && itemAfterDel.ok === false && itemAfterDel.error.code === 'NOT_FOUND',
+        '열람자·다른 보드 번호 FORBIDDEN, 없는 업무 NOT_FOUND. 작업실에서 지우면 두 보드의 블럭 2개와 연결선·체크리스트가 함께 사라지고 object:deleted·task:deleted 가 두 보드에 전달, 다른 사람이 잡고 있던 블럭의 잠금도 정리, 다른 업무와 객체는 그대로, 지워진 업무의 블럭 다시 놓기와 항목 추가는 거부');
 
     // SEC01 접속 출처 제한(수용 기준과 별도의 보안 점검)
     const sameHostOrigin = 'http://127.0.0.1:' + API_PORT; // 실시간 서버와 같은 호스트에서 열린 페이지(포트만 다름)

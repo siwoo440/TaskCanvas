@@ -1,9 +1,11 @@
-// task:create / task:update — 보드와 독립된 공유 업무 원본. 변경은 프로젝트의 모든 보드와 작업실에 전파
+// task:create / task:update / task:delete — 보드와 독립된 공유 업무 원본. 변경은 프로젝트의 모든 보드와 작업실에 전파
 // 업무에는 체크리스트(세부 항목)가 함께 실린다. 항목을 바꾸는 요청은 handlers/checklist.js 가 맡는다
 'use strict';
 
 const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
+const locks = require('../locks'); // 지워지는 업무 블럭의 잠금 정리
+const presence = require('../presence'); // 보드 방 이름
 const { ok, fail, joinedProject } = require('./reply'); // 응답 헬퍼
 
 const STATUSES = ['todo', 'doing', 'done']; // 허용 상태
@@ -203,6 +205,66 @@ function register(io, socket)
             }
             console.error('task:update 오류', err); // 서버 로그
             fail(ack, 'SAVE_FAILED', '업무 저장에 실패했습니다.'); // 실패 응답
+        }
+        finally
+        {
+            if (conn)
+            {
+                conn.release(); // 연결 반환
+            }
+        }
+    });
+
+    // 업무 삭제: 업무 원본과 체크리스트, 그리고 이 업무를 가리키는 모든 보드의 블럭을 함께 지운다(되돌릴 수 없음)
+    socket.on('task:delete', async (data, ack) =>
+    {
+        let conn = null; // 트랜잭션 연결
+        try
+        {
+            if (!joinedProject(socket, data))
+            {
+                return fail(ack, 'FORBIDDEN', '참여 중인 보드나 작업실이 아닙니다.'); // 미참여·보드 불일치
+            }
+            if (!(await auth.hasRole(socket.data.guestId, socket.data.projectId, 'editor')))
+            {
+                return fail(ack, 'FORBIDDEN', '편집 권한이 없습니다.'); // DB 기준 권한 재확인
+            }
+            const taskId = Number(data.task_id); // 대상 업무
+            if (!Number.isInteger(taskId) || taskId <= 0)
+            {
+                return fail(ack, 'BAD_REQUEST', 'task_id 가 올바르지 않습니다.'); // 입력 검사
+            }
+            conn = await db.pool.getConnection(); // 연결 확보
+            await conn.beginTransaction(); // 블럭과 업무는 함께 지워지거나 함께 남음
+            const [owners] = await conn.execute('SELECT project_id FROM tasks WHERE task_id = ? FOR UPDATE', [taskId]); // 업무 행 잠금(그 사이 새 블럭이 생기지 않게)
+            if (owners.length === 0 || Number(owners[0].project_id) !== socket.data.projectId)
+            {
+                await conn.rollback(); // 되돌림
+                return fail(ack, 'NOT_FOUND', '업무를 찾을 수 없습니다. 다른 사람이 이미 지웠을 수 있습니다.'); // 없음·타 프로젝트
+            }
+            const [blocks] = await conn.execute("SELECT object_id, board_id FROM board_objects WHERE task_id = ? AND type = 'task'", [taskId]); // 이 업무를 가리키는 모든 보드의 블럭
+            await conn.execute("DELETE FROM board_objects WHERE task_id = ? AND type = 'task'", [taskId]); // 블럭 삭제(블럭에 붙은 연결선은 외래키로 함께 삭제)
+            await conn.execute('DELETE FROM tasks WHERE task_id = ?', [taskId]); // 업무 삭제(체크리스트 항목은 외래키로 함께 삭제)
+            await conn.commit(); // 트랜잭션 확정
+            conn.release(); // 알리기 전에 연결을 돌려줌
+            conn = null; // finally 에서 다시 돌려주지 않게
+            const removed = blocks.map((b) => ({ object_id: Number(b.object_id), board_id: Number(b.board_id) })); // 지워진 블럭들
+            for (const block of removed)
+            {
+                locks.release(block.object_id, null); // 누가 잡고 옮기던 중이었어도 잠금 정리
+                io.to(presence.roomName(block.board_id)).emit('object:deleted', { board_id: block.board_id, guest_id: socket.data.guestId, object_id: block.object_id }); // 그 보드의 모든 참여자(요청한 사람 포함)에게 블럭 삭제 알림
+            }
+            ok(ack, { request_id: data.request_id ?? null, task_id: taskId, removed_objects: removed }); // 삭제 응답
+            socket.to(projectRoom(socket.data.projectId)).emit('task:deleted', { task_id: taskId, guest_id: socket.data.guestId }); // 같은 프로젝트의 모든 보드와 작업실에 전파
+        }
+        catch (err)
+        {
+            if (conn)
+            {
+                await conn.rollback().catch(() => {}); // 실패 시 되돌림
+            }
+            console.error('task:delete 오류', err); // 서버 로그
+            fail(ack, 'SAVE_FAILED', '업무를 지우지 못했습니다.'); // 실패 응답
         }
         finally
         {

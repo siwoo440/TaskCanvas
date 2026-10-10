@@ -7,7 +7,7 @@
 | 이벤트 | 클라이언트 데이터 | 서버 처리 | DB |
 |---|---|---|---|
 | `board:join` | board_id, short_lived_ticket | 방 참여·권한 검사 | 조회만 |
-| `project:join` | project_id, short_lived_ticket(작업실용) | 작업실 연결. 프로젝트 방에만 참여하며 이 연결은 `task:create`·`task:update` 와 `checklist:*` 만 쓸 수 있음. 응답 `{project_id, you}` | 조회만 |
+| `project:join` | project_id, short_lived_ticket(작업실용) | 작업실 연결. 프로젝트 방에만 참여하며 이 연결은 `task:create`·`task:update`·`task:delete` 와 `checklist:*` 만 쓸 수 있음. 응답 `{project_id, you}` | 조회만 |
 | `cursor:move` | board_id, x, y | 커서 위치 중계, 전송 빈도 제한 | X |
 | `selection:set` | board_id, object_ids(번호 목록, 최대 200개), link_id(없으면 null) | 내가 고른 객체·연결선을 같은 보드의 참여자에게 전달하고 참여자 목록에 기억. 번호 형식만 검사하며 저장하지 않음. 응답 `{ok}` | X |
 | `stroke:preview` | stroke_id, points_delta | 마우스 움직이는 동안 중계 | X |
@@ -20,6 +20,7 @@
 | `object:unlock` | object_id, lock_token | 잠금 해제 | X |
 | `task:create` (P1) | title, status, assignee_id, due_at (보드 연결은 board_id 도) | 업무 원본 생성 후 프로젝트 전체(모든 보드와 작업실)에 `task:created` 전파 | O |
 | `task:update` (P1) | task_id, version, changes(title·status·assignee_id·due_at) (보드 연결은 board_id 도) | 버전 검사 후 저장, 프로젝트 전체(모든 보드와 작업실)에 `task:updated` 전파 | O |
+| `task:delete` (P1) | task_id (보드 연결은 board_id 도) | 업무 원본과 체크리스트, 그 업무를 가리키는 모든 보드의 블럭을 함께 삭제. 응답 `{task_id, removed_objects}`. 블럭이 있던 보드에는 `object:deleted`, 프로젝트 전체에는 `task:deleted` 전파. 되돌릴 수 없음 | O |
 | `checklist:add` (P1) | task_id, title(1~120자) (보드 연결은 board_id 도) | 업무에 세부 항목 추가(업무마다 30개까지). 응답 `{task, item_id}`, 프로젝트 전체에 `task:updated` 전파 | O |
 | `checklist:update` (P1) | task_id, item_id, changes(title·done) (보드 연결은 board_id 도) | 항목의 이름이나 완료 여부 저장. 응답 `{task}`, 프로젝트 전체에 `task:updated` 전파 | O |
 | `checklist:delete` (P1) | task_id, item_id (보드 연결은 board_id 도) | 항목 삭제. 응답 `{task}`, 프로젝트 전체에 `task:updated` 전파 | O |
@@ -28,9 +29,11 @@
 | `link:delete` (P1) | link_id | 연결선 삭제. `link:deleted` 전파. 객체 삭제 시 DB FK 로 함께 삭제 | O |
 | `net:ping` | 없음 | 접속 점검 화면(`check.html`)이 왕복 시간을 잴 때 사용. 보드 참여 전에도 `{ok:true}` 만 바로 돌려줌 | X |
 
-서버→클라이언트 이벤트: `presence:update`(참여자 목록. 참여자마다 `cursor` 에 마지막 커서 위치 `{x, y}` 또는 null — 따라가기용, 19단계. `selection` 에 지금 고른 것 `{object_ids, link_id}` — 20단계), `cursor:move`(타인 커서), `selection:update`(타인 선택: guest_id, display_name, color, object_ids, link_id. 아무것도 고르지 않았으면 빈 목록과 null — 20단계), `stroke:preview`(타인 펜 미리보기), `object:created`(확정 객체), `object:locked`(타인 잠금: object_id, guest_id, display_name, color), `object:unlocked`(해제: object_id, reason), `object:preview`(타인 이동 중 위치), `object:updated`(변경 확정 객체), `object:deleted`(삭제된 object_id), `task:created`/`task:updated`(공유 업무 원본 — 프로젝트 방 `project:{id}` 로 보드와 무관하게 전파, 작업실 연결도 받음. 업무에는 `checklist: [{item_id, title, done}]` 가 함께 실리고, 체크리스트가 바뀔 때도 `task:updated` 로 업무 전체를 다시 보냄 — 21단계), `board:renamed`(board_id, title)·`board:deleted`(board_id) — 작업실(HTTP)에서 보드가 바뀌면 서버가 5초 주기(`BOARD_SWEEP_MS`)로 감지해 그 보드의 참여자에게 알리고, 삭제 시에는 알림 뒤 연결을 끊음.
+서버→클라이언트 이벤트: `presence:update`(참여자 목록. 참여자마다 `cursor` 에 마지막 커서 위치 `{x, y}` 또는 null — 따라가기용, 19단계. `selection` 에 지금 고른 것 `{object_ids, link_id}` — 20단계), `cursor:move`(타인 커서), `selection:update`(타인 선택: guest_id, display_name, color, object_ids, link_id. 아무것도 고르지 않았으면 빈 목록과 null — 20단계), `stroke:preview`(타인 펜 미리보기), `object:created`(확정 객체), `object:locked`(타인 잠금: object_id, guest_id, display_name, color), `object:unlocked`(해제: object_id, reason), `object:preview`(타인 이동 중 위치), `object:updated`(변경 확정 객체), `object:deleted`(삭제된 object_id), `task:created`/`task:updated`(공유 업무 원본 — 프로젝트 방 `project:{id}` 로 보드와 무관하게 전파, 작업실 연결도 받음. 업무에는 `checklist: [{item_id, title, done}]` 가 함께 실리고, 체크리스트가 바뀔 때도 `task:updated` 로 업무 전체를 다시 보냄 — 21단계), `task:deleted`(task_id, guest_id — 업무가 지워짐. 블럭은 `object:deleted` 로 따로 옴, 22단계), `project:deleted`(project_id — 관리자가 작업실을 지움. 그 작업실의 보드 연결과 작업실 연결 모두에게 보내고 0.3초 뒤 연결을 끊음. 이때 `board:deleted` 는 보내지 않음, 22단계), `board:renamed`(board_id, title)·`board:deleted`(board_id) — 작업실(HTTP)에서 보드가 바뀌면 서버가 5초 주기(`BOARD_SWEEP_MS`)로 감지해 그 보드의 참여자에게 알리고, 삭제 시에는 알림 뒤 연결을 끊음.
 
-**구현 상태(2~4·7~9·11·17·19~21단계):** 위 이벤트 전부가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식이며, `object:lock` 실패 시 `error.locked_by`, `VERSION_CONFLICT` 시 최상위 `object`(최신 상태)를 함께 돌려줍니다. `board:join` 응답에는 현재 보드의 잠금 목록 `locks` 가 포함됩니다. 한 연결은 보드 참여와 작업실 연결 중 하나만 할 수 있고, 작업실 연결이 보드 이벤트를 보내면 `FORBIDDEN` 입니다. 업무 이벤트의 `VERSION_CONFLICT` 는 최상위 `task`(최신 상태)를 함께 돌려줍니다.
+**구현 상태(2~4·7~9·11·17·19~22단계):** 위 이벤트 전부가 `apps/realtime` 에 구현되어 있습니다. ack 응답은 `{ok:true, ...}` 또는 `{ok:false, error:{code,message}}` 형식이며, `object:lock` 실패 시 `error.locked_by`, `VERSION_CONFLICT` 시 최상위 `object`(최신 상태)를 함께 돌려줍니다. `board:join` 응답에는 현재 보드의 잠금 목록 `locks` 가 포함됩니다. 한 연결은 보드 참여와 작업실 연결 중 하나만 할 수 있고, 작업실 연결이 보드 이벤트를 보내면 `FORBIDDEN` 입니다. 업무 이벤트의 `VERSION_CONFLICT` 는 최상위 `task`(최신 상태)를 함께 돌려줍니다.
+
+**삭제(22단계):** `task:delete` 는 편집자 이상만 쓸 수 있고 버전을 보지 않습니다(지우려는 뜻이 분명하므로). 업무 행을 잠근 트랜잭션 안에서 블럭과 업무를 함께 지우고, 누가 그 블럭을 잠그고 있었으면 잠금도 정리합니다. 작업실 삭제는 웹 서버(HTTP)가 처리하고, 실시간 서버는 접속자가 있는 작업실이 DB 에 남아 있는지 `BOARD_SWEEP_MS`(기본 5초)마다 확인해 `project:deleted` 를 보냅니다.
 
 **체크리스트(21단계):** `checklist:*` 는 편집자 이상만 쓸 수 있고, 업무가 그 연결의 프로젝트에 속해야 합니다(아니면 `NOT_FOUND`). 항목 이름은 앞뒤 공백과 줄바꿈을 정리해 1~120자, `done` 은 참·거짓만 받습니다(`BAD_REQUEST`). 항목 단위로 저장하고 업무의 `version` 은 올리지 않으므로 `task:update` 의 버전 검사와 서로 걸리지 않습니다. 같은 항목을 동시에 바꾸면 나중에 저장된 값이 남습니다. 30개 제한은 업무 행을 잠그고 세므로 한꺼번에 여러 개를 보내도 넘지 않습니다.
 

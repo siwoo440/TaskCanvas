@@ -1,7 +1,7 @@
 // 발표·문서용 실제 화면 캡처: 서버를 임시 포트로 띄우고 설치된 Chrome 을 조작해 assets/screenshots 에 PNG 로 저장한다
 // 사용법: npm run capture   (MariaDB 실행 중, DB 스키마 적용 필요)
 //   CHROME_BIN: Chrome·Edge 실행 파일 경로, PHP_BIN: PHP 실행 파일 경로, DB_NAME: 다른 DB 에서 찍고 싶을 때
-// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·선택 표시·체크리스트·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기도 확인한다. 직접 만든 작업실('나만의 작업실')도 하나 남는다
+// 실행할 때마다 '시연 프로젝트' 가 하나 새로 생긴다(예시 보드 포함). 찍는 김에 실제 입력으로 업무 현황판·선택 표시·체크리스트·업무 삭제·메모 저장·글자 크기·실행 취소·다시 실행·작업실 직접 만들기와 삭제도 확인한다. 직접 만든 작업실('나만의 작업실')은 마지막에 화면에서 지운다
 'use strict';
 
 const fs = require('fs'); // 파일 쓰기
@@ -241,6 +241,33 @@ async function capture(browser, env)
         && itemAdded && itemChecked && itemRenamed && itemRemoved && (await listVersion()) === listVersionBefore && (await a.$eval('#task-checklist .error', (el) => el.textContent)) === '');
     await a.$eval('.props', (el) => { el.scrollTop = 0; }); // 체크리스트를 누르느라 내려간 패널을 맨 위로
 
+    // 실제 입력 확인: 업무 블럭을 하나 새로 놓고 오른쪽 패널의 "업무 삭제"로 지우면, 업무와 블럭이 내 화면·편집자 화면·서버에서 모두 사라지는지
+    const DOOMED_TASK = '캡처에서 지울 업무'; // 지울 업무
+    await a.click('#tool-task'); // 업무 블럭 추가
+    await a.waitForSelector('#task-dialog[open]'); // 추가 대화상자
+    await a.click('#task-mode-new'); // 새 업무 만들기
+    await a.type('#task-new-title', DOOMED_TASK); // 제목
+    await a.click('#task-form button[type="submit"]'); // 보드에 추가
+    await b.waitForFunction((title) => [...state.tasks.values()].some((t) => t.title === title) && canvas.objects.some((o) => o.type === 'task' && state.tasks.get(o.task_id) && state.tasks.get(o.task_id).title === title), {}, DOOMED_TASK); // 편집자 화면에도 블럭이 생김
+    const doomedAt = await centerOf(a, DOOMED_TASK); // 새 블럭 가운데
+    await a.mouse.click(doomedAt.x, doomedAt.y); // 블럭 선택
+    await a.waitForFunction((title) => !document.getElementById('task-props').hidden && document.getElementById('task-title').value === title, {}, DOOMED_TASK); // 패널이 그 업무를 보여 줌
+    const countBefore = await snapshotCount(a); // 지우기 전 서버의 객체 수
+    await a.click('#task-delete'); // 업무 삭제
+    await a.waitForSelector('#task-delete-dialog[open]'); // 확인 대화상자
+    const askedFor = await a.$eval('#task-delete-text', (el) => el.textContent); // 무엇을 지우는지 묻는 문구
+    await a.click('#task-delete-form button[type="submit"]'); // 삭제
+    const taskGone = (page) => page.waitForFunction((title) => ![...state.tasks.values()].some((t) => t.title === title) && !canvas.objects.some((o) => o.type === 'task' && !state.tasks.get(o.task_id)), {}, DOOMED_TASK); // 업무와 블럭이 화면에서 사라질 때까지
+    await taskGone(a); // 내 화면
+    await taskGone(b); // 편집자 화면
+    const afterTaskDelete = await a.evaluate(async (title) => ({
+        listed: (await window.api.get('/api/projects/' + state.project.project_id + '/tasks')).tasks.some((t) => t.title === title), // 서버의 업무 목록
+        dialog: document.getElementById('task-delete-dialog').open, // 확인 대화상자
+        panel: document.getElementById('task-props').hidden, // 업무 패널(선택이 사라져 닫힘)
+    }), DOOMED_TASK); // 지운 뒤 상태
+    check('업무 삭제: 패널에서 지우면 업무와 블럭이 내 화면·다른 화면·서버에서 모두 사라짐', askedFor.includes(DOOMED_TASK) && !afterTaskDelete.listed && !afterTaskDelete.dialog && afterTaskDelete.panel
+        && (await snapshotCount(a)) === countBefore - 1);
+
     // 7) 메모 글 편집(더블클릭) — 찍은 뒤 Esc 로 취소
     const noteAt = await centerOf(a, '아이디어'); // 편집할 메모
     await a.mouse.click(noteAt.x, noteAt.y, { count: 2 }); // 더블클릭(두 번 누르고 떼는 실제 순서)
@@ -360,6 +387,31 @@ async function capture(browser, env)
         cardHidden: document.getElementById('ws-owner').hidden, // 내 코드 카드는 만든 직후에만
     })); // 다시 들어온 작업실
     check('재입장: 내 코드는 같은 이름으로만 통하고, 다시 들어오면 관리자와 바꾼 작업실 이름 그대로', refused.includes('다시 들어올 때만') && back.role === '관리자' && back.title === '나만의 작업실' && back.cardHidden);
+
+    // 실제 입력 확인: 방금 만든 작업실을 화면에서 지운다. 이름을 그대로 적어야 지워지고, 지운 뒤에는 소개 화면으로 돌아가며 세션과 내 코드가 더는 통하지 않는지
+    await c.click('#ws-delete'); // 작업실 삭제
+    await c.waitForSelector('#project-delete-dialog[open]'); // 확인 대화상자(입력 칸에 초점)
+    await c.keyboard.type('나만의 작업'); // 이름을 한 글자 덜 적음
+    const lockedWhileWrong = await c.$eval('#project-delete-submit', (el) => el.disabled); // 이름이 다르면 버튼이 꺼져 있음
+    await c.keyboard.type('실'); // 이름을 끝까지 적음
+    await c.mouse.move(640, 20); // 마우스는 상단으로 치움
+    await wait(200); // 그리기 여유
+    await shot(c, '12-workspace-delete'); // 작업실 삭제 확인 창(이름을 적어야 삭제 버튼이 켜짐)
+    await c.click('#project-delete-submit'); // 삭제
+    await c.waitForFunction(() => !document.getElementById('home-intro').hidden && !document.getElementById('home-notice').hidden); // 소개 화면과 안내
+    const afterDelete = await c.evaluate(async () => ({
+        notice: document.getElementById('home-notice').textContent, // 안내 문구
+        session: await window.api.get('/api/me').then(() => 200, (err) => err.status), // 세션
+    })); // 지운 뒤 상태
+    await c.click('#home-enter-top'); // 입장하기
+    await c.waitForSelector('#view-join', { visible: true }); // 입장 화면
+    await c.type('#join-name', OWNER); // 만든 사람의 이름
+    await c.type('#join-code', fresh.code); // 지워진 작업실의 내 코드
+    await c.click('#join-form button[type="submit"]'); // 입장 시도
+    await c.waitForFunction(() => document.getElementById('join-error').textContent !== ''); // 거부 안내
+    const codeRefused = await c.$eval('#join-error', (el) => el.textContent); // 안내 문구
+    check('작업실 삭제: 이름을 그대로 적어야 지워지고, 지운 뒤에는 소개 화면으로 돌아가며 세션과 내 코드가 통하지 않음', lockedWhileWrong && afterDelete.notice.includes('나만의 작업실') && afterDelete.notice.includes('삭제했습니다')
+        && afterDelete.session === 401 && codeRefused !== '');
 }
 
 async function main()
