@@ -4,6 +4,7 @@
 const state = {
     guest: null, // {guest_id, display_name}
     project: null, // {project_id, title, role}
+    projects: [], // 현재 게스트가 참여한 작업실 목록
     boards: [], // 프로젝트 보드 목록
     board: null, // 현재 보드
     tool: 'pen', // 현재 도구
@@ -61,6 +62,39 @@ function showView(name)
 // ---------- 보던 보드 기억(새로고침 복원) ----------
 
 const RESUME_KEY = 'tc_resume'; // 이 탭에서 보던 보드를 적어 두는 sessionStorage 키(탭마다 따로, 탭을 닫으면 사라짐)
+const PROJECT_KEY = 'tc_active_project'; // 현재 탭에서 선택한 작업실 번호
+
+function readSelectedProjectId()
+{
+    try
+    {
+        const saved = Number(sessionStorage.getItem(PROJECT_KEY)); // 마지막 작업실 번호 조회
+        return Number.isSafeInteger(saved) && saved > 0 ? saved : null; // 유효한 번호만 사용
+    }
+    catch (err)
+    {
+        return null; // 저장소 접근 불가
+    }
+}
+
+function rememberSelectedProjectId(projectId)
+{
+    try
+    {
+        if (projectId === null)
+        {
+            sessionStorage.removeItem(PROJECT_KEY); // 로그아웃 시 기억 삭제
+        }
+        else
+        {
+            sessionStorage.setItem(PROJECT_KEY, String(projectId)); // 마지막 작업실 기록
+        }
+    }
+    catch (err)
+    {
+        // 브라우저 저장소 비활성화 시 저장 생략
+    }
+}
 
 function rememberBoard(boardId, view)
 {
@@ -179,15 +213,17 @@ function takeInviteCodeFromUrl()
 let pendingInviteCode = takeInviteCodeFromUrl(); // 초대 링크로 들어온 코드(입장 화면에 한 번만 채움)
 let ownerCode = null; // 방금 만든 작업실의 재입장 코드 {code, days}. 만든 직후에만 받고, 확인하거나 나가면 지움(저장하지 않음)
 
-async function bootstrap()
+async function bootstrap(preferredProjectId = null)
 {
     try
     {
         const me = await window.api.get('/api/me'); // 기존 세션 확인
         state.guest = me.guest; // 게스트 저장
-        state.project = me.projects[0] ?? null; // 첫 프로젝트 선택(MVP: 초대 코드당 프로젝트 1개)
+        state.projects = me.projects; // 서버가 검증한 멤버십 목록
+        state.project = WorkspaceSelection.choose(state.projects, preferredProjectId, readSelectedProjectId()); // 요청·기억 순으로 유효한 작업실 선택
         if (state.project)
         {
+            rememberSelectedProjectId(state.project.project_id); // 새로고침 시 같은 작업실 유지
             pendingInviteCode = null; // 이미 입장한 상태면 링크의 코드는 쓰지 않음
             return resumeOrWorkspace(); // 입장한 상태: 새로고침 전에 보던 보드가 있으면 그 보드, 없으면 홈이 작업실로 구성됨
         }
@@ -258,7 +294,7 @@ $('create-form').addEventListener('submit', async (e) =>
         const data = await window.api.post('/api/projects', { display_name: $('create-name').value.trim(), title: $('create-title').value.trim() }); // 작업실 만들기(만든 사람이 관리자로 입장한 상태가 됨)
         ownerCode = { code: data.owner_code, days: data.owner_code_days }; // 재입장 코드(이 응답에서만 받음)
         $('create-title').value = ''; // 입력 비움
-        await bootstrap(); // 세션 기준으로 다시 진입 → 방금 만든 작업실
+        await bootstrap(data.project.project_id); // 새로 만든 작업실을 우선 선택
     }
     catch (err)
     {
@@ -274,10 +310,10 @@ $('join-form').addEventListener('submit', async (e) =>
     $('join-error').textContent = ''; // 오류 초기화
     try
     {
-        await window.api.post('/api/guest/join', { display_name: $('join-name').value.trim(), invite_code: $('join-code').value.trim() }); // 게스트 입장
+        const joined = await window.api.post('/api/guest/join', { display_name: $('join-name').value.trim(), invite_code: $('join-code').value.trim() }); // 게스트 입장
         $('join-code').value = ''; // 코드 입력 비움
         $('join-hint').textContent = ''; // 초대 링크 안내 비움
-        await bootstrap(); // 세션 기준으로 다시 진입
+        await bootstrap(joined.project_id); // 방금 입장한 작업실 우선 선택
     }
     catch (err)
     {
@@ -296,6 +332,7 @@ async function openWorkspace()
     $('ws-task-error').textContent = ''; // 현황판 오류 초기화
     setWorkspaceConnection('connecting'); // 아래에서 새로 연결할 때까지 현황판은 보기만(지난번 연결 상태가 화면에 남지 않게 먼저 바꿈)
     $('boards-project-title').textContent = state.project.title; // 프로젝트 이름
+    renderWorkspacePicker(); // 여러 작업실에 참여한 경우 전환 목록 표시
     $('boards-guest-name').textContent = state.guest.display_name; // 게스트 이름
     $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
     $('ws-summary').textContent = state.guest.display_name + (canEdit() ? ' 님, 보드를 골라 작업을 이어가세요.' : ' 님은 열람자로 입장했습니다. 보드를 열어 볼 수 있습니다.'); // 안내 문구
@@ -334,6 +371,48 @@ async function openWorkspace()
     connectWorkspace(); // 업무 현황판용 실시간 연결(기다리지 않음: 연결 전에도 작업실은 쓸 수 있음)
 }
 
+// 서버가 확인한 프로젝트 목록만 전환 선택지로 표시
+function renderWorkspacePicker()
+{
+    const wrapper = $('ws-picker-wrap'); // 전환 UI 영역
+    const picker = $('ws-picker'); // 작업실 선택 목록
+    picker.replaceChildren(); // 이전 사용자의 목록 제거
+    for (const project of state.projects)
+    {
+        const option = document.createElement('option'); // 작업실 선택 항목
+        option.value = String(project.project_id); // 서버 프로젝트 번호
+        option.textContent = project.title + ' (' + (ROLE_LABELS[project.role] ?? project.role) + ')'; // 작업실 이름·역할
+        picker.appendChild(option); // 선택 항목 추가
+    }
+    wrapper.hidden = state.projects.length < 2; // 여러 작업실이 있는 경우에만 표시
+    picker.value = String(state.project.project_id); // 현재 작업실 선택
+    picker.disabled = ownerCode !== null; // 일회성 재입장 코드 보관 전 전환 방지
+}
+
+$('ws-picker').addEventListener('change', async (event) =>
+{
+    const previous = state.project; // 현재 작업실 정보
+    const chosen = WorkspaceSelection.choose(state.projects, Number(event.target.value), null); // 권한이 있는 작업실 확인
+    if (!chosen || !previous || chosen.project_id === previous.project_id)
+    {
+        return; // 변화 없거나 허용되지 않은 선택
+    }
+    if (ownerCode !== null || document.querySelector('dialog[open]'))
+    {
+        event.target.value = String(previous.project_id); // 전환 전 선택 복구
+        toast('열려 있는 확인 창을 닫고 재입장 코드를 보관한 뒤 전환하세요.'); // 미완료 작업 안내
+        return;
+    }
+    disconnectWorkspace(); // 이전 작업실 실시간 연결 종료
+    state.project = chosen; // 새 작업실로 변경
+    state.boards = []; // 이전 보드 목록 폐기
+    state.members = []; // 이전 참여자 목록 폐기
+    state.tasks.clear(); // 이전 공유 업무 폐기
+    workspaceTaskTarget = null; // 기존 업무 편집 대상 해제
+    rememberSelectedProjectId(chosen.project_id); // 새 선택 저장
+    await openWorkspace(); // 새 작업실의 보드·참여자·업무와 실시간 연결 조회
+});
+
 // 방금 만든 작업실의 재입장 코드 카드: 확인 버튼을 누르거나 나갈 때까지 작업실에 보인다
 function renderOwnerCode()
 {
@@ -357,6 +436,7 @@ $('ws-owner-done').addEventListener('click', () =>
 {
     ownerCode = null; // 화면에서 지움
     renderOwnerCode(); // 카드 숨김
+    renderWorkspacePicker(); // 재입장 코드 확인 후 작업실 전환 허용
 });
 
 // ---------- 작업실 삭제 (관리자) ----------
@@ -385,6 +465,8 @@ function leaveDeletedWorkspace(message)
     state.tasks.clear(); // 업무 비움
     state.guest = null; // 게스트 비움(서버에서도 세션이 지워짐)
     state.project = null; // 작업실 비움
+    state.projects = []; // 멤버십 목록 비움
+    rememberSelectedProjectId(null); // 삭제된 작업실 선택 기록 제거
     showIntro(); // 소개 화면으로
     $('home-notice').textContent = message; // 무슨 일이 있었는지 안내
     $('home-notice').hidden = false; // 알림 표시
@@ -441,6 +523,12 @@ $('project-rename-form').addEventListener('submit', async (e) =>
     {
         const data = await window.api.post('/api/projects/' + state.project.project_id + '/rename', { title: $('project-rename-title').value.trim() }); // 작업실 이름 변경(관리자만)
         state.project.title = data.project.title; // 새 이름 반영
+        const selected = state.projects.find((project) => project.project_id === state.project.project_id); // 전환 목록 항목 조회
+        if (selected)
+        {
+            selected.title = data.project.title; // 전환 목록도 새 이름 사용
+        }
+        renderWorkspacePicker(); // 화면의 선택 항목 갱신
         $('boards-project-title').textContent = data.project.title; // 작업실 제목
         $('project-rename-dialog').close(); // 닫기
     }
@@ -980,6 +1068,8 @@ $('boards-leave').addEventListener('click', async () =>
     ownerCode = null; // 재입장 코드는 화면에서 지움
     state.guest = null; // 게스트 비움
     state.project = null; // 프로젝트 비움
+    state.projects = []; // 참여 작업실 목록 비움
+    rememberSelectedProjectId(null); // 저장된 선택 제거
     showIntro(); // 홈이 다시 소개 페이지로 구성됨
 });
 

@@ -8,6 +8,10 @@
 
 ---
 
+> **23일차 개발 브랜치:** 참여 멤버십이 2개 이상인 게스트를 위한 작업실 전환 UI 초안을 추가했습니다. 현재 세션으로 새로운 작업실에 가입하는 기능은 아직 포함되지 않습니다. 자세한 범위는 [23일차 작업실 전환](docs/23-workspace-selection.md)을 참고합니다. 단위 테스트 명령: `node --test apps/realtime/scripts/workspace-selection.test.cjs`.
+
+---
+
 ## 1. 프로젝트 핵심 목표
 
 학교 PC에서 **XAMPP(Apache/PHP) + Node.js/Socket.IO + MySQL**을 사용하고, 동일 LAN의 **PC 4대**가 하나의 화이트보드를 동시에 편집합니다.

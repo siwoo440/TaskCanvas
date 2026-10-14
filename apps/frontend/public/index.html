@@ -279,6 +279,10 @@
                     <button type="button" id="ws-rename" class="text-link" hidden>이름 변경</button>
                     <button type="button" id="ws-delete" class="text-link danger-link" hidden>작업실 삭제</button>
                 </div>
+                <div id="ws-picker-wrap" class="row ws-picker" hidden> <!-- 참여 작업실이 여러 개인 경우 전환 도구 -->
+                    <label for="ws-picker">작업실 전환</label> <!-- 작업실 선택 안내 -->
+                    <select id="ws-picker" aria-label="참여 중인 작업실 선택"></select> <!-- 허용된 작업실 목록 -->
+                </div>
                 <p class="muted" id="ws-summary"></p>
             </section>
             <p id="ws-notice" class="notice" role="status" hidden></p>
@@ -629,6 +633,7 @@
     <script src="js/media.js"></script>
     <script src="js/carousel.js"></script>
     <script src="js/checklist.js"></script>
+    <script src="js/workspace-selection.js"></script> <!-- 작업실 선택 유효성 검사 -->
     <script src="js/taskboard.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/tools.js"></script>

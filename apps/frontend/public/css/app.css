@@ -397,6 +397,9 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
 .ws { flex: 1; display: flex; flex-direction: column; gap: 16px; padding-top: 32px; padding-bottom: 32px; }
 .ws-head h1 { font-size: 28px; margin: 0 0 6px; overflow-wrap: anywhere; }
 .ws-title-row { align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.ws-picker { flex-wrap: wrap; margin: 8px 0; } /* 작업실 선택 줄바꿈 */
+.ws-picker label { color: var(--muted); font-size: 14px; } /* 작업실 선택 안내 */
+.ws-picker select { max-width: min(100%, 440px); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); } /* 작업실 목록 크기 */
 .owner-card { background: #eff6ff; border-color: #bfdbfe; }
 .owner-card p { margin: 0; line-height: 1.6; }
 .owner-card code { font-size: 18px; letter-spacing: 1px; background: #fff; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); user-select: all; }
