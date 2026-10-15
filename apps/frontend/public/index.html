@@ -29,7 +29,7 @@
             <div class="site-inner"><p id="home-notice" class="notice home-notice" role="status" hidden></p></div>
             <section class="hero site-inner">
                 <div class="hero-text">
-                    <p class="eyebrow">실시간 협업 화이트보드 · 웹서버 수업 팀 프로젝트</p>
+                    <p class="eyebrow">실시간 협업 화이트보드</p> <!-- 첫 화면 소개 문구 -->
                     <h1>같은 보드에서 함께 그리고,<br>업무까지 한눈에 정리합니다</h1>
                     <p class="lead">내 작업실을 직접 만들거나 초대 코드로 입장해 여러 명이 같은 화이트보드를 동시에 편집합니다. 펜·도형·메모·이미지·영상을 올리고, 업무 블럭과 연결선으로 프로젝트 흐름을 정리하세요.</p>
                     <div class="row">
@@ -263,9 +263,33 @@
             <section class="site-inner">
                 <h2 class="section-title">역할</h2>
                 <ul class="role-list">
-                    <li><span class="chip">관리자</span> 작업실을 만든 사람입니다. 초대 코드를 발급·취소하고 모든 편집을 할 수 있습니다.</li>
-                    <li><span class="chip">편집자</span> 보드를 만들고 그리기·이동·삭제·업로드를 할 수 있습니다.</li>
-                    <li><span class="chip">열람자</span> 보드를 볼 수만 있습니다.</li>
+                    <li class="role-card role-admin"> <!-- 관리자 역할 카드 -->
+                        <div class="role-art" aria-hidden="true"> <!-- 관리자 벡터 그림 영역 -->
+                            <img src="assets/roles/admin.svg" alt="" width="160" height="160"> <!-- 정사각형 왕관과 방패 그림 -->
+                        </div> <!-- 관리자 벡터 그림 영역 종료 -->
+                        <div class="role-copy"> <!-- 관리자 설명 영역 -->
+                            <h3>관리자</h3> <!-- 관리자 역할명 -->
+                            <p>작업실을 만든 사람입니다. 초대 코드를 발급·취소하고 모든 편집을 할 수 있습니다.</p> <!-- 관리자 권한 설명 -->
+                        </div> <!-- 관리자 설명 영역 종료 -->
+                    </li> <!-- 관리자 역할 카드 종료 -->
+                    <li class="role-card role-editor"> <!-- 편집자 역할 카드 -->
+                        <div class="role-art" aria-hidden="true"> <!-- 편집자 벡터 그림 영역 -->
+                            <img src="assets/roles/editor.svg" alt="" width="160" height="160"> <!-- 정사각형 네모와 펜 그림 -->
+                        </div> <!-- 편집자 벡터 그림 영역 종료 -->
+                        <div class="role-copy"> <!-- 편집자 설명 영역 -->
+                            <h3>편집자</h3> <!-- 편집자 역할명 -->
+                            <p>보드를 만들고 그리기·이동·삭제·업로드를 할 수 있습니다.</p> <!-- 편집자 권한 설명 -->
+                        </div> <!-- 편집자 설명 영역 종료 -->
+                    </li> <!-- 편집자 역할 카드 종료 -->
+                    <li class="role-card role-viewer"> <!-- 열람자 역할 카드 -->
+                        <div class="role-art" aria-hidden="true"> <!-- 열람자 벡터 그림 영역 -->
+                            <img src="assets/roles/viewer.svg" alt="" width="160" height="160"> <!-- 정사각형 눈 모양 그림 -->
+                        </div> <!-- 열람자 벡터 그림 영역 종료 -->
+                        <div class="role-copy"> <!-- 열람자 설명 영역 -->
+                            <h3>열람자</h3> <!-- 열람자 역할명 -->
+                            <p>작업실과 보드를 확인하고 다른 참여자의 작업을 볼 수 있습니다.</p> <!-- 열람자 권한 설명 -->
+                        </div> <!-- 열람자 설명 영역 종료 -->
+                    </li> <!-- 열람자 역할 카드 종료 -->
                 </ul>
             </section>
         </main>
@@ -275,6 +299,10 @@
             <section class="ws-head">
                 <p class="eyebrow">작업실</p>
                 <div class="row ws-title-row">
+                    <span class="ws-role-mark"> <!-- 작업실 역할 표시 -->
+                        <img id="ws-role-icon" src="assets/roles/viewer.svg" alt="열람자 역할" width="40" height="40"> <!-- 정사각형 작업실 역할 그림 -->
+                        <span id="ws-role-label">열람자</span> <!-- 작업실 역할 이름 -->
+                    </span> <!-- 작업실 역할 표시 종료 -->
                     <h1 id="boards-project-title">프로젝트</h1>
                     <button type="button" id="ws-rename" class="text-link" hidden>이름 변경</button>
                     <button type="button" id="ws-delete" class="text-link danger-link" hidden>작업실 삭제</button>
@@ -354,9 +382,6 @@
             </section>
         </main>
 
-        <footer class="site-footer">
-            <div class="site-inner">TaskCanvas · XAMPP(Apache·PHP) + Node.js·Socket.IO + MySQL/MariaDB 로 만든 웹서버 수업 팀 프로젝트</div>
-        </footer>
     </section>
 
     <!-- 게스트 입장 화면 -->

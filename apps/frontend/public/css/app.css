@@ -345,7 +345,7 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
 .feature-art svg { display: block; width: 100%; max-width: 460px; height: auto; font-family: inherit; filter: drop-shadow(0 10px 18px rgba(15, 23, 42, .10)); }
 .carousel-arrow {
     position: absolute;
-    top: calc(50% - 18px); /* 아래쪽 여백(그림자 자리)을 뺀 카드의 가운데 */
+    top: 50%; /* 캐러셀 무대 수직 중앙 */
     transform: translateY(-50%);
     z-index: 2;
     width: 46px;
@@ -389,14 +389,100 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
 }
 .steps strong { display: block; margin-bottom: 4px; }
 .steps span { color: #4b5563; font-size: 14px; line-height: 1.6; }
-.role-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 14px; color: #374151; }
-.role-list .chip { margin-right: 8px; }
+.role-list /* 역할 카드 목록 */
+{ /* 역할 카드 목록 시작 */
+    list-style: none; /* 목록 기호 제거 */
+    margin: 0; /* 바깥 여백 제거 */
+    padding: 0; /* 안쪽 여백 제거 */
+    display: grid; /* 카드 격자 배치 */
+    grid-template-columns: repeat(3, minmax(0, 1fr)); /* 가로 세 칸 구성 */
+    gap: 18px; /* 카드 사이 간격 */
+    color: #374151; /* 역할 설명 글자색 */
+} /* 역할 카드 목록 종료 */
+.role-card /* 개별 역할 카드 */
+{ /* 개별 역할 카드 시작 */
+    --role-accent: #2563eb; /* 기본 역할 강조색 */
+    --role-soft: #dbeafe; /* 기본 역할 배경색 */
+    min-width: 0; /* 좁은 칸 넘침 방지 */
+    display: flex; /* 카드 세로 정렬 */
+    flex-direction: column; /* 그림과 글 세로 배치 */
+    overflow: hidden; /* 둥근 모서리 밖 숨김 */
+    background: var(--panel); /* 카드 배경색 */
+    border: 1px solid var(--line); /* 카드 테두리 */
+    border-radius: 18px; /* 카드 둥근 모서리 */
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .08); /* 카드 그림자 */
+} /* 개별 역할 카드 종료 */
+.role-editor /* 편집자 카드 */
+{ /* 편집자 카드 시작 */
+    --role-accent: #7c3aed; /* 편집자 강조색 */
+    --role-soft: #ede9fe; /* 편집자 배경색 */
+} /* 편집자 카드 종료 */
+.role-viewer /* 열람자 카드 */
+{ /* 열람자 카드 시작 */
+    --role-accent: #0d9488; /* 열람자 강조색 */
+    --role-soft: #ccfbf1; /* 열람자 배경색 */
+} /* 열람자 카드 종료 */
+.role-art /* 역할 그림 영역 */
+{ /* 역할 그림 영역 시작 */
+    margin: 18px 18px 0; /* 그림 둘레 여백 */
+    padding: 12px; /* 그림 안쪽 여백 */
+    background: var(--role-soft); /* 역할별 평면 배경색 */
+    border-radius: 16px; /* 그림 배경 둥근 모서리 */
+} /* 역할 그림 영역 종료 */
+.role-art img /* 역할 벡터 그림 */
+{ /* 역할 벡터 그림 시작 */
+    display: block; /* 불필요한 아래 공백 제거 */
+    width: 132px; /* 역할 그림 정사각형 너비 */
+    max-width: 100%; /* 좁은 카드 너비 대응 */
+    height: 132px; /* 역할 그림 높이 통일 */
+    margin: 0 auto; /* 역할 그림 가로 중앙 */
+    object-fit: contain; /* 그림 비율 유지 */
+} /* 역할 벡터 그림 종료 */
+.role-copy /* 역할 설명 영역 */
+{ /* 역할 설명 영역 시작 */
+    flex: 1; /* 카드 높이 균등화 */
+    padding: 18px 22px 24px; /* 설명 내부 여백 */
+    border-top: 4px solid var(--role-accent); /* 역할별 강조선 */
+} /* 역할 설명 영역 종료 */
+.role-copy h3 /* 역할 이름 */
+{ /* 역할 이름 시작 */
+    margin: 0 0 8px; /* 역할 이름 아래 간격 */
+    color: var(--role-accent); /* 역할별 이름색 */
+    font-size: 20px; /* 역할 이름 크기 */
+} /* 역할 이름 종료 */
+.role-copy p /* 역할 설명 */
+{ /* 역할 설명 시작 */
+    margin: 0; /* 기본 문단 여백 제거 */
+    font-size: 14px; /* 역할 설명 크기 */
+    line-height: 1.65; /* 역할 설명 줄 간격 */
+} /* 역할 설명 종료 */
 .site-footer { border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 13px; padding: 18px 0; }
 
 /* 작업실 */
 .ws { flex: 1; display: flex; flex-direction: column; gap: 16px; padding-top: 32px; padding-bottom: 32px; }
 .ws-head h1 { font-size: 28px; margin: 0 0 6px; overflow-wrap: anywhere; }
-.ws-title-row { align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.ws-title-row { align-items: center; gap: 14px; flex-wrap: wrap; }
+.ws-role-mark /* 작업실 역할 표시 */
+{ /* 작업실 역할 표시 시작 */
+    display: inline-flex; /* 그림과 이름 가로 배치 */
+    align-items: center; /* 역할 표시 수직 중앙 */
+    gap: 7px; /* 그림과 이름 간격 */
+    min-height: 44px; /* 역할 표시 높이 확보 */
+    padding: 4px 10px 4px 6px; /* 역할 표시 내부 여백 */
+    color: #374151; /* 역할 이름 글자색 */
+    background: #f8fafc; /* 역할 표시 배경색 */
+    border: 1px solid var(--line); /* 역할 표시 테두리 */
+    border-radius: 999px; /* 역할 표시 알약 모양 */
+    font-size: 13px; /* 역할 이름 크기 */
+    font-weight: 700; /* 역할 이름 굵기 */
+} /* 작업실 역할 표시 종료 */
+.ws-role-mark img /* 작업실 역할 그림 */
+{ /* 작업실 역할 그림 시작 */
+    display: block; /* 그림 아래 공백 제거 */
+    width: 34px; /* 작업실 역할 그림 정사각형 너비 */
+    height: 34px; /* 작업실 역할 그림 정사각형 높이 */
+    object-fit: contain; /* 작업실 역할 그림 비율 유지 */
+} /* 작업실 역할 그림 종료 */
 .ws-picker { flex-wrap: wrap; margin: 8px 0; } /* 작업실 선택 줄바꿈 */
 .ws-picker label { color: var(--muted); font-size: 14px; } /* 작업실 선택 안내 */
 .ws-picker select { max-width: min(100%, 440px); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); } /* 작업실 목록 크기 */
@@ -480,7 +566,11 @@ button.big { padding: 13px 22px; font-size: 16px; border-radius: 10px; }
     .feature-art { order: -1; padding: 14px; } /* 좁은 화면에서는 그림이 위, 글이 아래 */
     .feature-text { padding: 24px 22px 28px; border-left: 0; border-top: 6px solid var(--accent); }
     .feature-text h3 { font-size: 22px; }
-    .carousel-arrow { top: 96px; width: 40px; height: 40px; font-size: 24px; } /* 그림 높이쯤에 둠 */
+    .carousel-arrow { width: 40px; height: 40px; font-size: 24px; } /* 좁은 화면 화살표 크기 */
     .carousel-arrow.prev { left: -8px; }
     .carousel-arrow.next { right: -8px; }
 }
+@media (max-width: 600px) /* 휴대전화 화면 */
+{ /* 휴대전화 화면 시작 */
+    .role-list { grid-template-columns: 1fr; } /* 휴대전화 역할 카드 한 열 */
+} /* 휴대전화 화면 종료 */

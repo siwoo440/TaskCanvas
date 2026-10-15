@@ -1,0 +1,9 @@
+<svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title"> <!-- 열람자 정사각형 그림 영역 -->
+    <title id="title">눈 모양 열람자 역할</title> <!-- 열람자 그림 설명 -->
+    <g id="role-symbol"> <!-- 열람자 도형 묶음 -->
+        <path d="M10 80c19-28 43-42 70-42s51 14 70 42c-19 28-43 42-70 42S29 108 10 80z" fill="#b9f0e6" stroke="#326b63" stroke-width="7" stroke-linejoin="round"/> <!-- 대칭 열람자 눈 외곽 -->
+        <circle cx="80" cy="80" r="31" fill="#70cbbd" stroke="#326b63" stroke-width="7"/> <!-- 열람자 홍채 -->
+        <circle cx="80" cy="80" r="14" fill="#28564f"/> <!-- 열람자 눈동자 -->
+        <circle cx="87" cy="72" r="5" fill="#ffffff"/> <!-- 열람자 눈빛 -->
+    </g> <!-- 열람자 도형 묶음 종료 -->
+</svg> <!-- 열람자 그림 종료 -->

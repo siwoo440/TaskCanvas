@@ -323,6 +323,17 @@ $('join-form').addEventListener('submit', async (e) =>
 
 // ---------- 작업실 (입장 후의 홈) ----------
 
+function setWorkspaceRoleIdentity(role) // 작업실 역할 표시 갱신
+{ // 작업실 역할 표시 갱신 시작
+    const safeRole = ROLE_ASSETS[role] ? role : 'viewer'; // 안전한 역할 선택
+    const label = ROLE_LABELS[safeRole]; // 역할 한글 이름
+    $('ws-role-icon').src = ROLE_ASSETS[safeRole]; // 역할 그림 주소
+    $('ws-role-icon').alt = label + ' 역할'; // 역할 그림 대체 설명
+    $('ws-role-label').textContent = label; // 역할 이름 표시
+} // 작업실 역할 표시 갱신 종료
+
+window.setWorkspaceRoleIdentity = setWorkspaceRoleIdentity; // 화면 검증용 역할 갱신 공개
+
 async function openWorkspace()
 {
     setHomeMode(true); // 같은 홈 화면을 작업실 구성으로 전환
@@ -332,6 +343,7 @@ async function openWorkspace()
     $('ws-task-error').textContent = ''; // 현황판 오류 초기화
     setWorkspaceConnection('connecting'); // 아래에서 새로 연결할 때까지 현황판은 보기만(지난번 연결 상태가 화면에 남지 않게 먼저 바꿈)
     $('boards-project-title').textContent = state.project.title; // 프로젝트 이름
+    setWorkspaceRoleIdentity(state.project.role); // 현재 작업실 역할 표시
     renderWorkspacePicker(); // 여러 작업실에 참여한 경우 전환 목록 표시
     $('boards-guest-name').textContent = state.guest.display_name; // 게스트 이름
     $('boards-role').textContent = ROLE_LABELS[state.project.role] ?? state.project.role; // 역할 표시
@@ -1076,6 +1088,7 @@ $('boards-leave').addEventListener('click', async () =>
 // ---------- 초대 코드 관리 (관리자) ----------
 
 const ROLE_LABELS = { admin: '관리자', editor: '편집자', viewer: '열람자' }; // 역할 이름
+const ROLE_ASSETS = { admin: 'assets/roles/admin.svg', editor: 'assets/roles/editor.svg', viewer: 'assets/roles/viewer.svg' }; // 역할 그림 주소
 const INVITE_STATUS_LABELS = { active: '사용 가능', expired: '만료', revoked: '취소됨', exhausted: '인원 마감' }; // 초대 상태 이름
 const COPY_LABELS = { 'invite-copy-code': '코드 복사', 'invite-copy-link': '링크 복사' }; // 복사 버튼 기본 문구
 

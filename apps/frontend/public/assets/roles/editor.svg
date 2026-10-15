@@ -1,0 +1,10 @@
+<svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title"> <!-- 편집자 정사각형 그림 영역 -->
+    <title id="title">네모와 펜 모양 편집자 역할</title> <!-- 편집자 그림 설명 -->
+    <g id="role-symbol"> <!-- 편집자 도형 묶음 -->
+        <rect id="editor-empty-canvas" x="18" y="30" width="100" height="106" rx="18" fill="#f1edff" stroke="#4b2696" stroke-width="7"/> <!-- 빈 편집 네모 -->
+        <path d="M52 92l53-53 24 24-53 53-29 8z" fill="#8b63df" stroke="#4b2696" stroke-width="7" stroke-linejoin="round"/> <!-- 중앙 정렬 편집 펜 몸통 -->
+        <path d="M105 39l9-9c6-6 12-6 18 0l6 6c6 6 6 12 0 18l-9 9z" fill="#c2a7ff" stroke="#4b2696" stroke-width="7" stroke-linejoin="round"/> <!-- 중앙 정렬 편집 펜 지우개 -->
+        <path d="M52 92l24 24-29 8z" fill="#ffffff" stroke="#4b2696" stroke-width="7" stroke-linejoin="round"/> <!-- 중앙 정렬 편집 펜 촉 -->
+        <path d="M47 124l10-3-7-7z" fill="#4b2696"/> <!-- 중앙 정렬 편집 펜 끝 -->
+    </g> <!-- 편집자 도형 묶음 종료 -->
+</svg> <!-- 편집자 그림 종료 -->
