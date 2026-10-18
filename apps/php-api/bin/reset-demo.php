@@ -21,6 +21,7 @@ $names = array_values(array_filter($args, static fn(string $a) => !str_starts_wi
 $projectTitle = $names[0] ?? '시연 프로젝트'; // 새로 만들 프로젝트 이름
 
 const RESET_TABLES = [
+    'guest_user_links', 'user_sessions', 'users', // 회원 연결·세션·계정도 초기화 대상
     'board_links', 'board_objects', 'media_assets', 'task_items', 'tasks', 'realtime_tickets', 'join_attempts',
     'guest_sessions', 'project_invites', 'project_members', 'boards', 'projects', 'guests',
 ]; // 비울 테이블(이 목록 밖의 테이블은 건드리지 않음)

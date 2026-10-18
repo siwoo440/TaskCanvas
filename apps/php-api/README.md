@@ -37,7 +37,7 @@ php-api/
 │   ├── check-env.php       # 사전 점검(PHP 버전·확장·업로드 한도·DB·스키마·업로드 폴더)
 │   ├── migrate.php         # 예전에 만든 DB 에 나중에 더한 표와 바뀐 컬럼 반영(데이터는 그대로)
 │   ├── clean-uploads.php   # 어느 보드에서도 쓰지 않는 이미지 정리(기본은 미리보기)
-│   ├── reset-demo.php      # 시연 초기화(전체 데이터·업로드 삭제 후 시연 프로젝트 생성, --seed 로 예시 채움)
+│   ├── reset-demo.php      # 시연 초기화(회원·연결·전체 데이터·업로드 삭제, --seed 로 예시 채움)
 │   └── seed-demo.php       # 빈 보드에 시연용 예시 내용 채우기
 ├── storage/
 │   ├── .htaccess      # 웹 직접 접근 차단(이중 방어)
@@ -144,7 +144,7 @@ C:/xampp/php/php.exe apps/php-api/bin/reset-demo.php --dry-run
 
 지워질 테이블별 행 수와 업로드 이미지 수만 보여 주고 아무것도 바꾸지 않습니다. 실제로 초기화하려면 `--dry-run` 을 빼고 실행한 뒤 확인 질문에 **DB 이름을 그대로 입력**합니다(`--yes` 는 질문 생략).
 
-- TaskCanvas 테이블 13개를 모두 비우고(`TRUNCATE`), 업로드 폴더에서는 서버가 만든 이름 규칙(`<프로젝트 ID>/<32자 16진수>.png|jpg|webp`)에 맞는 파일만 지웁니다. 그 외 파일은 건드리지 않습니다.
+- TaskCanvas 테이블 16개를 모두 비웁니다(`TRUNCATE`). **회원 계정·회원 세션·게스트 연결도 삭제**됩니다. 업로드 폴더에서는 서버가 만든 이름 규칙(`<프로젝트 ID>/<32자 16진수>.png|jpg|webp`)에 맞는 파일만 지웁니다. 그 외 파일은 건드리지 않습니다.
 - 끝나면 시연 프로젝트(보드 2개)와 관리자·편집자·열람자 초대 코드를 새로 만들어 한 번 출력합니다.
 - **되돌릴 수 없습니다.** Windows 에서는 `scripts\reset-demo.bat` 로도 실행할 수 있습니다.
 - 업로드 폴더는 DB 와 따로 정해집니다. `DB_NAME` 환경 변수로 시험용 DB 를 가리키고 초기화해도 업로드 폴더는 그대로라 원래 DB 가 쓰는 이미지까지 지워집니다. 시험용 DB 를 초기화할 때는 `UPLOAD_DIR` 도 시험용 폴더로 함께 바꿉니다.
@@ -188,7 +188,7 @@ C:/xampp/php/php.exe apps/php-api/bin/clean-uploads.php
 C:/xampp/php/php.exe apps/php-api/bin/check-env.php
 ```
 
-PHP 버전(8.0 이상), 확장(`pdo_mysql`·`fileinfo`·`mbstring`), php.ini 업로드 한도가 앱 한도(10MB)보다 큰지, `.env`, DB 연결과 테이블 13개, 업로드 폴더 쓰기 권한을 `[통과]`·`[주의]`·`[실패]` 로 출력합니다. 실패가 있으면 종료 코드 1 입니다. 실시간 서버·포트·방화벽까지 한 번에 보려면 저장소 루트의 `scripts\check-env.bat` 을 씁니다.
+PHP 버전(8.0 이상), 확장(`pdo_mysql`·`fileinfo`·`mbstring`), php.ini 업로드 한도가 앱 한도(10MB)보다 큰지, `.env`, DB 연결과 테이블 16개, 업로드 폴더 쓰기 권한을 `[통과]`·`[주의]`·`[실패]` 로 출력합니다. 실패가 있으면 종료 코드 1 입니다. 실시간 서버·포트·방화벽까지 한 번에 보려면 저장소 루트의 `scripts\check-env.bat` 을 씁니다.
 
 ## 수동 테스트 예시
 

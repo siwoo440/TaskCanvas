@@ -42,6 +42,22 @@ function snapshot(array $tables): array // 기존 행과 테이블 구조 기록
     return $result; // 비교용 기록 반환
 } // 기록 끝
 
+function resetDemo(string $apiRoot, bool $dryRun): array // 실제 초기화 CLI 실행
+{ // 초기화 검사 시작
+    $command = [PHP_BINARY, $apiRoot . '/bin/reset-demo.php', $dryRun ? '--dry-run' : '--yes', '회원 스키마 테스트']; // 전용 DB의 초기화 명령
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $apiRoot); // 환경 변수를 상속한 별도 PHP
+    if (!is_resource($process)) // 프로세스 실행 실패 확인
+    { // 실행 실패 처리 시작
+        throw new RuntimeException('초기화 CLI 실행 실패'); // 검증 중단
+    } // 실행 실패 처리 끝
+    fclose($pipes[0]); // 입력 파이프 정리
+    $output = stream_get_contents($pipes[1]); // 초대 코드를 출력하지 않고 결과 보관
+    stream_get_contents($pipes[2]); // 오류 출력 파이프 비우기
+    fclose($pipes[1]); // 표준 출력 정리
+    fclose($pipes[2]); // 오류 출력 정리
+    return [proc_close($process), $output]; // 종료 코드와 미리보기 반환
+} // 초기화 검사 끝
+
 $apiRoot = dirname(__DIR__); // API 프로젝트 경로
 Env::load($apiRoot . '/.env'); // 개발 DB 접속 설정
 $dsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', Env::get('DB_HOST'), Env::int('DB_PORT', 3306)); // DB 이름 없는 서버 접속
@@ -123,6 +139,16 @@ try // 전용 DB 검증
     $after = snapshot($allTables); // 재실행 전 데이터
     check(Schema::upgrade() === [], '마이그레이션 재실행 변경 없음'); // 멱등성
     check(snapshot($allTables) === $after, '마이그레이션 재실행 후 전체 데이터 보존'); // 회원 데이터 포함 보존
+    putenv('UPLOAD_DIR=' . $apiRoot . '/storage/private/' . $testName); // 기존 이미지와 완전히 분리
+    [$previewStatus, $preview] = resetDemo($apiRoot, true); // 실제 초기화 미리보기
+    check($previewStatus === 0 && str_contains($preview, 'guest_user_links') && str_contains($preview, 'user_sessions') && str_contains($preview, 'users'), '초기화 미리보기에 회원 데이터 포함'); // 초기화 범위 고지
+    check(snapshot($allTables) === $after, '초기화 미리보기의 전체 데이터 보존'); // 미리보기 비파괴성
+    [$resetStatus] = resetDemo($apiRoot, false); // 전용 DB의 가상 데이터만 실제 초기화
+    check($resetStatus === 0, '회원 데이터가 있는 상태의 시연 초기화 성공'); // 기존 운영 도구 호환
+    check((int) Database::one('SELECT COUNT(*) AS n FROM guest_user_links')['n'] === 0, '초기화 후 게스트 연결 잔존 없음'); // 고아 연결 제거
+    check((int) Database::one('SELECT COUNT(*) AS n FROM users')['n'] === 0 && (int) Database::one('SELECT COUNT(*) AS n FROM user_sessions')['n'] === 0, '초기화 후 회원과 회원 세션 정리'); // 전체 초기화 범위 확인
+    Database::run("INSERT INTO guests (display_name) VALUES ('초기화 후 새 게스트')"); // 초기화 뒤 재사용되는 게스트 번호
+    check(Database::lastId() === 1 && Database::one('SELECT user_id FROM guest_user_links WHERE guest_id = 1') === null, '게스트 번호 재사용 시 이전 회원 연결 없음'); // 이전 소유권 부활 차단
     echo "회원 스키마 검증 완료\n"; // 최종 검증 결과
 } // 검증 실행 끝
 catch (Throwable $error) // 검증 실패 처리
