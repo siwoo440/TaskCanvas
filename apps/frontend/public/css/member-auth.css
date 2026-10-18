@@ -1,0 +1,219 @@
+.site-header .site-inner.row /* 공통 상단 배치 */
+{ /* 상단 배치 시작 */
+    min-height: 56px; /* 상단 최소 높이 */
+    height: auto; /* 메뉴 줄바꿈 높이 대응 */
+    padding-top: 8px; /* 상단 위 여백 */
+    padding-bottom: 8px; /* 상단 아래 여백 */
+    flex-wrap: wrap; /* 좁은 화면 줄바꿈 */
+    gap: 12px; /* 로고와 메뉴 간격 */
+} /* 상단 배치 마침 */
+.site-actions, .member-controls /* 상단 동작 메뉴 */
+{ /* 동작 메뉴 시작 */
+    flex-wrap: wrap; /* 메뉴 줄바꿈 허용 */
+    min-width: 0; /* 긴 이름 너비 제한 */
+} /* 동작 메뉴 마침 */
+.site-actions /* 작업실과 회원 메뉴 묶음 */
+{ /* 메뉴 묶음 시작 */
+    margin-left: auto; /* 오른쪽 정렬 */
+    justify-content: flex-end; /* 메뉴 오른쪽 배치 */
+} /* 메뉴 묶음 마침 */
+.member-controls /* 회원 메뉴 */
+{ /* 회원 메뉴 시작 */
+    justify-content: flex-end; /* 회원 메뉴 오른쪽 배치 */
+} /* 회원 메뉴 마침 */
+.member-button /* 로그인 이동 버튼 */
+{ /* 로그인 버튼 시작 */
+    display: inline-flex; /* 링크 버튼 배치 */
+    align-items: center; /* 글자 수직 중앙 */
+    justify-content: center; /* 글자 가로 중앙 */
+    padding: 9px 14px; /* 기존 버튼과 같은 여백 */
+    border: 1px solid var(--line); /* 버튼 테두리 */
+    border-radius: 8px; /* 버튼 둥근 모서리 */
+    background: var(--panel); /* 버튼 배경색 */
+    color: var(--text); /* 버튼 글자색 */
+    text-decoration: none; /* 링크 밑줄 제거 */
+    font-size: 14px; /* 기존 버튼과 같은 글자 크기 */
+    white-space: nowrap; /* 버튼 글자 줄바꿈 방지 */
+} /* 로그인 버튼 마침 */
+.member-button:hover /* 로그인 버튼 가리키기 */
+{ /* 버튼 가리키기 시작 */
+    border-color: var(--primary); /* 강조 테두리 */
+    color: var(--primary); /* 강조 글자색 */
+} /* 버튼 가리키기 마침 */
+.member-account /* 회원 이름 묶음 */
+{ /* 회원 이름 묶음 시작 */
+    display: inline-flex; /* 이름과 구분 가로 배치 */
+    align-items: center; /* 이름 수직 중앙 */
+    gap: 5px; /* 이름과 회원 구분 간격 */
+    min-width: 0; /* 이름 축소 허용 */
+} /* 회원 이름 묶음 마침 */
+#member-name /* 회원 이름 */
+{ /* 회원 이름 시작 */
+    max-width: 180px; /* 긴 이름 너비 제한 */
+    overflow: hidden; /* 넘친 이름 숨김 */
+    text-overflow: ellipsis; /* 긴 이름 말줄임 */
+    white-space: nowrap; /* 이름 한 줄 표시 */
+    font-size: 14px; /* 회원 이름 글자 크기 */
+} /* 회원 이름 마침 */
+.site-header .member-status-container /* 상단 계정 안내 높이 */
+{ /* 안내 높이 범위 시작 */
+    height: auto; /* 빈 안내 영역 높이 제거 */
+} /* 안내 높이 범위 마침 */
+.member-status-message /* 상단 계정 안내 */
+{ /* 계정 안내 시작 */
+    margin: 0; /* 문단 기본 여백 제거 */
+    padding: 0 0 8px; /* 안내 아래 여백 */
+    font-size: 13px; /* 안내 글자 크기 */
+    color: var(--muted); /* 안내 글자색 */
+    overflow-wrap: anywhere; /* 긴 안내 줄바꿈 */
+} /* 계정 안내 마침 */
+.member-status-error /* 계정 확인 오류 */
+{ /* 계정 오류 시작 */
+    color: #b91c1c; /* 오류 글자색 */
+} /* 계정 오류 마침 */
+.auth-page .logo /* 회원 화면 홈 로고 */
+{ /* 홈 로고 시작 */
+    color: var(--text); /* 로고 글자색 */
+    text-decoration: none; /* 로고 밑줄 제거 */
+    flex-shrink: 0; /* 로고 축소 방지 */
+} /* 홈 로고 마침 */
+.auth-main /* 회원 화면 본문 */
+{ /* 회원 본문 시작 */
+    display: flex; /* 카드 중앙 배치 */
+    align-items: flex-start; /* 긴 가입 화면 상단 배치 */
+    justify-content: center; /* 카드 가로 중앙 */
+    padding: 48px 20px; /* 본문 바깥 여백 */
+} /* 회원 본문 마침 */
+.auth-card /* 회원 입력 카드 */
+{ /* 회원 카드 시작 */
+    max-width: 440px; /* 카드 최대 너비 */
+    gap: 16px; /* 카드 내용 간격 */
+    box-shadow: 0 12px 32px rgba(15, 23, 42, .06); /* 카드 그림자 */
+} /* 회원 카드 마침 */
+.auth-card h1 /* 회원 화면 제목 */
+{ /* 화면 제목 시작 */
+    margin: 0; /* 제목 기본 여백 제거 */
+    font-size: 28px; /* 제목 글자 크기 */
+} /* 화면 제목 마침 */
+.auth-description /* 회원 화면 설명 */
+{ /* 화면 설명 시작 */
+    font-size: 14px; /* 설명 글자 크기 */
+    line-height: 1.7; /* 설명 줄 간격 */
+} /* 화면 설명 마침 */
+.auth-form /* 회원 입력 양식 */
+{ /* 입력 양식 시작 */
+    display: flex; /* 입력 세로 배치 */
+    flex-direction: column; /* 세로 정렬 방향 */
+    gap: 8px; /* 입력 사이 간격 */
+    min-width: 0; /* 입력 너비 축소 허용 */
+} /* 입력 양식 마침 */
+.auth-form input /* 회원 입력란 */
+{ /* 입력란 시작 */
+    width: 100%; /* 카드 너비 맞춤 */
+    min-width: 0; /* 좁은 화면 넘침 방지 */
+    min-height: 44px; /* 입력 터치 영역 */
+    padding: 10px 12px; /* 입력 안쪽 여백 */
+    border: 1px solid var(--line); /* 입력 테두리 */
+    border-radius: 8px; /* 입력 둥근 모서리 */
+    background: var(--panel); /* 입력 배경색 */
+    color: var(--text); /* 입력 글자색 */
+    font-family: inherit; /* 공통 글꼴 적용 */
+    font-size: 16px; /* 모바일 입력 확대 방지 */
+} /* 입력란 마침 */
+.auth-form input[aria-invalid="true"] /* 오류 입력란 */
+{ /* 오류 입력 시작 */
+    border-color: var(--danger); /* 오류 테두리 */
+} /* 오류 입력 마침 */
+.password-field /* 비밀번호와 눈 버튼 묶음 */
+{ /* 입력 묶음 시작 */
+    position: relative; /* 입력 오른쪽 버튼의 기준 */
+    min-width: 0; /* 좁은 화면 넘침 방지 */
+} /* 입력 묶음 끝 */
+.auth-form .password-field input /* 눈 버튼이 있는 입력 */
+{ /* 비밀번호 입력 시작 */
+    padding-right: 52px; /* 버튼과 입력 글자의 겹침 방지 */
+} /* 비밀번호 입력 끝 */
+.password-visibility-button /* 비밀번호 일시 보기 버튼 */
+{ /* 눈 버튼 시작 */
+    position: absolute; /* 입력 오른쪽 배치 */
+    right: 2px; /* 입력 오른쪽 안쪽 여백 */
+    top: 50%; /* 입력 세로 중앙 기준 */
+    transform: translateY(-50%); /* 버튼 세로 중앙 정렬 */
+    display: inline-flex; /* 아이콘 중앙 배치 */
+    align-items: center; /* 아이콘 세로 중앙 */
+    justify-content: center; /* 아이콘 가로 중앙 */
+    width: 44px; /* 누르기 쉬운 버튼 너비 */
+    height: 40px; /* 입력 안쪽 버튼 높이 */
+    padding: 0; /* 아이콘 바깥 여백 제거 */
+    border: 0; /* 입력과 겹치는 테두리 제거 */
+    background: transparent; /* 입력 배경 유지 */
+    color: var(--muted); /* 눈 아이콘 기본 색 */
+    touch-action: none; /* 누르는 동안 터치 스크롤 방지 */
+    user-select: none; /* 길게 누를 때 선택 방지 */
+} /* 눈 버튼 끝 */
+.password-visibility-button[aria-pressed="true"] /* 일시 표시 중인 버튼 */
+{ /* 표시 상태 시작 */
+    color: var(--primary); /* 활성 눈 아이콘 색 */
+    background: #eff6ff; /* 활성 버튼 배경 */
+} /* 표시 상태 끝 */
+.auth-form label:not(:first-child) /* 다음 입력 이름 */
+{ /* 입력 이름 간격 시작 */
+    margin-top: 8px; /* 입력 항목 위 간격 */
+} /* 입력 이름 간격 마침 */
+.auth-card .auth-help /* 입력 도움말 */
+{ /* 도움말 시작 */
+    margin-top: -2px; /* 입력과 도움말 간격 */
+    line-height: 1.65; /* 도움말 줄 간격 */
+} /* 도움말 마침 */
+.auth-feedback /* 제출 결과 안내 */
+{ /* 결과 안내 시작 */
+    font-size: 14px; /* 결과 글자 크기 */
+    line-height: 1.6; /* 결과 줄 간격 */
+    overflow-wrap: anywhere; /* 긴 오류 줄바꿈 */
+} /* 결과 안내 마침 */
+.auth-submit /* 회원 양식 제출 버튼 */
+{ /* 제출 버튼 시작 */
+    min-height: 44px; /* 버튼 터치 영역 */
+    margin-top: 12px; /* 제출 위 간격 */
+} /* 제출 버튼 마침 */
+.auth-other, .auth-home /* 다른 화면 이동 */
+{ /* 화면 이동 시작 */
+    font-size: 14px; /* 이동 글자 크기 */
+    text-align: center; /* 이동 안내 중앙 정렬 */
+    line-height: 1.6; /* 이동 안내 줄 간격 */
+} /* 화면 이동 마침 */
+.auth-card a /* 회원 카드 링크 */
+{ /* 카드 링크 시작 */
+    color: #1d4ed8; /* 링크 글자색 */
+    text-underline-offset: 3px; /* 밑줄 간격 */
+} /* 카드 링크 마침 */
+.auth-page a:focus-visible, .member-button:focus-visible, .auth-form input:focus-visible, .auth-form button:focus-visible /* 키보드 초점 표시 */
+{ /* 키보드 초점 시작 */
+    outline: 2px solid var(--primary); /* 초점 테두리 */
+    outline-offset: 3px; /* 초점 바깥 간격 */
+} /* 키보드 초점 마침 */
+@media (max-width: 600px) /* 작은 화면 배치 */
+{ /* 작은 화면 범위 시작 */
+    .site-header .site-inner.row /* 작은 화면 상단 */
+    { /* 작은 상단 시작 */
+        padding-left: 16px; /* 상단 왼쪽 여백 */
+        padding-right: 16px; /* 상단 오른쪽 여백 */
+    } /* 작은 상단 마침 */
+    .site-actions /* 작은 화면 메뉴 묶음 */
+    { /* 작은 메뉴 시작 */
+        width: 100%; /* 메뉴 한 줄 너비 */
+        justify-content: flex-start; /* 입장 버튼과 로그인 순서 유지 */
+    } /* 작은 메뉴 마침 */
+    #member-name /* 작은 화면 회원 이름 */
+    { /* 작은 이름 시작 */
+        max-width: 120px; /* 이름 너비 축소 */
+    } /* 작은 이름 마침 */
+    .auth-main /* 작은 화면 본문 */
+    { /* 작은 본문 시작 */
+        padding: 28px 16px; /* 작은 화면 여백 */
+    } /* 작은 본문 마침 */
+    .auth-card /* 작은 화면 카드 */
+    { /* 작은 카드 시작 */
+        padding: 24px; /* 카드 내부 여백 축소 */
+    } /* 작은 카드 마침 */
+} /* 작은 화면 범위 마침 */

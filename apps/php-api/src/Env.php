@@ -14,6 +14,8 @@ final class Env
         'DB_PASS' => '',
         'SESSION_COOKIE' => 'tc_session',
         'SESSION_TTL' => '43200',
+        'USER_SESSION_COOKIE' => 'tc_user_session', // 게스트와 별개인 회원 쿠키
+        'USER_SESSION_TTL' => '43200', // 회원 세션 유효 시간
         'TICKET_TTL' => '60',
         'RATE_LIMIT' => '20',
         'RATE_WINDOW' => '600',
@@ -28,11 +30,7 @@ final class Env
     public static function load(string $path): void
     {
         self::$values = self::DEFAULTS; // 기본값 적용
-        if (!is_file($path))
-        {
-            return;
-        }
-        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES); // 파일 줄 단위 읽기
+        $lines = is_file($path) ? file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : []; // 파일이 없어도 프로세스 설정 병합 유지
         foreach ($lines as $line)
         {
             $line = trim($line); // 공백 제거

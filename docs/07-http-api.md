@@ -6,6 +6,10 @@
 
 | 메서드 | 엔드포인트 | 의미 | 권한 |
 |---|---|---|---|
+| POST | `/api/auth/register` | 회원가입 `{login_id, display_name, password, password_confirm}` → 201 `{user}` | 공개, 보호 헤더·IP별 요청 제한 |
+| POST | `/api/auth/login` | 회원 로그인 `{login_id, password}` → `{user}`와 회원 쿠키 | 공개, 보호 헤더·IP별 요청 제한 |
+| GET | `/api/auth/me` | 회원 로그인 상태 `{user}`. 세션 없음·만료·폐기는 401 | 회원 세션 |
+| POST | `/api/auth/logout` | 현재 회원 세션 폐기·쿠키 삭제 → `{logged_out:true}` | 보호 헤더, 반복 호출 허용 |
 | POST | `/api/guest/join` | 표시 이름+초대 코드 검증 후 세션 발급 | 공개(요청 제한 필요) |
 | POST | `/api/projects` | 작업실 직접 만들기 `{display_name, title}`. 게스트·작업실·첫 보드를 만들고 만든 사람을 관리자로 입장시킴. 응답 `{guest, project, board, owner_code, owner_code_days}` — 재입장 코드 원문은 이 응답에서 한 번만 | 공개(요청 제한, `ALLOW_WORKSPACE_CREATE=0` 이면 403) |
 | POST | `/api/projects/{id}/rename` | 작업실 이름 변경 `{title}` | 관리자 |

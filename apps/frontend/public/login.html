@@ -1,0 +1,48 @@
+<!DOCTYPE html> <!-- HTML 문서 형식 -->
+<html lang="ko"> <!-- 한국어 문서 -->
+<head> <!-- 문서 설정 시작 -->
+    <meta charset="utf-8"> <!-- 한글 문자 설정 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- 모바일 화면 크기 설정 -->
+    <meta name="description" content="TaskCanvas 회원 로그인"> <!-- 로그인 화면 설명 -->
+    <title>로그인 — TaskCanvas</title> <!-- 브라우저 제목 -->
+    <link rel="stylesheet" href="css/app.css"> <!-- 기존 공통 스타일 -->
+    <link rel="stylesheet" href="css/member-auth.css"> <!-- 회원 화면 스타일 -->
+</head> <!-- 문서 설정 마침 -->
+<body class="auth-page"> <!-- 로그인 화면 시작 -->
+    <header class="site-header"> <!-- 공통 상단 영역 -->
+        <div class="site-inner row between"> <!-- 상단 가로 배치 -->
+            <a href="/" class="logo"><span class="logo-mark" aria-hidden="true"></span>TaskCanvas</a> <!-- 홈 이동 로고 -->
+            <nav class="row member-controls" aria-label="회원 계정"> <!-- 회원 계정 메뉴 -->
+                <a id="member-login" class="member-button" href="/login.html" hidden>로그인</a> <!-- 로그인 이동 링크 -->
+                <span id="member-account" class="member-account" hidden><strong id="member-name"></strong><span class="small muted">회원</span></span> <!-- 현재 회원 이름 -->
+                <button type="button" id="member-logout" hidden>로그아웃</button> <!-- 회원 로그아웃 버튼 -->
+                <button type="button" id="member-retry" hidden>다시 확인</button> <!-- 계정 재확인 버튼 -->
+            </nav> <!-- 회원 메뉴 마침 -->
+        </div> <!-- 상단 배치 마침 -->
+        <div class="site-inner member-status-container"><p id="member-status-message" class="member-status-message" role="status">계정 확인 중…</p></div> <!-- 회원 상태 안내 -->
+    </header> <!-- 상단 영역 마침 -->
+    <main class="auth-main"> <!-- 로그인 본문 -->
+        <section class="card auth-card" aria-labelledby="auth-title"> <!-- 로그인 카드 -->
+            <p class="eyebrow">TaskCanvas 회원 계정</p> <!-- 화면 구분 안내 -->
+            <h1 id="auth-title">로그인</h1> <!-- 화면 제목 -->
+            <p class="muted auth-description">회원 계정으로 로그인하세요. 작업실은 초대 코드로 입장할 수 있습니다.</p> <!-- 로그인 안내 -->
+            <form id="member-auth-form" class="auth-form" data-mode="login" action="/login.html" method="post"> <!-- 로그인 입력 양식 -->
+                <label for="login-id">아이디</label> <!-- 아이디 입력 이름 -->
+                <input id="login-id" name="login_id" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="40" required autofocus> <!-- 로그인 아이디 입력 -->
+                <label for="password">비밀번호</label> <!-- 비밀번호 입력 이름 -->
+                <input id="password" name="password" type="password" autocomplete="current-password" required> <!-- 현재 비밀번호 입력 -->
+                <p id="auth-error" class="error auth-feedback" role="alert" tabindex="-1" hidden></p> <!-- 로그인 오류 안내 -->
+                <p id="auth-status" class="notice auth-feedback" role="status" hidden></p> <!-- 로그인 진행과 완료 안내 -->
+                <button type="submit" id="auth-submit" class="primary auth-submit">로그인</button> <!-- 로그인 제출 버튼 -->
+            </form> <!-- 로그인 양식 마침 -->
+            <p class="auth-other">계정이 없으신가요? <a href="/register.html">회원가입</a></p> <!-- 회원가입 이동 링크 -->
+            <a class="auth-home" href="/">홈으로 돌아가기</a> <!-- 홈 이동 링크 -->
+            <noscript><p class="error">로그인하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript> <!-- 스크립트 비활성 안내 -->
+        </section> <!-- 로그인 카드 마침 -->
+    </main> <!-- 로그인 본문 마침 -->
+    <script src="js/config.js"></script> <!-- API 접속 설정 -->
+    <script src="js/api.js"></script> <!-- 공통 API 호출 도우미 -->
+    <script src="js/member-status.js"></script> <!-- 회원 상태와 로그아웃 처리 -->
+    <script src="js/member-auth.js"></script> <!-- 로그인 양식 처리 -->
+</body> <!-- 로그인 화면 마침 -->
+</html> <!-- 문서 마침 -->

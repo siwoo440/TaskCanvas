@@ -12,6 +12,10 @@ require __DIR__ . '/../src/bootstrap.php'; // 공통 초기화 로드
 $router = new Router(); // 라우터 생성
 
 $router->add('GET', '/api/health', [SystemController::class, 'health']); // 상태 확인
+$router->add('POST', '/api/auth/register', [MemberAuthController::class, 'register']); // 정식 회원가입
+$router->add('POST', '/api/auth/login', [MemberAuthController::class, 'login']); // 회원 로그인
+$router->add('GET', '/api/auth/me', [MemberAuthController::class, 'me']); // 회원 로그인 상태
+$router->add('POST', '/api/auth/logout', [MemberAuthController::class, 'logout']); // 회원 로그아웃
 $router->add('POST', '/api/guest/join', [GuestController::class, 'join']); // 게스트 입장
 $router->add('POST', '/api/guest/leave', [GuestController::class, 'leave']); // 게스트 퇴장
 $router->add('GET', '/api/me', [GuestController::class, 'me']); // 현재 세션 정보
