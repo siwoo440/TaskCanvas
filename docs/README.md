@@ -22,5 +22,6 @@
 | [15 배포·시연 가이드](15-deployment-school-pc.md) | 학교 PC 사전 점검·방화벽·실행 방법·시연 순서·문제 해결 |
 | [16 시연 대본](16-demo-script.md) | PC 4대·약 8분 진행 순서, 준비 목록, 막혔을 때 대처 |
 | [24 추가 기능 확장 백로그](24-product-expansion-backlog.md) | **E01~E14 추가 권장 기능 14개, 36~52일차 WBS, 기능별 데이터/수용 기준** (전체 미구현·계획) |
+| [25 회원 데이터](25-member-data.md) | **25일차 완료:** 회원·세션·게스트 연결 스키마, 기존 DB 보정, 전환·소유 검증 규칙과 테스트. 인증 API·UI는 26일차 예정 |
 | [original](original/project-plan-initial.md) | 기존 Google Docs 1차 기획 문서의 내보내기 |
 | [diagrams](diagrams/) | Mermaid 다이어그램 및 화면 와이어프레임 |

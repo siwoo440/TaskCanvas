@@ -9,6 +9,37 @@ CREATE TABLE IF NOT EXISTS guests ( -- 게스트 계정
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP -- 최초 입장 시각
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 게스트 테이블
 
+CREATE TABLE IF NOT EXISTS users ( -- 정식 회원 데이터 기반
+    user_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 회원 고유 ID
+    login_id VARCHAR(120) NOT NULL, -- 대소문자를 구분하지 않는 로그인 ID
+    display_name VARCHAR(60) NOT NULL, -- 회원 표시 이름
+    password_hash VARCHAR(255) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- PHP 비밀번호 해시
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 회원 생성 시각
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- 회원 변경 시각
+    UNIQUE KEY uq_users_login_id (login_id) -- 로그인 ID 중복 방지
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 회원 테이블
+
+CREATE TABLE IF NOT EXISTS user_sessions ( -- 정식 회원 세션 데이터 기반
+    session_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 회원 세션 행 ID
+    user_id BIGINT UNSIGNED NOT NULL, -- 연결 회원 ID
+    token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 세션 토큰의 SHA-256 해시
+    expires_at DATETIME NOT NULL, -- 세션 만료 시각
+    revoked_at DATETIME NULL, -- 세션 폐기 시각
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 세션 발급 시각
+    UNIQUE KEY uq_user_sessions_token (token_hash), -- 세션 토큰 해시 중복 방지
+    KEY idx_user_sessions_user_expiry (user_id, expires_at), -- 회원별 세션과 만료 조회
+    CONSTRAINT fk_user_session_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE -- 회원 삭제 시 세션 정리
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 회원 세션 테이블
+
+CREATE TABLE IF NOT EXISTS guest_user_links ( -- 기존 게스트와 정식 회원의 검증된 연결
+    guest_id BIGINT UNSIGNED NOT NULL PRIMARY KEY, -- 게스트당 회원 한 명
+    user_id BIGINT UNSIGNED NOT NULL, -- 연결 회원 ID
+    linked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 소유 확인 후 연결 시각
+    KEY idx_guest_user_links_user (user_id), -- 회원별 여러 게스트 조회
+    CONSTRAINT fk_guest_user_link_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 삭제 시 연결 정리
+    CONSTRAINT fk_guest_user_link_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE RESTRICT -- 연결 해제 없는 회원 삭제 차단
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 게스트 연결 테이블
+
 CREATE TABLE IF NOT EXISTS guest_sessions ( -- 게스트 세션
     session_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 세션 행 ID
     guest_id BIGINT UNSIGNED NOT NULL, -- 연결 게스트 ID
