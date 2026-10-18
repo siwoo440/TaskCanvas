@@ -28,6 +28,7 @@
 | POST | `/api/boards/{id}/delete` | 보드 삭제(객체·연결선 포함, 되돌릴 수 없음) | 관리자 |
 | POST | `/api/images` | PNG/JPG/WEBP(최대 10MB) 이미지 업로드 | 관리자·편집자 |
 | GET | `/api/images/{id}` | 프로젝트 권한 검증 후 이미지 반환 | 참여자 |
+| GET | `/api/projects/{id}/analytics/summary` | 업무 상태·담당자·마감·체크리스트 SQL 집계. created_from·created_to·status·assignee_id 필터 | 참여자(viewer 이상), [28일차 계약](28-task-analytics.md) |
 | GET | `/api/projects/{id}/tasks` (P1) | 공유 업무 목록(담당자 이름·버전 포함). 업무마다 `checklist` 에 세부 항목 `[{item_id, title, done}]` | 참여자 |
 | GET | `/api/projects/{id}/members` | 프로젝트 참여자 목록(담당자 선택용) | 참여자 |
 | GET | `/api/projects/{id}/invites` | 초대 코드 목록(역할·만료·인원 제한과 입장 인원·상태, 코드 원문 없음) | 관리자 |

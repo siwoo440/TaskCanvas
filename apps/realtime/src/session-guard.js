@@ -1,13 +1,37 @@
 'use strict'; // 엄격한 문법
 const auth = require('./auth'); // 공통 세션 확인
-function close(socket, ack) // 무효 연결 정리
+const db = require('./db'); // 삭제된 작업실 판별
+async function close(socket, ack, inspectProject) // 무효 연결 정리
 { // 해제 시작
+    let deleted = false; // 기본 인증 만료 사유
+    if (inspectProject) // 정상 조회에서 권한 소멸 확인
+    { // 삭제 사유 확인
+        try // 기존 삭제 감시와 독립된 확인
+        { // 작업실 조회
+            deleted = await db.one('SELECT project_id FROM projects WHERE project_id = ?', [socket.data.projectId]) === null; // 작업실 자체의 소멸
+        } // 조회 끝
+        catch (error) // 조회 실패
+        { // 접근 거부 유지
+            deleted = false; // 불확실한 삭제 알림 방지
+        } // 실패 끝
+    } // 사유 확인 끝
+    if (!socket.connected) // 다른 감시에서 이미 정리
+    { // 중복 종료 방지
+        return; // 종료된 연결 제외
+    } // 중복 검사 끝
     const error = { code: 'SESSION_EXPIRED', message: '접속 권한이 만료되었습니다. 로그인 또는 작업실을 다시 선택하세요.' }; // 재인증 안내
     if (typeof ack === 'function') // 응답 가능한 요청
     { // 오류 응답
         ack({ ok: false, error }); // 인증 오류 전달
     } // 응답 끝
-    socket.emit('auth:expired', error); // 유휴 화면에도 알림
+    if (deleted) // 인증 감시가 삭제를 먼저 발견
+    { // 기존 삭제 계약 유지
+        socket.emit('project:deleted', { project_id: socket.data.projectId }); // 정확한 삭제 사유 전달
+    } // 삭제 알림 끝
+    else // 세션 만료 또는 DB 장애
+    { // 재인증 알림
+        socket.emit('auth:expired', error); // 유휴 화면에도 알림
+    } // 재인증 알림 끝
     socket.disconnect(true); // 방·참여자·잠금 정리
 } // 해제 끝
 async function valid(socket) // 활성 연결 검사
@@ -46,8 +70,10 @@ function register(io, socket) // 수신 이벤트 인증
         catch (error) // DB 조회 실패
         { // 오류 기록
             console.error('실시간 세션 확인 실패', error.message); // 운영 오류
+            await close(socket, ack, false); // 장애 시 추가 조회 없이 차단
+            return; // 실패한 이벤트 종료
         } // 오류 기록 끝
-        close(socket, ack); // 무효·조회 실패 모두 차단
+        await close(socket, ack, true); // 무효 원인 알림 후 차단
     }); // 가드 등록 끝
 } // 등록 끝
 function startWatcher(io) // 유휴 연결 인증 감시
@@ -69,17 +95,19 @@ function startWatcher(io) // 유휴 연결 인증 감시
                     continue; // 수신 방 없는 연결
                 } // 제외 끝
                 let allowed = false; // 기본 접근 거부
+                let queryFailed = false; // 인증 저장소 오류 구분
                 try // 개별 DB 검사
                 { // 인증 조회
                     allowed = await valid(socket); // 세션 유효성
                 } // 조회 끝
                 catch (error) // DB 장애
                 { // 오류 기록
+                    queryFailed = true; // 추가 조회 생략 기준
                     console.error('실시간 인증 감시 실패', error.message); // 실패 원인
                 } // 오류 끝
                 if (!allowed && socket.connected) // 무효한 활성 연결
                 { // 강제 정리
-                    close(socket); // 수신 방에서 제거
+                    await close(socket, null, !queryFailed); // 삭제 또는 만료 알림 후 수신 방 제거
                 } // 정리 끝
             } // 개별 검사 끝
         } // 순회 끝

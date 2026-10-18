@@ -10,6 +10,7 @@ async function run() // DB 장애의 접근 거부 검사
     let reply = null; // 실제 ACK
     const socket = // 네트워크 경계 대역
     { // 대역 구성
+        connected: true, // 살아 있는 연결의 종료 검사
         data: { projectId: 1, guestId: 2, guestSessionId: 3 }, // 인증된 연결 범위
         use: (handler) => // 패킷 검사 등록
         { // 등록 시작

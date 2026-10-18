@@ -206,3 +206,9 @@ curl -b cookies.txt http://localhost:8080/api/me
 
 - 보드에서 이미지를 지웠을 때 파일을 즉시 자동으로 지우는 기능(실행 취소와 맞지 않아 `clean-uploads.php` 로 따로 정리)
 - 프로젝트를 지우는 API(시연 초기화로만 정리)
+
+---
+
+## 28일차 업무 통계
+
+`GET /api/projects/{id}/analytics/summary`는 viewer 이상 권한으로 업무·담당자·마감·체크리스트를 SQL 집계합니다. DB 구조 변경 없이 기존 테이블을 조회합니다. 필터·응답·검증 명세는 [28일차 계약](../../docs/28-task-analytics.md) 참고. `node apps/realtime/scripts/test-analytics.js`는 전용 임시 DB에서 검증합니다.

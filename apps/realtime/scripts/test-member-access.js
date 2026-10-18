@@ -198,7 +198,7 @@ async function main() // 인증 통합 검증
         } // 준비 순회 끝
         check(secondReady && !secondError, '동시 HTTP 검사 서버 식별'); // 변경 전 대상 검증
         const rtPort = await availablePort(); // 별도 실시간 포트
-        realtime = spawn(process.execPath, ['src/server.js'], { cwd: path.join(ROOT, 'apps/realtime'), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: String(rtPort), DB_NAME, DB_HOST: options.host, DB_PORT: String(options.port), DB_USER: options.user, DB_PASS: options.password, CORS_ORIGIN: 'auto' } }); // 임시 DB 실시간 서버
+        realtime = spawn(process.execPath, ['src/server.js'], { cwd: path.join(ROOT, 'apps/realtime'), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: String(rtPort), DB_NAME, DB_HOST: options.host, DB_PORT: String(options.port), DB_USER: options.user, DB_PASS: options.password, CORS_ORIGIN: 'auto', BOARD_SWEEP_MS: '30000' } }); // 임시 DB 실시간 서버
         await new Promise((resolve, reject) => // 서버 수신 시작 확인
         { // 시작 대기
             const timer = setTimeout(() => reject(new Error('실시간 서버 시작 시간 초과')), 5000); // 대기 한도
@@ -364,6 +364,23 @@ async function main() // 인증 통합 검증
         check((await request('GET', '/api/me', undefined, guestExpiryCookie)).status === 401, '게스트 세션 만료 후 HTTP 거부'); // 만료 경계
         await new Promise((resolve) => setTimeout(resolve, 1400)); // 유휴 감시
         check(!guestExpirySocket.connected, '게스트 세션 만료 후 유휴 소켓 해제'); // 수신 중단
+        const toDelete = await request('POST', '/api/projects', { display_name: 'alpha27', title: '삭제 알림 경합' }, replacement.cookie); // 삭제 감시보다 인증 감시가 빠른 작업실
+        const deleteCookie = merge(replacement.cookie, toDelete.cookie); // 생성 후 세션
+        const deletedBoard = await connect(deleteCookie, { board_id: toDelete.data.board.board_id }); // 보드 구독
+        const deletedWorkspace = await connect(deleteCookie, { project_id: toDelete.data.project.project_id }); // 작업실 구독
+        let boardDeletion = false; // 보드 연결의 작업실 삭제 알림
+        let workspaceDeletion = false; // 작업실 연결의 삭제 알림
+        deletedBoard.once('project:deleted', () => // 삭제 알림 관측
+        { // 수신 기록
+            boardDeletion = true; // 정확한 화면 정리 사유
+        }); // 관측 끝
+        deletedWorkspace.once('project:deleted', () => // 작업실 알림 관측
+        { // 수신 기록
+            workspaceDeletion = true; // 작업실 화면 정리
+        }); // 관측 끝
+        await request('POST', '/api/projects/' + toDelete.data.project.project_id + '/delete', { confirm_title: '삭제 알림 경합' }, deleteCookie); // 실제 HTTP 삭제
+        await new Promise((resolve) => setTimeout(resolve, 1600)); // 1초 인증 감시가 먼저 처리
+        check(boardDeletion && workspaceDeletion && !deletedBoard.connected && !deletedWorkspace.connected, '인증 감시가 먼저 발견한 작업실 삭제도 알림 후 연결 해제'); // 삭제·인증 감시 경합 회귀
         console.log('회원 접근 ' + passed + '개 통과'); // 결과 집계
     } // 테스트 본문 끝
     finally // 전용 자원 정리
