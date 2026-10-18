@@ -40,6 +40,11 @@ final class GuestController
             ); // 같은 이름의 기존 멤버 조회
             if ($existing !== null)
             {
+                Database::one('SELECT guest_id FROM guests WHERE guest_id = ? FOR UPDATE', [(int) $existing['guest_id']]); // 회원 연결과 공통 잠금
+                if (Database::one('SELECT user_id FROM guest_user_links WHERE guest_id = ? FOR UPDATE', [(int) $existing['guest_id']]) !== null) // 스냅샷 아닌 최신 회원 소유 검사
+                { // 연결 게스트 재사용 차단
+                    throw new ApiException(403, 'NAME_IN_USE', '회원에 연결된 이름입니다. 회원으로 로그인하거나 다른 이름을 사용하세요.'); // 이름 탈취 차단
+                } // 소유 검사 끝
                 if (Auth::rank($invite['role']) < Auth::rank($existing['role']))
                 {
                     throw new ApiException(403, 'NAME_IN_USE', '이 이름은 이 작업실에서 더 높은 권한의 참여자가 쓰고 있습니다. 다른 이름으로 입장하세요.'); // 낮은 권한의 코드로 높은 권한 참여자의 이름을 써서 권한을 가로채는 것을 막음
@@ -66,7 +71,7 @@ final class GuestController
                 $role = $invite['role']; // 초대 코드의 역할 부여
                 Database::run('INSERT INTO project_members (project_id, guest_id, role) VALUES (?, ?, ?)', [$projectId, $guestId, $role]); // 멤버십 생성
             }
-            Auth::issueSession($guestId); // 세션 쿠키 발급
+            $session = Auth::prepareSession($guestId); // 입장과 세션 저장의 원자성
             $pdo->commit(); // 트랜잭션 확정
         }
         catch (Throwable $e)
@@ -78,6 +83,7 @@ final class GuestController
             }
             throw $e;
         }
+        Auth::publishSession($session); // 트랜잭션 확정 후 쿠키
         Throttle::record($request->clientIp(), true); // 성공 기록
 
         Response::ok([
@@ -103,6 +109,12 @@ final class GuestController
               WHERE m.guest_id = ? ORDER BY m.joined_at',
             [(int) $guest['guest_id']]
         ); // 참여 프로젝트 목록
+        $user = MemberAuth::currentUser($request); // 현재 회원 상태
+        if ($user !== null && $guest['user_session_id'] !== null) // 회원용 세션
+        { // 회원 전체 멤버십
+            Response::ok(['guest' => ['guest_id' => (int) $guest['guest_id'], 'display_name' => $guest['display_name']], 'projects' => MemberWorkspace::workspaces($user), 'member' => true]); // 선택 API와 함께 사용할 목록
+            return; // 기존 게스트 응답 종료
+        } // 회원 목록 끝
         Response::ok([
             'guest' => ['guest_id' => (int) $guest['guest_id'], 'display_name' => $guest['display_name']],
             'projects' => array_map(static fn(array $p) => ['project_id' => (int) $p['project_id'], 'title' => $p['title'], 'role' => $p['role']], $projects),

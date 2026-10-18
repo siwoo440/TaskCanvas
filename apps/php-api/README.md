@@ -2,7 +2,7 @@
 
 게스트 입장·세션, 보드, 저장 스냅샷, Socket.IO 접속 티켓, 이미지 업로드, 참여자·공유 업무 조회, 관리자용 초대 코드 관리를 담당하는 순수 PHP(프레임워크·Composer 없음) API입니다. 규격은 [docs/07-http-api.md](../../docs/07-http-api.md)를 따릅니다.
 
-**26일차:** [회원가입·로그인·로그아웃 API와 화면](../../docs/26-member-auth.md)을 구현했습니다. 회원과 기존 게스트의 세션·권한은 분리되며 실제 연결은 27일차 예정입니다. 기존 설치는 백업 후 `bin/migrate.php`로 25일차 테이블을 준비합니다. DB 검증은 `tests/member-schema.php`, 인증 통합 검증은 저장소 루트에서 `node apps/realtime/scripts/test-member-auth.js`를 실행합니다.
+**26일차:** [회원가입·로그인·로그아웃 API와 화면](../../docs/26-member-auth.md)을 구현했습니다. 27일차에 [회원 작업실·게스트 연결과 권한 검사](../../docs/27-member-access.md)를 구현했습니다. 회원용 게스트 세션은 회원 세션에 종속되며 기존 비회원 세션은 독립적으로 유지합니다. 기존 설치는 백업 후 `bin/migrate.php`로 회원 테이블과 세션 결합 컬럼을 준비합니다. DB 검증은 `tests/member-schema.php`, 인증 통합 검증은 저장소 루트에서 `node apps/realtime/scripts/test-member-auth.js`를 실행합니다.
 
 ## 확인된 환경
 

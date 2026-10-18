@@ -82,7 +82,9 @@ try // 전용 DB 검증
         check(in_array($table, $existing, true), '신규 설치: ' . $table . ' 테이블 존재'); // 누락 테이블 검출
     } // 신규 테이블 검사 끝
     $freshDefinitions = snapshot($memberTables); // 신규 설치 구조 기록
-    Database::run('DROP TABLE guest_user_links, user_sessions, users'); // 전용 DB만 24일차 구조로 복원
+    Database::run('SET FOREIGN_KEY_CHECKS = 0'); // 27일차 세션 외래키의 임시 참조 허용
+    Database::run('DROP TABLE guest_user_links, user_sessions, users'); // 전용 DB의 회원 테이블 제거
+    Database::run('SET FOREIGN_KEY_CHECKS = 1'); // 외래키 검사 복구
     $legacyTables = array_values(array_diff($existing, $memberTables)); // 기존 테이블 목록
     $fixtures = [ // 기존 참조 관계를 갖춘 가상 데이터
         "INSERT INTO guests (guest_id, display_name) VALUES (1, '기존 관리자'), (2, '기존 편집자'), (3, '동명이인')", // 기존 게스트

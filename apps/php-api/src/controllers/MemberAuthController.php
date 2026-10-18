@@ -93,7 +93,8 @@ final class MemberAuthController // 회원 인증 API
         { // 인증 거부 시작
             throw new ApiException(401, 'INVALID_CREDENTIALS', '로그인 ID 또는 비밀번호가 올바르지 않습니다.'); // 회원 존재 여부와 같은 오류
         } // 인증 거부 끝
-        MemberAuth::issueSession($request, (int) $user['user_id']); // 새 세션 발급과 이전 세션 교체
+        $user['user_session_id'] = MemberAuth::issueSession($request, (int) $user['user_id']); // 새 세션 발급과 이전 세션 교체
+        MemberWorkspace::restore($request, $user); // 기존 게스트 보존 또는 회원 작업실 복원
         $this->succeeded($attemptId); // 로그인 성공 기록
         Response::ok(['user' => MemberAuth::publicUser($user)]); // 비밀값 없는 로그인 결과
     } // 로그인 끝

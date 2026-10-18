@@ -16,6 +16,10 @@ $router->add('POST', '/api/auth/register', [MemberAuthController::class, 'regist
 $router->add('POST', '/api/auth/login', [MemberAuthController::class, 'login']); // 회원 로그인
 $router->add('GET', '/api/auth/me', [MemberAuthController::class, 'me']); // 회원 로그인 상태
 $router->add('POST', '/api/auth/logout', [MemberAuthController::class, 'logout']); // 회원 로그아웃
+$router->add('GET', '/api/auth/workspaces', [MemberWorkspaceController::class, 'index']); // 회원 작업실 목록
+$router->add('POST', '/api/auth/guest-link', [MemberWorkspaceController::class, 'link']); // 현재 게스트 연결
+$router->add('POST', '/api/auth/workspaces/select', [MemberWorkspaceController::class, 'select']); // 회원 작업실 선택
+$router->add('POST', '/api/auth/workspaces/join', [MemberWorkspaceController::class, 'join']); // 회원 초대 참여
 $router->add('POST', '/api/guest/join', [GuestController::class, 'join']); // 게스트 입장
 $router->add('POST', '/api/guest/leave', [GuestController::class, 'leave']); // 게스트 퇴장
 $router->add('GET', '/api/me', [GuestController::class, 'me']); // 현재 세션 정보

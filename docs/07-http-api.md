@@ -10,6 +10,10 @@
 | POST | `/api/auth/login` | 회원 로그인 `{login_id, password}` → `{user}`와 회원 쿠키 | 공개, 보호 헤더·IP별 요청 제한 |
 | GET | `/api/auth/me` | 회원 로그인 상태 `{user}`. 세션 없음·만료·폐기는 401 | 회원 세션 |
 | POST | `/api/auth/logout` | 현재 회원 세션 폐기·쿠키 삭제 → `{logged_out:true}` | 보호 헤더, 반복 호출 허용 |
+| GET | `/api/auth/workspaces` | 본인 작업실과 현재 게스트 연결 가능 여부 | 회원 |
+| POST | `/api/auth/guest-link` | `{password}` 재확인 후 현재 게스트 연결 → `{guest}` | 회원+현재 게스트, 보호 헤더·시도 제한 |
+| POST | `/api/auth/workspaces/select` | `{project_id}` 본인 작업실 활성화 → `{guest, project_id, role}` | 회원, 보호 헤더 |
+| POST | `/api/auth/workspaces/join` | `{invite_code}` 회원 초대 참여 → 201 `{guest, project_id, role}` | 회원, 보호 헤더·시도 제한 |
 | POST | `/api/guest/join` | 표시 이름+초대 코드 검증 후 세션 발급 | 공개(요청 제한 필요) |
 | POST | `/api/projects` | 작업실 직접 만들기 `{display_name, title}`. 게스트·작업실·첫 보드를 만들고 만든 사람을 관리자로 입장시킴. 응답 `{guest, project, board, owner_code, owner_code_days}` — 재입장 코드 원문은 이 응답에서 한 번만 | 공개(요청 제한, `ALLOW_WORKSPACE_CREATE=0` 이면 403) |
 | POST | `/api/projects/{id}/rename` | 작업실 이름 변경 `{title}` | 관리자 |
@@ -105,3 +109,9 @@
 - 상태 변경 API에 CSRF 방어, 세션 `SameSite`, `HttpOnly`, 적절한 `Secure` 사용.
 - DB 쿼리는 PHP PDO 바인딩(Prepared Statements).
 - 사용자 입력 출력은 HTML 이스케이프, 외부 URL은 http/https 및 도메인 검증.
+
+---
+
+## 27일차 인증 보완
+
+회원에 연결된 게스트는 동일한 활성 회원 세션에 종속된 게스트 쿠키가 필요합니다. 연결된 이름의 비회원 재입장은 거부합니다. `/api/me`의 회원용 세션은 `member: true`와 연결 게스트들의 작업실 목록을 반환하며, 작업실 전환은 select API로 활성 게스트를 바꿉니다. 티켓은 발급 세션에 결합합니다. [27일차 상세](27-member-access.md).

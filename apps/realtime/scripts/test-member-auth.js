@@ -159,7 +159,7 @@ async function main() // 인증 통합 검증
         check(login.status === 200 && login.data.user.user_id === stored.user_id, '정상 로그인과 회원 ID 확인'); // 인증 성공
         const setCookie = login.cookies.find((value) => value.startsWith('tc_user_session=')) || ''; // 회원 세션 쿠키
         check(/HttpOnly/i.test(setCookie) && /SameSite=Strict/i.test(setCookie) && /path=\//i.test(setCookie), 'HttpOnly·SameSite·전체 경로 회원 쿠키'); // 쿠키 보호
-        const token = login.cookie.split('=')[1]; // 가상 회원 토큰
+        const token = setCookie.split(';')[0].split('=')[1]; // 가상 회원 토큰
         const [[session]] = await db.query('SELECT * FROM user_sessions WHERE token_hash = ?', [crypto.createHash('sha256').update(token).digest('hex')]); // 토큰 해시 조회
         check(Boolean(session) && session.token_hash !== token, 'DB에 회원 세션 토큰 해시만 저장'); // 원문 토큰 비저장
         const me = await request('GET', '/api/auth/me', undefined, login.cookie); // 새 요청의 로그인 유지
@@ -172,7 +172,7 @@ async function main() // 인증 통합 검증
         await db.query('DELETE FROM join_attempts'); // 전용 요청 기록 정리
         const guest = await request('POST', '/api/projects', { display_name: '기존 게스트', title: '게스트 보존 검사' }); // 별도 게스트 작업실
         check(guest.status === 201, '기존 게스트 작업실 생성 유지'); // 기존 진입 기능
-        const combinedCookie = rotated.cookie + '; ' + guest.cookie; // 회원과 게스트 쿠키 공존
+        const combinedCookie = rotated.cookies.find((value) => value.startsWith('tc_user_session=')).split(';')[0] + '; ' + guest.cookie; // 회원과 게스트 쿠키 공존
         check((await request('POST', '/api/auth/logout', {}, combinedCookie, false)).status === 403, '보호 헤더 없는 로그아웃 거부'); // 무단 로그아웃 차단
         check((await request('GET', '/api/auth/me', undefined, combinedCookie)).status === 200, '거부된 로그아웃 이후 회원 세션 보존'); // 인증 상태 보존
         const logout = await request('POST', '/api/auth/logout', {}, combinedCookie); // 회원 로그아웃

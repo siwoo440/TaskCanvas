@@ -22,22 +22,29 @@ final class Auth
         return bin2hex(random_bytes(24)); // 48자 랜덤 16진수 비밀값
     }
 
-    public static function issueSession(int $guestId): void
-    {
-        $token = self::newSecret(); // 세션 토큰 원문
-        $ttl = Env::int('SESSION_TTL', 43200); // 세션 유효 시간
-        Database::run(
-            'INSERT INTO guest_sessions (guest_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))',
-            [$guestId, self::hash($token), $ttl]
-        ); // 세션 해시 저장
-        setcookie(Env::get('SESSION_COOKIE'), $token, [
-            'expires' => time() + $ttl, // 쿠키 만료
+    public static function prepareSession(int $guestId, ?int $userSessionId = null): array // DB 저장과 쿠키 전송 분리
+    { // 세션 준비 시작
+        $token = self::newSecret(); // 비밀 토큰
+        $ttl = Env::int('SESSION_TTL', 43200); // 게스트 유효 시간
+        Database::run('INSERT INTO guest_sessions (guest_id, token_hash, expires_at, user_session_id) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)', [$guestId, self::hash($token), $ttl, $userSessionId]); // 트랜잭션에 포함할 저장
+        return ['session_id' => Database::lastId(), 'token' => $token, 'expires' => time() + $ttl]; // 응답에 노출하지 않을 내부 발급 자료
+    } // 준비 끝
+    public static function publishSession(array $session): void // 저장 확정 후 쿠키 전송
+    { // 쿠키 전송 시작
+        setcookie(Env::get('SESSION_COOKIE'), $session['token'], [ // 보호 쿠키
+            'expires' => $session['expires'], // 브라우저 만료
             'path' => '/', // 사이트 전체 경로
             'httponly' => true, // 스크립트 접근 차단
-            'samesite' => 'Strict', // 교차 사이트 전송 차단
-            'secure' => Env::bool('COOKIE_SECURE'), // HTTPS 전용 여부
-        ]); // HttpOnly 세션 쿠키 발급
-    }
+            'samesite' => 'Strict', // 외부 요청 쿠키 차단
+            'secure' => Env::bool('COOKIE_SECURE'), // HTTPS 설정
+        ]); // 쿠키 전송 끝
+    } // 전송 끝
+    public static function issueSession(int $guestId, ?int $userSessionId = null): int // 단일 발급 편의 경로
+    { // 발급 시작
+        $session = self::prepareSession($guestId, $userSessionId); // 실제 세션 저장
+        self::publishSession($session); // 성공한 세션 쿠키
+        return $session['session_id']; // 티켓 결합 번호
+    } // 발급 끝
 
     public static function destroySession(Request $request): void
     {
@@ -56,13 +63,20 @@ final class Auth
         {
             return null; // 세션 없음
         }
-        return Database::one(
-            'SELECT g.guest_id, g.display_name, s.session_id
-               FROM guest_sessions s
-               JOIN guests g ON g.guest_id = s.guest_id
-              WHERE s.token_hash = ? AND s.expires_at > NOW()',
-            [self::hash($token)]
-        ); // 유효 세션의 게스트 조회
+        $guest = Database::one('SELECT g.guest_id, g.display_name, s.session_id, s.user_session_id, l.user_id FROM guest_sessions s JOIN guests g ON g.guest_id = s.guest_id LEFT JOIN guest_user_links l ON l.guest_id = g.guest_id WHERE s.token_hash = ? AND s.expires_at > NOW()', [self::hash($token)]); // 현재 게스트와 소유 연결
+        if ($guest === null) // 없는 세션
+        { // 조회 실패
+            return null; // 미인증
+        } // 조회 실패 끝
+        if ($guest['user_id'] !== null || $guest['user_session_id'] !== null) // 회원 소유 또는 결합 세션
+        { // 회원 인증 검사
+            $user = MemberAuth::currentUser($request); // 실제 로그인 세션
+            if ($user === null || (int) $guest['user_id'] !== (int) $user['user_id'] || (int) $guest['user_session_id'] !== (int) $user['user_session_id']) // 소유와 발급 세션 일치
+            { // 결합 불일치
+                return null; // 게스트 쿠키만의 접근 차단
+            } // 결합 검사 끝
+        } // 회원 검사 끝
+        return $guest; // 검증된 게스트
     }
 
     public static function requireGuest(Request $request): array

@@ -217,3 +217,36 @@
         padding: 24px; /* 카드 내부 여백 축소 */
     } /* 작은 카드 마침 */
 } /* 작은 화면 범위 마침 */
+.member-workspaces /* 회원 작업실 영역 */
+{ /* 영역 시작 */
+    margin-top: 24px; /* 상단 여백 */
+    margin-bottom: 24px; /* 하단 여백 */
+    padding: 24px; /* 내부 여백 */
+    border: 1px solid var(--line, #d9dce1); /* 영역 경계 */
+    border-radius: 12px; /* 모서리 형태 */
+    background: #fff; /* 카드 배경 */
+} /* 영역 끝 */
+.member-workspaces-list, .member-invite-form /* 목록과 초대 구성 */
+{ /* 구성 시작 */
+    display: flex; /* 유연한 배치 */
+    flex-wrap: wrap; /* 작은 화면 줄바꿈 */
+    gap: 12px; /* 항목 간격 */
+    margin-bottom: 16px; /* 다음 영역 간격 */
+} /* 구성 끝 */
+.member-invite-form /* 초대 입력 영역 */
+{ /* 입력 구성 */
+    flex-direction: column; /* 제목과 입력 줄 구분 */
+} /* 입력 끝 */
+.member-invite-form input /* 초대 코드 입력 */
+{ /* 입력 너비 */
+    flex: 1 1 180px; /* 입력 기본 너비와 줄바꿈 */
+    min-width: 0; /* 좁은 화면 넘침 방지 */
+} /* 입력 끝 */
+.member-invite-form .row, .member-workspaces > .row /* 좁은 화면 배치 */
+{ /* 줄바꿈 시작 */
+    flex-wrap: wrap; /* 입력과 버튼 줄바꿈 */
+} /* 줄바꿈 끝 */
+#member-link-dialog /* 재확인 대화상자 */
+{ /* 대화상자 구성 */
+    max-width: min(440px, calc(100vw - 32px)); /* 모바일 너비 제한 */
+} /* 대화상자 끝 */

@@ -10,6 +10,12 @@
     let pending = false; // 요청 중복 방지 상태
     function showUser(user) // 회원 표시 갱신
     { // 회원 표시 범위 시작
+        const previous = window.TC_MEMBER_USER; // 이전 계정 상태
+        window.TC_MEMBER_USER = user; // 현재 계정 공유
+        if (previous === undefined || (previous && previous.user_id) !== (user && user.user_id)) // 계정 식별 변경
+        { // 상태 알림
+            window.dispatchEvent(new CustomEvent('taskcanvas:member-change', { detail: { user, initial: previous === undefined } })); // 화면과 목록 동기화
+        } // 알림 끝
         login.hidden = Boolean(user); // 로그인 링크 표시 상태
         account.hidden = !user; // 회원 영역 표시 상태
         logout.hidden = !user; // 로그아웃 표시 상태

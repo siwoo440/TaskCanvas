@@ -21,8 +21,8 @@ final class TicketController
         $ticket = Auth::newSecret(); // 티켓 원문
         $ttl = Env::int('TICKET_TTL', 60); // 티켓 유효 시간
         Database::run(
-            'INSERT INTO realtime_tickets (ticket_hash, guest_id, board_id, project_id, expires_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))',
-            [Auth::hash($ticket), (int) $guest['guest_id'], $boardId, $forBoard ? null : $projectId, $ttl]
+            'INSERT INTO realtime_tickets (ticket_hash, guest_id, board_id, project_id, expires_at, guest_session_id) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), ?)', // 발급 세션 결합 저장
+            [Auth::hash($ticket), (int) $guest['guest_id'], $boardId, $forBoard ? null : $projectId, $ttl, (int) $guest['session_id']] // 검증된 세션만 지정
         ); // 티켓 해시 저장(보드 티켓은 board_id 만, 작업실 티켓은 project_id 만 채움)
         Database::run('DELETE FROM realtime_tickets WHERE expires_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)', []); // 오래된 티켓 정리
         $scope = $forBoard ? ['board_id' => $boardId] : ['project_id' => $projectId]; // 티켓을 쓸 수 있는 범위

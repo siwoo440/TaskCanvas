@@ -15,6 +15,7 @@ final class ProjectController
             throw new ApiException(403, 'CREATE_DISABLED', '이 서버에서는 작업실을 직접 만들 수 없습니다. 관리자에게 초대 코드를 받아 입장하세요.'); // 서버 설정으로 꺼 둠
         }
         Throttle::check($request->clientIp()); // 요청 제한 검사(입장 시도와 함께 셈)
+        $user = MemberAuth::currentUser($request); // 회원 생성 흐름 확인
         $name = $request->string('display_name', 60); // 만든 사람의 표시 이름
         $title = $request->string('title', 120); // 작업실 이름
         if ($name === '' || $title === '')
@@ -26,15 +27,25 @@ final class ProjectController
         $pdo->beginTransaction(); // 게스트·작업실·보드·코드는 함께 만들어지거나 함께 취소
         try
         {
-            Database::run('INSERT INTO guests (display_name) VALUES (?)', [$name]); // 게스트 생성
-            $guestId = Database::lastId(); // 새 게스트 ID
+            if ($user !== null) // 로그인 회원의 작업실
+            { // 회원 소유 게스트 선택
+                Database::one('SELECT user_id FROM users WHERE user_id = ? FOR UPDATE', [(int) $user['user_id']]); // 동시 최초 생성 직렬화
+                $owned = MemberWorkspace::ownedGuest($user); // 본인 게스트만 사용
+                $guestId = $owned['guest_id']; // 본인 참여자 번호
+                $name = $owned['display_name']; // 서버 표시 이름
+            } // 회원 선택 끝
+            else // 비회원 작업실
+            { // 기존 게스트 생성
+                Database::run('INSERT INTO guests (display_name) VALUES (?)', [$name]); // 독립 게스트
+                $guestId = Database::lastId(); // 새 게스트 번호
+            } // 비회원 생성 끝
             Database::run('INSERT INTO projects (title, created_by) VALUES (?, ?)', [$title, $guestId]); // 작업실 생성(만든 사람 기록)
             $projectId = Database::lastId(); // 새 작업실 ID
             Database::run('INSERT INTO project_members (project_id, guest_id, role) VALUES (?, ?, ?)', [$projectId, $guestId, 'admin']); // 만든 사람은 관리자
             Database::run('INSERT INTO boards (project_id, title) VALUES (?, ?)', [$projectId, self::FIRST_BOARD]); // 바로 쓸 수 있게 보드 하나
             $boardId = Database::lastId(); // 첫 보드 ID
             $owner = Invite::issueOwner($projectId); // 만든 사람이 나중에 다시 들어올 때 쓰는 재입장 전용 코드
-            Auth::issueSession($guestId); // 세션 쿠키 발급
+            $session = Auth::prepareSession($guestId, $user === null ? null : (int) $user['user_session_id']); // 생성과 세션 저장의 원자성
             $pdo->commit(); // 확정
         }
         catch (Throwable $e)
@@ -42,6 +53,7 @@ final class ProjectController
             $pdo->rollBack(); // 실패 시 전부 취소
             throw $e;
         }
+        Auth::publishSession($session); // 저장 성공 후 소유 결합 쿠키
         Throttle::record($request->clientIp(), true); // 시도 기록(짧은 시간에 작업실을 계속 만드는 것을 제한)
 
         Response::ok([

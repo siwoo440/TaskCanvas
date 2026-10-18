@@ -19,6 +19,7 @@ const pingHandler = require('./handlers/ping'); // 접속 점검용 왕복 응�
 const locks = require('./locks'); // 잠금 만료 검사
 const boards = require('./boards'); // 보드 삭제·이름 변경 감시
 const origin = require('./origin'); // 접속 출처 검사
+const sessionGuard = require('./session-guard'); // 회원·게스트 세션 가드
 const ratelimit = require('./ratelimit'); // 이벤트 요청 제한
 
 const httpServer = http.createServer((req, res) =>
@@ -42,6 +43,7 @@ const io = new Server(httpServer, {
 io.on('connection', (socket) =>
 {
     ratelimit.attach(socket); // 연결마다 요청 수 제한(다른 처리보다 먼저 걸러 냄)
+    sessionGuard.register(io, socket); // 수신 이벤트 인증
     boardHandler.register(io, socket); // board:join·disconnect
     projectHandler.register(io, socket); // project:join
     cursorHandler.register(io, socket); // cursor:move
@@ -59,6 +61,7 @@ async function start()
 {
     await db.one('SELECT 1'); // DB 연결 확인
     locks.startSweeper(io); // 만료 잠금 정리 시작
+    sessionGuard.startWatcher(io); // 유휴 인증 감시
     boards.startWatcher(io); // 보드 삭제·이름 변경 감시 시작
     const port = env.int('PORT'); // 수신 포트
     httpServer.listen(port, '0.0.0.0', () =>

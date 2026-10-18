@@ -27,6 +27,8 @@ function register(io, socket)
             }
             socket.data.workspace = true; // 작업실 연결 표시(보드 이벤트는 boardId 가 없어 모두 거부됨)
             socket.data.projectId = guest.project_id; // 연결의 프로젝트
+            socket.data.guestSessionId = guest.guest_session_id; // 티켓 발급 게스트 세션
+            socket.data.userSessionId = guest.user_session_id; // 내부 회원 세션
             socket.data.guestId = guest.guest_id; // 게스트 ID
             socket.data.displayName = guest.display_name; // 표시 이름
             socket.data.role = guest.role; // 참여 시점 역할
@@ -38,6 +40,10 @@ function register(io, socket)
             console.error('project:join 오류', err); // 서버 로그
             fail(ack, 'INTERNAL_ERROR', '작업실 연결 처리 중 오류가 발생했습니다.'); // 오류 응답
         }
+        finally // 참여 처리 완료
+        { // 대기 상태 복구
+            socket.data.joinPending = false; // 다음 참여 시도 허용
+        } // 복구 끝
     });
 }
 

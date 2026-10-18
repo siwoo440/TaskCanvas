@@ -46,6 +46,8 @@ final class Schema
     ]; // [테이블, 생성 문장] — database/schema.sql 에 표를 더할 때 여기에도 같은 정의를 적는다
 
     private const ADDED_COLUMNS = [
+        ['guest_sessions', 'user_session_id', 'ALTER TABLE guest_sessions ADD COLUMN user_session_id BIGINT UNSIGNED NULL AFTER created_at, ADD CONSTRAINT fk_guest_session_user_session FOREIGN KEY (user_session_id) REFERENCES user_sessions (session_id) ON DELETE CASCADE'], // 회원 세션 결합
+        ['realtime_tickets', 'guest_session_id', 'ALTER TABLE realtime_tickets ADD COLUMN guest_session_id BIGINT UNSIGNED NULL AFTER created_at, ADD CONSTRAINT fk_ticket_session FOREIGN KEY (guest_session_id) REFERENCES guest_sessions (session_id) ON DELETE CASCADE'], // 발급 세션 결합
         ['project_invites', 'max_uses', 'ALTER TABLE project_invites ADD COLUMN max_uses INT UNSIGNED NULL AFTER role'],
         ['project_invites', 'used_count', 'ALTER TABLE project_invites ADD COLUMN used_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER max_uses'],
         ['realtime_tickets', 'project_id', 'ALTER TABLE realtime_tickets ADD COLUMN project_id BIGINT UNSIGNED NULL AFTER board_id, ADD CONSTRAINT fk_ticket_project FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE CASCADE'],

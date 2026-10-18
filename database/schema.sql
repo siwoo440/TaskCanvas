@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS guest_sessions ( -- 게스트 세션
     token_hash CHAR(64) NOT NULL UNIQUE, -- 토큰 해시
     expires_at DATETIME NOT NULL, -- 세션 만료 시각
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 발급 시각
-    CONSTRAINT fk_guest_session_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE -- 게스트 연결
+    user_session_id BIGINT UNSIGNED NULL, -- 발급 회원 세션
+    CONSTRAINT fk_guest_session_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 연결
+    CONSTRAINT fk_guest_session_user_session FOREIGN KEY (user_session_id) REFERENCES user_sessions (session_id) ON DELETE CASCADE -- 회원 세션 연결
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 세션 테이블
 
 CREATE TABLE IF NOT EXISTS projects ( -- 프로젝트 정보
@@ -169,9 +171,11 @@ CREATE TABLE IF NOT EXISTS realtime_tickets ( -- Socket.IO 단기 접속 티켓
     expires_at DATETIME NOT NULL, -- 티켓 만료 시각
     used_at DATETIME NULL, -- 사용 시각(일회성 검사)
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 발급 시각
+    guest_session_id BIGINT UNSIGNED NULL, -- 티켓 발급 세션
     CONSTRAINT fk_ticket_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 참조
     CONSTRAINT fk_ticket_board FOREIGN KEY (board_id) REFERENCES boards (board_id) ON DELETE CASCADE, -- 보드 참조
-    CONSTRAINT fk_ticket_project FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE CASCADE -- 프로젝트 참조
+    CONSTRAINT fk_ticket_project FOREIGN KEY (project_id) REFERENCES projects (project_id) ON DELETE CASCADE, -- 프로젝트 참조
+    CONSTRAINT fk_ticket_session FOREIGN KEY (guest_session_id) REFERENCES guest_sessions (session_id) ON DELETE CASCADE -- 발급 세션 연결
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 티켓 테이블
 
 CREATE TABLE IF NOT EXISTS join_attempts ( -- 게스트 입장 시도 기록(요청 제한용)

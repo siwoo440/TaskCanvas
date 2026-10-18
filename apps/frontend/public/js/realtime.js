@@ -66,6 +66,13 @@ class Realtime
                 this.handlers.onRefused(); // 한 번도 연결되지 못함: 서버가 꺼져 있거나 이 주소의 접속을 허용하지 않음
             }
         });
+        socket.on('auth:expired', () => // 서버의 세션 폐기 알림
+        { // 만료 처리
+            this.joined = false; // 편집 전송 중단
+            socket.io.reconnection(false); // 무한 재접속 차단
+            socket.disconnect(); // 현재 연결 종료
+            window.dispatchEvent(new Event('taskcanvas:auth-expired')); // 작업실 화면 정리
+        }); // 만료 등록 끝
         socket.on('presence:update', (data) => this.handlers.onPresence(data.participants)); // 참여자 갱신
         socket.on('cursor:move', (data) => this.handlers.onCursor(data)); // 타인 커서
         socket.on('selection:update', (data) => this.handlers.onSelection(data)); // 타인 선택
@@ -106,6 +113,17 @@ class Realtime
         }
         catch (err)
         {
+            if (socket !== this.socket) // 다른 작업실로 바뀐 이전 요청
+            { // 오래된 오류 폐기
+                return; // 현재 화면에 만료 전파 금지
+            } // 소켓 검사 끝
+            if (err.status === 401 || err.status === 403 || err.code === 'INVALID_TICKET' || err.code === 'SESSION_EXPIRED') // 재인증 필요
+            { // 자동 재시도 중단
+                socket.io.reconnection(false); // 인증 실패 반복 방지
+                socket.disconnect(); // 만료 연결 정리
+                window.dispatchEvent(new Event('taskcanvas:auth-expired')); // 화면 재선택 안내
+                return; // 이전 화면 오류 처리 중단
+            } // 인증 실패 끝
             this.handlers.onStatus('offline'); // 연결 실패 표시
             this.handlers.onJoinError(err); // 오류 전달
         }

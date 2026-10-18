@@ -217,7 +217,15 @@ async function bootstrap(preferredProjectId = null)
 {
     try
     {
-        const me = await window.api.get('/api/me'); // 기존 세션 확인
+        let me = await window.api.get('/api/me'); // 기존 세션 확인
+        state.member = me.member === true; // 회원용 작업실 여부
+        const selected = WorkspaceSelection.choose(me.projects, preferredProjectId, readSelectedProjectId()); // 복원할 실제 멤버십
+        if (state.member && selected && selected.guest_id !== me.guest.guest_id) // 다른 보유 게스트의 작업실
+        { // 서버 선택 동기화
+            await window.api.post('/api/auth/workspaces/select', { project_id: selected.project_id }); // 해당 소유 게스트 활성화
+            me = await window.api.get('/api/me'); // 전환된 게스트 확인
+        } // 선택 동기화 끝
+        window.dispatchEvent(new Event('taskcanvas:workspace-refresh')); // 회원 목록 갱신
         state.guest = me.guest; // 게스트 저장
         state.projects = me.projects; // 서버가 검증한 멤버십 목록
         state.project = WorkspaceSelection.choose(state.projects, preferredProjectId, readSelectedProjectId()); // 요청·기억 순으로 유효한 작업실 선택
@@ -266,6 +274,12 @@ function showJoin()
         $('join-hint').textContent = '초대 링크의 코드가 입력되었습니다. 이름만 입력하고 입장하세요.'; // 안내
         pendingInviteCode = null; // 한 번만 사용
     }
+    if (window.TC_MEMBER_USER) // 로그인 회원 초대 흐름
+    { // 회원 이름 표시
+        $('join-name').value = window.TC_MEMBER_USER.display_name; // 이름으로 소유 검색 없음
+        $('join-hint').textContent = '회원 계정으로 초대 작업실에 참여합니다.'; // 회원 참여 안내
+    } // 회원 안내 끝
+    $('join-name').readOnly = Boolean(window.TC_MEMBER_USER); // 회원 이름 위조 방지 안내
     $('join-name').focus(); // 이름 입력 포커스
 }
 
@@ -274,6 +288,11 @@ function showCreate()
     $('home-notice').hidden = true; // 소개 화면의 알림은 다른 화면으로 넘어가면 지움
     showView('create'); // 작업실 만들기 화면
     $('create-error').textContent = ''; // 오류 초기화
+    if (window.TC_MEMBER_USER) // 회원 작업실 생성
+    { // 이름 자동 입력
+        $('create-name').value = window.TC_MEMBER_USER.display_name; // 회원 표시 이름
+    } // 이름 입력 끝
+    $('create-name').readOnly = Boolean(window.TC_MEMBER_USER); // 회원 이름 고정
     $('create-name').focus(); // 이름 입력 포커스
 }
 
@@ -292,7 +311,7 @@ $('create-form').addEventListener('submit', async (e) =>
     try
     {
         const data = await window.api.post('/api/projects', { display_name: $('create-name').value.trim(), title: $('create-title').value.trim() }); // 작업실 만들기(만든 사람이 관리자로 입장한 상태가 됨)
-        ownerCode = { code: data.owner_code, days: data.owner_code_days }; // 재입장 코드(이 응답에서만 받음)
+        ownerCode = window.TC_MEMBER_USER ? null : { code: data.owner_code, days: data.owner_code_days }; // 재입장 코드(이 응답에서만 받음)
         $('create-title').value = ''; // 입력 비움
         await bootstrap(data.project.project_id); // 새로 만든 작업실을 우선 선택
     }
@@ -310,7 +329,7 @@ $('join-form').addEventListener('submit', async (e) =>
     $('join-error').textContent = ''; // 오류 초기화
     try
     {
-        const joined = await window.api.post('/api/guest/join', { display_name: $('join-name').value.trim(), invite_code: $('join-code').value.trim() }); // 게스트 입장
+        const joined = await window.api.post(window.TC_MEMBER_USER ? '/api/auth/workspaces/join' : '/api/guest/join', { display_name: $('join-name').value.trim(), invite_code: $('join-code').value.trim() }); // 게스트 입장
         $('join-code').value = ''; // 코드 입력 비움
         $('join-hint').textContent = ''; // 초대 링크 안내 비움
         await bootstrap(joined.project_id); // 방금 입장한 작업실 우선 선택
@@ -415,6 +434,21 @@ $('ws-picker').addEventListener('change', async (event) =>
         toast('열려 있는 확인 창을 닫고 재입장 코드를 보관한 뒤 전환하세요.'); // 미완료 작업 안내
         return;
     }
+    if (state.member) // 회원의 게스트 선택 필요
+    { // 서버 전환
+        try // 전환 권한 확인
+        { // 전환 요청
+            await window.api.post('/api/auth/workspaces/select', { project_id: chosen.project_id }); // 본인 멤버십 활성화
+            disconnectWorkspace(); // 이전 작업실 연결 종료
+            await bootstrap(chosen.project_id); // 새 게스트와 화면 복원
+        } // 전환 요청 끝
+        catch (error) // 전환 실패
+        { // 선택 복구
+            event.target.value = String(previous.project_id); // 이전 선택 복원
+            toast(error.message); // 서버 오류 안내
+        } // 오류 처리 끝
+        return; // 회원 전환 완료
+    } // 회원 전환 끝
     disconnectWorkspace(); // 이전 작업실 실시간 연결 종료
     state.project = chosen; // 새 작업실로 변경
     state.boards = []; // 이전 보드 목록 폐기
@@ -3400,5 +3434,45 @@ window.addEventListener('pagehide', () =>
         rememberBoard(state.board.board_id, canvas.view); // 새로고침·탭 이동 직전의 위치·배율까지 기억
     }
 });
+
+window.addEventListener('focus', async () => // 다른 탭의 작업실 전환 확인
+{ // 활성 화면 확인
+    if (!state.project || !state.guest) // 활성 작업실 신원 없음
+    { // 검사 제외
+        return; // 현재 화면 유지
+    } // 제외 끝
+    try // 현재 게스트 재검사
+    { // 서버 조회
+        const current = await window.api.get('/api/me'); // 공유 쿠키의 활성 게스트
+        if (state.guest && (current.guest.guest_id !== state.guest.guest_id || (current.member === true) !== (state.member === true))) // 다른 탭의 선택 또는 소유 연결 변경
+        { // 화면과 서버 일치
+            const preferred = state.project.project_id; // 현재 작업실 유지 요청
+            leaveDeletedWorkspace(''); // 이전 신원과 실시간 정리
+            await bootstrap(preferred); // 실제 보유 멤버십 재선택
+        } // 재선택 끝
+    } // 조회 끝
+    catch (error) // 만료 또는 서버 오류
+    { // 인증 실패 정리
+        leaveDeletedWorkspace('접속 상태를 확인하지 못했습니다. 내 작업실에서 다시 선택하세요.'); // 이전 편집 화면 제거
+    } // 실패 끝
+}); // 복귀 등록 끝
+window.addEventListener('taskcanvas:workspace-selected', async (event) => // 회원 목록에서 작업실 선택
+{ // 화면 전환
+    const preferred = event.detail.projectId || (state.project && state.project.project_id) || null; // 게스트 연결 후 기존 작업실 유지
+    leaveDeletedWorkspace(''); // 이전 객체·연결·대화상자 정리
+    await bootstrap(preferred); // 서버가 선택한 작업실 복원
+}); // 선택 등록 끝
+window.addEventListener('taskcanvas:member-change', (event) => // 계정 전환과 로그아웃
+{ // 계정 변경 처리
+    if (!event.detail.initial) // 최초 확인은 기존 부트스트랩 사용
+    { // 이후 변경 반영
+        leaveDeletedWorkspace('계정 상태가 변경되었습니다. 내 작업실에서 다시 선택하세요.'); // 이전 회원 화면 제거
+    } // 변경 처리 끝
+}); // 계정 등록 끝
+window.addEventListener('taskcanvas:auth-expired', () => // 다른 탭·만료·폐기 처리
+{ // 인증 만료 화면
+    leaveDeletedWorkspace('접속 권한이 만료되었습니다. 로그인 또는 내 작업실을 다시 선택하세요.'); // 편집과 수신 정리
+    window.dispatchEvent(new Event('taskcanvas:workspace-refresh')); // 계정 작업실 확인
+}); // 만료 등록 끝
 
 bootstrap(); // 시작
