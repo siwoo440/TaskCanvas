@@ -8,6 +8,9 @@
 |---|---|---|
 | `guests` | guest_id, display_name, created_at | 코드 입장을 위한 게스트 ID |
 | `guest_sessions` | session_token_hash, guest_id, expires_at | 세션 원문 저장 금지 |
+| `users` (25일차) | user_id, login_id, display_name, password_hash, created_at, updated_at | 로그인 ID UNIQUE, 비밀번호 해시 보관. 인증 API·UI는 26일차 예정 |
+| `user_sessions` (25일차) | session_id, user_id, token_hash, expires_at, revoked_at, created_at | 토큰 해시 UNIQUE, 회원별 세션·만료 인덱스, 회원 삭제 시 세션 정리 |
+| `guest_user_links` (25일차) | guest_id, user_id, linked_at | 게스트당 회원 한 명·회원당 여러 게스트. 연결이 있으면 회원 삭제 거부. 연결 API는 27일차 예정 |
 | `projects` | project_id, title, created_by | 프로젝트(화면에서는 작업실). 직접 만든 작업실은 `created_by` 에 만든 게스트, 명령줄로 만든 것은 NULL |
 | `project_invites` | invite_id, project_id, code_hash, role, max_uses, used_count, expires_at | 초대 코드 평문 금지. `max_uses` 가 NULL 이면 인원 제한 없음, 0 이면 재입장 전용(이미 참여한 사람이 같은 이름으로 다시 들어올 때만 통함), `used_count` 는 그 코드로 새로 입장한 인원 |
 | `project_members` | project_id, guest_id, role | 복합 키로 중복 방지 |
@@ -26,6 +29,9 @@
 
 ```mermaid
 erDiagram
+    USERS ||--o{ USER_SESSIONS : authenticates
+    USERS ||--o{ GUEST_USER_LINKS : links
+    GUESTS ||--o| GUEST_USER_LINKS : verified_as
     PROJECTS ||--o{ PROJECT_MEMBERS : includes
     GUESTS ||--o{ PROJECT_MEMBERS : joins
     PROJECTS ||--o{ BOARDS : owns
@@ -40,6 +46,7 @@ erDiagram
 
 ## 데이터 동작 원칙
 
+- 25일차 회원 테이블은 기존 게스트 참조를 대체하지 않습니다. 자동 연결·권한 이전은 없으며 소유 검증·세션 보호·삭제 정책은 [회원 데이터 설계](25-member-data.md)에 명시했습니다.
 - `board_objects`의 `type='task'`일 때만 `task_id`를 원본 업무에 연결. (7단계 구현: 블럭 자체는 `payload={}` 이고 제목·상태·담당자·마감일은 `tasks` 원본에서 가져와 그림)
 - `type='note'`(메모·텍스트)는 `payload_json.text` 에 글, `style_json` 에 `fill`(배경 색, null 이면 배경 없는 텍스트)·`color`(글자 색)·`size`(글자 크기 10~72, 없으면 16)를 저장. 별도 테이블 없이 `board_objects` 만 사용.
 - 이미지 객체를 지워도 `media_assets` 행과 파일은 남습니다(지운 사람이 실행 취소로 되살릴 수 있어야 함). 어느 보드의 이미지 객체도 가리키지 않는 행은 `apps/php-api/bin/clean-uploads.php` 가 파일과 함께 정리합니다.
