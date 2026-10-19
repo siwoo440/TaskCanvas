@@ -1,0 +1,122 @@
+.analytics-view /* 분석 화면 */
+{ /* 화면 시작 */
+    height: auto; min-height: 100vh; background: #f4f6fa; overflow: visible; /* 긴 보고서 배경 */
+} /* 화면 끝 */
+.analytics-shell /* 본문 너비 */
+{ /* 본문 시작 */
+    max-width: 1240px; padding-top: 36px; padding-bottom: 60px; /* 여유 있는 배치 */
+} /* 본문 끝 */
+.analytics-heading /* 상단 배치 */
+{ /* 상단 시작 */
+    display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; /* 제목과 조작 */
+} /* 상단 끝 */
+.analytics-heading h1 /* 제목 크기 */
+{ /* 제목 시작 */
+    margin: 6px 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.04em; /* 화면 제목 */
+} /* 제목 끝 */
+.analytics-filters /* 조건 카드 */
+{ /* 조건 시작 */
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 14px; align-items: end; padding: 22px; background: white; border: 1px solid #dce3ed; border-radius: 16px; /* 공통 조회 영역 */
+} /* 조건 끝 */
+.analytics-filters label /* 입력 이름 */
+{ /* 이름 시작 */
+    display: block; font-weight: 600; margin-bottom: 7px; /* 입력 연결 */
+} /* 이름 끝 */
+.analytics-filters input, .analytics-filters select /* 조건 입력 */
+{ /* 입력 시작 */
+    width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; /* 작은 화면 보호 */
+} /* 입력 끝 */
+#analytics-filter-hint /* 기간 안내 */
+{ /* 안내 시작 */
+    grid-column: 1 / -1; margin: 0; font-size: 13px; /* 조건 설명 */
+} /* 안내 끝 */
+.analytics-message /* 조회 상태 */
+{ /* 상태 시작 */
+    min-height: 24px; margin: 18px 0 0; color: #9a3412; /* 오류와 로딩 */
+} /* 상태 끝 */
+.analytics-kpis /* 핵심 지표 묶음 */
+{ /* 묶음 시작 */
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 20px 0; /* 네 카드 */
+} /* 묶음 끝 */
+.analytics-kpis article, .analytics-card /* 공통 카드 */
+{ /* 카드 시작 */
+    background: white; border: 1px solid #dce3ed; border-radius: 16px; padding: 22px; min-width: 0; box-shadow: 0 4px 18px #172d4a05; /* 카드 경계 */
+} /* 카드 끝 */
+.analytics-kpis h2, .analytics-card h2 /* 카드 제목 */
+{ /* 제목 시작 */
+    font-size: 16px; margin: 0 0 10px; /* 제목 위계 */
+} /* 제목 끝 */
+.analytics-kpis strong /* 주요 숫자 */
+{ /* 숫자 시작 */
+    display: block; font-size: 34px; color: #1d4ed8; font-variant-numeric: tabular-nums; /* 숫자 강조 */
+} /* 숫자 끝 */
+.analytics-kpis p, .analytics-card > p /* 보조 설명 */
+{ /* 설명 시작 */
+    color: #526174; font-size: 13px; margin: 10px 0; /* 읽기 대비 */
+} /* 설명 끝 */
+.analytics-charts /* 차트 묶음 */
+{ /* 차트 배치 시작 */
+    display: grid; grid-template-columns: 1fr 1.4fr; gap: 20px; margin-bottom: 20px; /* 비교 배치 */
+} /* 차트 배치 끝 */
+.analytics-chart-frame /* 캔버스 크기 */
+{ /* 캔버스 시작 */
+    position: relative; height: 280px; min-width: 0; /* 차트 비율 */
+} /* 캔버스 끝 */
+.analytics-assignee-scroll /* 담당자 목록 */
+{ /* 스크롤 시작 */
+    max-height: 280px; overflow-y: auto; /* 다수 담당자 보존 */
+} /* 스크롤 끝 */
+.analytics-table-scroll, .analytics-data-tables details /* 넓은 표 영역 */
+{ /* 표 영역 시작 */
+    overflow: auto; max-width: 100%; /* 화면 밖 넘침 방지 */
+} /* 표 영역 끝 */
+.analytics-shell table /* 데이터 표 */
+{ /* 표 시작 */
+    width: 100%; border-collapse: collapse; font-size: 13px; /* 표 읽기 */
+} /* 표 끝 */
+.analytics-shell th, .analytics-shell td /* 데이터 셀 */
+{ /* 셀 시작 */
+    padding: 12px 10px; text-align: left; border-bottom: 1px solid #e5eaf1; vertical-align: top; /* 행 구분 */
+} /* 셀 끝 */
+.analytics-table-scroll table /* 업무 표 너비 */
+{ /* 너비 시작 */
+    min-width: 840px; table-layout: fixed; overflow-wrap: anywhere; /* 긴 제목 보호 */
+} /* 너비 끝 */
+.analytics-data-tables /* 대체 데이터 */
+{ /* 대체 영역 시작 */
+    margin: 16px 0; display: grid; gap: 10px; /* 표 간격 */
+} /* 대체 영역 끝 */
+.analytics-data-tables summary /* 표 열기 */
+{ /* 표 조작 시작 */
+    padding: 10px; cursor: pointer; font-weight: 600; /* 키보드 조작 안내 */
+} /* 표 조작 끝 */
+.analytics-pagination /* 페이지 도구 */
+{ /* 페이지 시작 */
+    display: flex; justify-content: center; align-items: center; gap: 16px; padding-top: 18px; flex-wrap: wrap; /* 작은 화면 줄바꿈 */
+} /* 페이지 끝 */
+.analytics-shell :focus-visible /* 키보드 포커스 */
+{ /* 포커스 시작 */
+    outline: 3px solid #2563eb; outline-offset: 3px; /* 명확한 위치 */
+} /* 포커스 끝 */
+@media (max-width: 800px) /* 태블릿과 휴대전화 */
+{ /* 반응형 시작 */
+    .analytics-kpis, .analytics-filters /* 두 열 카드 */
+    { /* 두 열 시작 */
+        grid-template-columns: repeat(2, minmax(0, 1fr)); /* 공간 분배 */
+    } /* 두 열 끝 */
+    .analytics-charts /* 차트 순서 */
+    { /* 단일 열 시작 */
+        grid-template-columns: minmax(0, 1fr); /* 세로 차트 */
+    } /* 단일 열 끝 */
+} /* 반응형 끝 */
+@media (max-width: 480px) /* 좁은 휴대전화 */
+{ /* 좁은 화면 시작 */
+    .analytics-kpis, .analytics-filters /* 입력과 지표 */
+    { /* 한 열 시작 */
+        grid-template-columns: minmax(0, 1fr); /* 360px 세로 배치 */
+    } /* 한 열 끝 */
+    .analytics-shell /* 좁은 본문 */
+    { /* 본문 조정 */
+        padding-left: 16px; padding-right: 16px; /* 화면 여백 */
+    } /* 본문 조정 끝 */
+} /* 좁은 화면 끝 */

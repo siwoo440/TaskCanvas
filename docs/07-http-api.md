@@ -116,3 +116,8 @@
 ## 27일차 인증 보완
 
 회원에 연결된 게스트는 동일한 활성 회원 세션에 종속된 게스트 쿠키가 필요합니다. 연결된 이름의 비회원 재입장은 거부합니다. `/api/me`의 회원용 세션은 `member: true`와 연결 게스트들의 작업실 목록을 반환하며, 작업실 전환은 select API로 활성 게스트를 바꿉니다. 티켓은 발급 세션에 결합합니다. [27일차 상세](27-member-access.md).
+
+---
+## 29일차 분석 조회
+
+`GET /api/projects/{id}/analytics/dashboard` — 기존 세션과 열람자 이상 권한 필요. 생성일·상태·담당자 필터, 기본 최근 30일·최대 366일, page 기본 1·20건 고정이다. summary·daily_created·assignee_options·pagination·rows를 같은 DB 스냅샷에서 반환한다. 잘못된 조건은 INVALID_FILTER 400, 응답은 no-store다. 기존 `/analytics/summary` 계약은 유지한다. [입력·응답 필드와 검증](29-analytics-dashboard.md).

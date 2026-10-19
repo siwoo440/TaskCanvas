@@ -2,7 +2,11 @@
 'use strict'; // 엄격한 문법 검사
 const test = require('node:test'); // Node.js 테스트 실행
 const assert = require('node:assert/strict'); // 결과 비교
-const WorkspaceSelection = require('../../frontend/public/js/workspace-selection.js'); // 화면과 같은 선택 로직 사용
+const fs = require('node:fs'); // 실제 브라우저 스크립트
+const vm = require('node:vm'); // 상위 package 설정과 분리한 실행
+const selectionModule = { exports: {} }; // 기존 공개 경계
+vm.runInNewContext(fs.readFileSync(require.resolve('../../frontend/public/js/workspace-selection.js'), 'utf8'), { module: selectionModule }); // 실제 화면 코드 실행
+const WorkspaceSelection = selectionModule.exports; // 화면과 같은 선택 로직
 const projects = [ // 테스트용 멤버십
     { project_id: 11, title: '기획', role: 'admin' }, // 첫 작업실
     { project_id: 22, title: '개발', role: 'editor' }, // 두 번째 작업실

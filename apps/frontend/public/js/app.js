@@ -17,6 +17,21 @@ const state = {
 }; // 전역 상태
 
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
+const analyticsDashboard = window.AnalyticsDashboard.mount($('view-analytics'), // 분석 화면 수명
+{ // 기존 작업실 흐름 연결
+    onBack: () => openWorkspace().catch((error) => leaveDeletedWorkspace(error.message)), // 최신 작업실 복귀
+    onAccessLost: () => leaveDeletedWorkspace('분석 화면의 접근 권한이 만료되었습니다. 작업실을 다시 선택하세요.'), // 인증 상실 정리
+}); // 분석 화면 연결 끝
+$('ws-analytics').addEventListener('click', () => // 작업실 분석 진입
+{ // 진입 시작
+    if (!state.project) // 선택 작업실 확인
+    { // 잘못된 진입 방지
+        return; // 요청 생략
+    } // 진입 보호 끝
+    showView('analytics'); // 별도 분석 뷰
+    window.scrollTo(0, 0); // 분석 상단
+    analyticsDashboard.open({ projectId: state.project.project_id, title: state.project.title }); // 현재 권한 조회
+}); // 진입 끝
 let canvas = null; // BoardCanvas
 let realtime = null; // Realtime(보드 연결)
 let workspaceLink = null; // Realtime(작업실 연결: 업무 현황판용. 보드를 열면 끊고 보드 연결을 씀)
@@ -49,6 +64,10 @@ async function whenIdle()
 
 function showView(name)
 {
+    if (name !== 'analytics') // 분석 화면 이탈
+    { // 결과 정리
+        analyticsDashboard.close(); // 이전 신원과 지표 폐기
+    } // 결과 정리 끝
     for (const v of document.querySelectorAll('.view'))
     {
         v.hidden = v.id !== 'view-' + name; // 해당 화면만 표시
@@ -490,6 +509,7 @@ $('ws-owner-done').addEventListener('click', () =>
 // 작업실이 지워졌을 때(내가 지웠거나, 관리자가 지웠다는 알림을 받았을 때): 연결과 화면 상태를 모두 정리하고 소개 화면으로 돌아간다
 function leaveDeletedWorkspace(message)
 {
+    analyticsDashboard.close(); // 인증과 작업실 변경의 분석 폐기
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 메모 편집 취소
     clearUndo(); // 실행 취소 기록 비움

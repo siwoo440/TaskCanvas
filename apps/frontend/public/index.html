@@ -6,6 +6,7 @@
     <meta name="description" content="TaskCanvas — 내 작업실을 직접 만들거나 초대 코드로 입장해 여러 명이 같은 화이트보드를 동시에 편집하는 실시간 협업 프로젝트 보드">
     <title>TaskCanvas — 실시간 협업 화이트보드</title>
     <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="css/analytics.css"> <!-- 분석 화면 스타일 -->
     <link rel="stylesheet" href="css/member-auth.css"> <!-- 회원 화면 공통 스타일 -->
 </head>
 <body>
@@ -327,6 +328,7 @@
                         <span id="ws-role-label">열람자</span> <!-- 작업실 역할 이름 -->
                     </span> <!-- 작업실 역할 표시 종료 -->
                     <h1 id="boards-project-title">프로젝트</h1>
+                    <button type="button" id="ws-analytics" class="primary">분석 대시보드</button> <!-- 현재 작업실 분석 -->
                     <button type="button" id="ws-rename" class="text-link" hidden>이름 변경</button>
                     <button type="button" id="ws-delete" class="text-link danger-link" hidden>작업실 삭제</button>
                 </div>
@@ -447,6 +449,42 @@
     </section>
 
     <!-- 화이트보드 화면 -->
+    <section id="view-analytics" class="view analytics-view" hidden> <!-- 분석 전용 화면 -->
+        <main class="site-inner analytics-shell"> <!-- 분석 본문 -->
+            <header class="analytics-heading"> <!-- 분석 상단 -->
+                <div><p class="eyebrow">작업실 인사이트</p><h1 id="analytics-title">작업실 분석</h1><p class="muted">저장된 업무를 한눈에 확인하세요.</p></div> <!-- 화면 제목 -->
+                <div class="row"><button type="button" id="analytics-back">작업실로 돌아가기</button><button type="button" id="analytics-refresh" class="primary">새로고침</button></div> <!-- 화면 이동과 갱신 -->
+            </header> <!-- 분석 상단 끝 -->
+            <form id="analytics-form" class="analytics-filters"> <!-- 공통 조회 조건 -->
+                <div><label for="analytics-from">생성 시작일</label><input id="analytics-from" type="date" min="1000-01-01" max="9999-12-31" aria-describedby="analytics-filter-hint analytics-message"></div> <!-- 시작 날짜 -->
+                <div><label for="analytics-to">생성 종료일</label><input id="analytics-to" type="date" min="1000-01-01" max="9999-12-31" aria-describedby="analytics-filter-hint analytics-message"></div> <!-- 종료 날짜 -->
+                <div><label for="analytics-status">업무 상태</label><select id="analytics-status"><option value="">전체 상태</option value="todo">할 일</option><option value="doing">진행 중</option><option value="done">완료</option></select></div> <!-- 상태 선택 -->
+                <div><label for="analytics-assignee">담당자</label><select id="analytics-assignee"><option value="">전체 담당자</option></select></div> <!-- 담당자 선택 -->
+                <button type="submit" id="analytics-submit" class="primary">조회</button> <!-- 조건 적용 -->
+                <p id="analytics-filter-hint" class="muted">업무 생성일 기준 · 기본 최근 30일 · 최대 366일 · 조건을 바꾼 후 조회를 누르세요.</p> <!-- 조건 의미 -->
+            </form> <!-- 조회 조건 끝 -->
+            <p id="analytics-message" class="analytics-message" role="status" aria-live="polite"></p> <!-- 로딩과 오류 -->
+            <p id="analytics-applied" class="muted"></p> <!-- 실제 적용 조건 -->
+            <div id="analytics-results" hidden> <!-- 현재 성공 결과 -->
+                <section id="analytics-kpis" class="analytics-kpis" aria-label="핵심 업무 지표"></section> <!-- 지표 카드 -->
+                <div class="analytics-charts"> <!-- 상태와 담당자 -->
+                    <section class="analytics-card"><h2>업무 상태</h2><p class="muted">현재 업무의 상태별 분포</p><div class="analytics-chart-frame"><canvas id="analytics-status-chart" role="img" aria-label="업무 상태 도넛 차트. 수치는 아래 데이터 표 참고"></canvas></div></section> <!-- 상태 분포 -->
+                    <section class="analytics-card"><h2>담당자별 업무</h2><p class="muted">전체 업무와 완료 업무 비교</p><div class="analytics-assignee-scroll"><div id="analytics-assignee-frame" class="analytics-chart-frame"><canvas id="analytics-assignee-chart" role="img" aria-label="담당자별 전체와 완료 업무 막대 차트. 수치는 아래 데이터 표 참고"></canvas></div></div></section> <!-- 담당자 비교 -->
+                </div> <!-- 차트 묶음 끝 -->
+                <section class="analytics-card"><h2>일별 업무 생성 수</h2><p class="muted">선택 기간에 생성된 업무 수 · 생성되지 않은 날은 0건</p><div class="analytics-chart-frame"><canvas id="analytics-daily-chart" role="img" aria-label="일별 업무 생성 수 선 그래프. 수치는 아래 데이터 표 참고"></canvas></div></section> <!-- 생성 추이 -->
+                <p id="analytics-chart-notice" role="status"></p> <!-- 차트 대체 안내 -->
+                <section id="analytics-chart-tables" class="analytics-data-tables" aria-label="차트 데이터 표"></section> <!-- 접근 가능한 수치 -->
+                <section class="analytics-card"> <!-- 업무 목록 -->
+                    <h2>업무 목록</h2><p class="muted">생성일 최신순 · 페이지당 20건</p> <!-- 정렬과 크기 -->
+                    <div class="analytics-table-scroll" tabindex="0" role="region" aria-label="업무 목록 가로 스크롤"> <!-- 표 내부 스크롤 -->
+                        <table><caption class="sr-only">적용된 조건에 해당하는 업무</caption><thead><tr><th scope="col">업무</th><th scope="col">상태</th><th scope="col">담당자</th><th scope="col">마감일</th><th scope="col">생성일</th><th scope="col">체크리스트</th></tr></thead><tbody id="analytics-rows"></tbody></table> <!-- 업무 세부 정보 -->
+                    </div> <!-- 표 스크롤 끝 -->
+                    <nav class="analytics-pagination" aria-label="업무 목록 페이지"><button type="button" id="analytics-prev">이전</button><span id="analytics-page" aria-live="polite"></span><button type="button" id="analytics-next">다음</button></nav> <!-- 페이지 이동 -->
+                </section> <!-- 업무 목록 끝 -->
+            </div> <!-- 성공 결과 끝 -->
+        </main> <!-- 분석 본문 끝 -->
+    </section> <!-- 분석 화면 끝 -->
+
     <section id="view-board" class="view board-layout" hidden>
         <header class="topbar">
             <button id="board-back" type="button" title="작업실로 돌아가기">‹ 작업실</button>
@@ -696,6 +734,9 @@
     <script src="js/taskboard.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/tools.js"></script>
+    <script src="lib/chartjs/chart.umd.js"></script> <!-- 로컬 차트 배포물 -->
+    <script src="js/analytics-charts.js"></script> <!-- 차트 수명과 대체 표 -->
+    <script src="js/analytics-dashboard.js"></script> <!-- 분석 조회 상태 -->
     <script src="js/app.js"></script>
     <script src="js/member-workspaces.js"></script> <!-- 회원 작업실 UI 연결 -->
 </body>
