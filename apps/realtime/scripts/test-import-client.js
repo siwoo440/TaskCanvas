@@ -101,6 +101,7 @@ async function main() // 클라이언트 검증
     const validateAgain = root.querySelector('#import-validate').handlers.click(); // 검증 재요청
     importer.close(); pending[2].reject({ status: 401 }); await validateAgain; // 닫힌 뒤 오류
     assert.equal(lost, 0); assert.equal(root.textContent, ''); assert.equal(saved, 0); // 늦은 응답 무시
+    vm.runInContext(fs.readFileSync(path.join(base, 'import-quality.js'), 'utf8'), context); // 품질 보고서 수명
     vm.runInContext(fs.readFileSync(path.join(base, 'dataset-view.js'), 'utf8'), context); // 조회 모듈
     const viewRoot = new Element(); const view = context.window.DatasetView.mount(viewRoot, { onBack: () => {}, onAccessLost: () => lost++ }); // 실제 조회
     const first = view.open({ projectId: 1, title: '첫 작업실', role: 'viewer' }); // 지연 목록

@@ -12,6 +12,16 @@ final class ImportController // 인증 우선 처리
         Auth::requireRole((int) $guest['guest_id'], $projectId, $role); // 파싱 전 역할
         return $projectId; // 검증한 범위
     } // 인증 끝
+    public function quality(Request $request): void // 저장 당시 품질 보고서
+    { // 상세 시작
+        $projectId = $this->authorize($request, 'viewer'); ImportValues::keys($_GET, []); // 인증 우선·추가 조건 거부
+        Response::ok(ImportQuality::detail($projectId, $request->params['runId'])); // 원문 없는 요약과 대조
+    } // 상세 끝
+    public function qualityRows(Request $request): void // 문제 행 페이지
+    { // 행 조회 시작
+        $projectId = $this->authorize($request, 'viewer'); // 권한 우선
+        Response::ok(ImportQuality::rows($projectId, $request->params['runId'], $_GET)); // 교집합 문제 항목
+    } // 행 조회 끝
     public function upload(Request $request): void // 파일 전송
     { // 업로드 시작
         $projectId = $this->authorize($request, 'editor'); // 사전 권한

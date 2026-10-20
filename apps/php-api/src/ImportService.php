@@ -28,7 +28,7 @@ final class ImportService // 가져오기 원자적 적용
         } // 대상 거부 끝
         return $dataset; // 고정된 버전
     } // 대상 읽기 끝
-    private static function plan(ImportSource $source, array $config, ?array $dataset, int $projectId): array // 전체 행과 중복 계획
+    private static function plan(ImportSource $source, array $config, ?array $dataset, int $projectId, ?int $qualityRun = null): array // 전체 행과 중복·품질 계획
     { // 계획 시작
         $existing = []; // 기존 키만 보관
         if ($dataset !== null) // 재가져오기 대상
@@ -42,7 +42,7 @@ final class ImportService // 가져오기 원자적 적용
             } // 키 색인 끝
         } // 기존 키 조회 끝
         $report = ['received' => 0, 'valid_rows' => 0, 'error_rows' => 0, 'error_count' => 0, 'errors' => [], 'duplicate_count' => 0, 'inserted' => 0, 'updated' => 0, 'skipped' => 0, 'can_commit' => false]; // 전체 보고서
-        $selected = []; $seen = []; $preview = []; // 행 번호와 첫20개만
+        $selected = []; $seen = []; $preview = []; $quality = $qualityRun === null ? null : new ImportQualityScan($config); // 확정 때 보고서 재생성 없음
         foreach ($source->rows() as $raw) // 모든 원본 행
         { // 실제 값 검증
             $row = ImportValues::row($raw, $config); $report['received']++; // 구조·값 오류
@@ -52,6 +52,10 @@ final class ImportService // 가져오기 원자적 적용
             } // 제한된 행 표시 끝
             if ($row['errors']) // 저장하면 안 되는 행
             { // 전체 오류 집계
+                if ($quality !== null) // 모든 오류 행 관찰
+                { // 품질 기록
+                    ImportQuality::append($qualityRun, $row['source_row'], $quality->observe($raw, $row, false, false)); // 오류를 중복으로 숨기지 않음
+                } // 품질 기록 끝
                 $report['error_rows']++; $report['error_count'] += count($row['errors']); // 행과 오류 구분
                 foreach ($row['errors'] as $error) // 제한된 오류 응답
                 { // 오류 추가
@@ -64,6 +68,10 @@ final class ImportService // 가져오기 원자적 적용
             } // 전체 오류 집계 끝
             $report['valid_rows']++; $hash = $row['key_hash']; // 정상 행
             $key = $hash ?? 'row:' . $row['source_row']; // 키 없으면 매 행 독립
+            if ($quality !== null) // 기존 엔진의 정상 키만 관찰
+            { // 중첩 중복과 선택 결측
+                ImportQuality::append($qualityRun, $row['source_row'], $quality->observe($raw, $row, $hash !== null && isset($seen[$hash]), $hash !== null && isset($existing[$hash]))); // 합집합 별도 집계
+            } // 정상 행 관찰 끝
             if ($hash !== null) // 실제 식별자
             { // 해시 충돌 검사
                 if ((isset($existing[$hash]) && $existing[$hash]['key_value'] !== $row['key_value']) || (isset($seen[$hash]) && $seen[$hash] !== $row['key_value'])) // 손상된 키 또는 충돌
@@ -94,7 +102,7 @@ final class ImportService // 가져오기 원자적 적용
             throw new ApiException(413, 'IMPORT_LIMIT', '데이터셋 10,000행·작업실 100개 데이터셋/100,000행 한도를 확인하세요.'); // 자동 삭제 금지
         } // 한도 거부 끝
         $report['can_commit'] = $report['error_count'] === 0 && $report['received'] > 0; // 전체 통과만 저장
-        return ['report' => $report, 'selected' => $selected, 'existing' => $existing, 'rows' => $preview]; // 내부 계획
+        return ['report' => $report, 'selected' => $selected, 'existing' => $existing, 'rows' => $preview, 'quality' => $quality?->summary()]; // 내부 계획과 원문 없는 집계
     } // 계획 끝
     public static function validate(Request $request, int $projectId, array $input): array // 전체 원본 검증
     { // 검증 시작
@@ -119,12 +127,13 @@ final class ImportService // 가져오기 원자적 적용
                 ImportValues::bad('신규 저장에는 기존 대상 ID를 지정할 수 없습니다.'); // 명확한 모드
             } // 설정 거부 끝
             $source = self::source($draft); $config = ImportValues::config($input, $source->columns(), $dataset); // 서버 정규 설정
-            $plan = self::plan($source, $config, $dataset, $projectId); $report = $plan['report']; // 모든 행 검사
             $revision = (int) $draft['validation_revision'] + 1; // 이전 검증 무효화
+            $runId = ImportQuality::begin($projectId, (int) $guest['guest_id'], $draft, $config, $revision); // 같은 트랜잭션의 헤더
+            $plan = self::plan($source, $config, $dataset, $projectId, $runId); $report = $plan['report']; // 모든 문제 행 즉시 보관
+            ImportQuality::finish($runId, $plan['quality'], $report); // 검사·이력·보고서 함께 확정
             $configJson = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); $reportJson = json_encode($report, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); // 제한된 JSON
             Database::run('UPDATE import_drafts SET config_json=?,report_json=?,target_version=?,validation_revision=? WHERE draft_hash=?', [$configJson, $reportJson, $config['target_version'], $revision, $draft['draft_hash']]); // 서버 검증 저장
-            Database::run('INSERT INTO import_runs (project_id,dataset_id,actor_id,draft_hash,validation_revision,file_name,source_sha256,status,received,inserted,updated,skipped,error_count,report_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [$projectId, $config['target_dataset_id'], (int) $guest['guest_id'], $draft['draft_hash'], $revision, $draft['original_name'], $draft['source_sha256'], $report['can_commit'] ? 'validated' : 'invalid', $report['received'], $report['inserted'], $report['updated'], $report['skipped'], $report['error_count'], $reportJson]); // 저장 전 상태와 구분
-            return ['validation_revision' => $revision, 'target_dataset_id' => $config['target_dataset_id'], 'target_version' => $config['target_version'], 'schema' => self::schema($config), 'report' => $report, 'rows' => $plan['rows']]; // 검증 결과
+            return ['validation_revision' => $revision, 'target_dataset_id' => $config['target_dataset_id'], 'target_version' => $config['target_version'], 'schema' => self::schema($config), 'report' => $report, 'rows' => $plan['rows'], 'run_id' => $runId, 'quality' => $plan['quality']]; // 이전 계약과 품질 요약
         }); // 검증 본문 끝
     } // 검증 끝
     private static function schema(array $config): array // 원본 매핑 없는 저장 스키마
@@ -208,6 +217,7 @@ final class ImportService // 가져오기 원자적 적용
                 Database::run("UPDATE import_runs SET dataset_id=?,status='success',received=?,inserted=?,updated=?,skipped=?,error_count=0,finished_at=NOW() WHERE draft_hash=? AND validation_revision=?", [$datasetId, $report['received'], $report['inserted'], $report['updated'], $report['skipped'], $draft['draft_hash'], $revision]); // 실제 성공 이력
                 $run = Database::one('SELECT run_id FROM import_runs WHERE draft_hash=? AND validation_revision=?', [$draft['draft_hash'], $revision]); // 성공 식별자
                 $result = ['dataset_id' => $datasetId, 'version' => $version, 'row_count' => $total, 'inserted' => $report['inserted'], 'updated' => $report['updated'], 'skipped' => $report['skipped'], 'run_id' => (int) $run['run_id']]; // 확정 결과
+                ImportQuality::confirm((int) $run['run_id'], $result, (int) ($dataset['row_count'] ?? 0)); // 확정 실패도 전체 롤백
                 Database::run("UPDATE import_drafts SET status='consumed',result_json=?,expires_at=DATE_ADD(NOW(),INTERVAL 24 HOUR) WHERE draft_hash=?", [json_encode($result, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $draft['draft_hash']]); // 멱등 결과 보관
                 Database::run('DELETE FROM import_draft_chunks WHERE draft_hash=?', [$draft['draft_hash']]); // 원본 즉시 제거
                 return $result; // 외부 write가 최종 commit

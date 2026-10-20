@@ -21,6 +21,7 @@ $names = array_values(array_filter($args, static fn(string $a) => !str_starts_wi
 $projectTitle = $names[0] ?? '시연 프로젝트'; // 새로 만들 프로젝트 이름
 
 const RESET_TABLES = [
+    'import_quality_rows', 'import_quality_reports', // 품질 문제와 보고서 정리
     'import_runs', 'import_rows', 'import_draft_chunks', 'import_drafts', 'import_datasets', // 가져오기 자료 정리
     'guest_user_links', 'user_sessions', 'users', // 회원 연결·세션·계정도 초기화 대상
     'board_links', 'board_objects', 'media_assets', 'task_items', 'tasks', 'realtime_tickets', 'join_attempts',

@@ -249,12 +249,19 @@ final class ImportSource // CSV·JSON 원본
                 { // 헤더 처리
                     $first = false; continue; // 값으로 저장 금지
                 } // 헤더 처리 끝
-                $number++; $errors = []; // 데이터 위치
+                $number++; $errors = []; $invalidSources = []; // 데이터 위치와 구조상 누락
                 if (count($values) !== count($this->columns)) // 열 수 불일치
                 { // 구조 오류
                     $errors[] = ['source_row' => $number, 'source_id' => null, 'field' => '행 구조', 'code' => 'INVALID_ROW', 'message' => '헤더와 열 수가 다릅니다.']; // 위치 안내
+                    foreach ($this->columns as $index => $column) // 실제로 없는 열만
+                    { // 합성 null 위치
+                        if (!array_key_exists($index, $values)) // 존재하는 빈 셀과 구분
+                        { // 누락 위치 표시
+                            $invalidSources[$column['source_id']] = true; // 구조 오류에 포함된 누락
+                        } // 누락 위치 끝
+                    } // 위치 기록 끝
                 } // 구조 오류 끝
-                yield ['source_row' => $number, 'values' => $values, 'errors' => $errors]; // 원본 전달
+                yield ['source_row' => $number, 'values' => $values, 'errors' => $errors, 'invalid_sources' => $invalidSources]; // 실제 빈 셀과 합성 null 구분
             } // 레코드 끝
         } // CSV 데이터 끝
         else // JSON 데이터
@@ -266,21 +273,27 @@ final class ImportSource // CSV·JSON 원본
                 { // 구조 오류
                     $errors[] = ['source_row' => $i + 1, 'source_id' => null, 'field' => '행 구조', 'code' => 'INVALID_ROW', 'message' => '각 행은 객체여야 합니다.']; // 형식 안내
                 } // 구조 오류 끝
-                $values = []; // 스키마 순서
+                $values = []; $invalidSources = []; // 스키마 순서와 구조 오류 위치
                 foreach ($this->columns as $column) // 전체 필드
                 { // 셀 읽기
                     $value = $flat[$column['path']] ?? null; // 없는 필드 null
+                    if (!$record instanceof stdClass) // 비객체 행의 합성 값
+                    { // 해당 행의 모든 필드
+                        $invalidSources[$column['source_id']] = true; // 결측·필수 중복 판정 제외
+                    } // 비객체 위치 끝
                     if (is_array($value)) // 배열 셀
                     { // 지원하지 않는 구조
                         $errors[] = ['source_row' => $i + 1, 'source_id' => $column['source_id'], 'field' => $column['label'], 'code' => 'INVALID_ROW', 'message' => '배열 셀은 지원하지 않습니다.']; $value = null; // 구조 안내
+                        $invalidSources[$column['source_id']] = true; // 배열이 만든 null
                     } // 배열 셀 끝
                     if (is_string($value) && preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f]/', $value)) // escaped 제어 문자
                     { // 셀 구조 오류
                         $errors[] = ['source_row' => $i + 1, 'source_id' => $column['source_id'], 'field' => $column['label'], 'code' => 'INVALID_ROW', 'message' => '제어 문자를 포함한 셀은 지원하지 않습니다.']; $value = null; // decoded 값 보호
+                        $invalidSources[$column['source_id']] = true; // 잘못된 문자가 만든 null
                     } // 셀 구조 오류 끝
                     $values[] = $value; // 순서 보존
                 } // 셀 읽기 끝
-                yield ['source_row' => $i + 1, 'values' => $values, 'errors' => $errors]; // 원본 행
+                yield ['source_row' => $i + 1, 'values' => $values, 'errors' => $errors, 'invalid_sources' => $invalidSources]; // 원본 행과 판정 출처
             } // 행 펼치기 끝
         } // JSON 반복 끝
     } // 행 반복 끝

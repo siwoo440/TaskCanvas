@@ -275,3 +275,25 @@ CREATE TABLE IF NOT EXISTS import_runs ( -- 검증과 저장 이력
     CONSTRAINT fk_import_run_dataset FOREIGN KEY (dataset_id) REFERENCES import_datasets(dataset_id) ON DELETE CASCADE, -- 데이터셋 정리
     CONSTRAINT fk_import_run_actor FOREIGN KEY (actor_id) REFERENCES guests(guest_id) ON DELETE SET NULL -- 실행자 기록 보존
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 이력 표
+CREATE TABLE IF NOT EXISTS import_quality_reports ( -- 불변 품질 보고서
+    run_id BIGINT UNSIGNED NOT NULL PRIMARY KEY, -- 부모 검사 이력
+    format_version INT UNSIGNED NOT NULL DEFAULT 1, -- 보고서 형식 버전
+    metadata_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 원문 없는 검사 조건
+    summary_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 행·컬럼 집계
+    expected_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 저장 예상 수치
+    actual_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, -- 성공 때만 확정 수치
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 검사 시각
+    CONSTRAINT fk_quality_report_run FOREIGN KEY (run_id) REFERENCES import_runs(run_id) ON DELETE CASCADE, -- 부모 수명
+    CONSTRAINT ck_quality_metadata CHECK (JSON_VALID(metadata_json)), -- 조건 JSON 검사
+    CONSTRAINT ck_quality_summary CHECK (JSON_VALID(summary_json)), -- 요약 JSON 검사
+    CONSTRAINT ck_quality_expected CHECK (JSON_VALID(expected_json)), -- 예상 JSON 검사
+    CONSTRAINT ck_quality_actual CHECK (actual_json IS NULL OR JSON_VALID(actual_json)) -- 확정 JSON 검사
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 품질 표
+CREATE TABLE IF NOT EXISTS import_quality_rows ( -- 문제 행별 작은 기록
+    run_id BIGINT UNSIGNED NOT NULL, -- 보고서 ID
+    source_row INT UNSIGNED NOT NULL, -- 원본 데이터 행 번호
+    issues_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 값 없는 압축 문제 목록
+    PRIMARY KEY (run_id,source_row), -- 보고서 안의 고정 순서
+    CONSTRAINT fk_quality_row_report FOREIGN KEY (run_id) REFERENCES import_quality_reports(run_id) ON DELETE CASCADE, -- 보고서 수명
+    CONSTRAINT ck_quality_issues CHECK (JSON_VALID(issues_json)) -- 문제 JSON 검사
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 문제 행 표

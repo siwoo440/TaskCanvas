@@ -61,10 +61,12 @@ window.DataImport = { mount(root, callbacks) // 세션 초안 화면
             return; // 같은 저장 식별자 유지
         } // 변경 차단 끝
         generation++; sourceGeneration += sourceChanged === true ? 1 : 0; revision = null; controls.commit.disabled = true; controls.report.replaceChildren(); // DOM 이벤트와 명시적 원본 변경 구분
+        callbacks.onQualityClose?.(); // 이전 파일 검사 상세 폐기
     } // 검증 폐기 끝
     function close() // 신원과 화면 폐기
     { // 종료 시작
         generation++; sourceGeneration++; active = null; draft = null; revision = null; mappings = []; controls = {}; saving = null; root.replaceChildren(); root.hidden = true; // 원본·검증 응답과 파일·토큰 해제
+        callbacks.onQualityClose?.(); // 상세 보고서 수명 연결
     } // 종료 끝
     async function run(action, success, sourceRequest = false) // 요청 종류별 소유권 확인
     { // 요청 시작
@@ -213,6 +215,14 @@ window.DataImport = { mount(root, callbacks) // 세션 초안 화면
             { // 보고서 출력
                 revision = data.report.can_commit ? data.validation_revision : null; commit.disabled = revision === null; report.replaceChildren(); // 서버 허용만 저장
                 report.append(node('h3', '전체 검증 결과'), node('p', '수신 ' + data.report.received + '행 · 신규 ' + data.report.inserted + ' · 갱신 ' + data.report.updated + ' · 건너뛰기 ' + data.report.skipped + ' · 오류 ' + data.report.error_count + '개')); // 전체 집계
+                if (data.quality && window.ImportQualityView) // 품질 확장 응답
+                { // 요약과 상세 진입
+                    window.ImportQualityView.summary(report, data.quality); // 기존 검사와 같은 품질 집계
+                    if (callbacks.onQuality) // 저장 화면 연결
+                    { // 전체 보고서 버튼
+                        report.append(button('전체 품질 보고서 보기', 'import-quality-open', () => callbacks.onQuality({ runId: data.run_id }))); // 오류100건 이후도 조회
+                    } // 전체 보고서 버튼 끝
+                } // 품질 확장 끝
                 const normalized = node('div'); table(normalized, ['원본 행', ...data.schema.map((column) => column.label)], data.rows.map((row) => [row.source_row, ...row.values]), '정규화 미리보기 · 첫 20행'); report.append(normalized); // 실제 변환 결과
                 const errors = node('ul'); data.report.errors.forEach((error) => errors.append(node('li', error.source_row + '행 · ' + error.field + ' · ' + error.message))); report.append(errors); // 오류 위치 최대100
                 if (data.report.error_count > data.report.errors.length) // 전체 오류보다 짧은 목록

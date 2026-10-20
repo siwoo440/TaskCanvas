@@ -113,6 +113,10 @@ final class ImportValues // 순수 정규화
         foreach ($config['columns'] as $column) // 포함 필드 순서
         { // 셀 검증
             $index = (int) substr($column['source_id'], 1); $value = $sourceRow['values'][$index] ?? null; // 실제 원본 위치
+            if (isset($sourceRow['invalid_sources'][$column['source_id']])) // 구조 오류가 만든 값
+            { // 기존 구조 오류만 유지
+                $values[] = null; continue; // 거짓 필수·형식 오류 추가 금지
+            } // 구조 오류 유지 끝
             $message = null; // 값 오류
             if ($value === null || (is_string($value) && trim($value) === '')) // 빈 값
             { // 필수 검사
@@ -144,7 +148,11 @@ final class ImportValues // 순수 정규화
             } // 달력 검사 끝
             if ($message !== null) // 값 오류 위치
             { // 오류 추가
-                $errors[] = ['source_row' => $sourceRow['source_row'], 'source_id' => $column['source_id'], 'field' => $column['label'], 'code' => 'INVALID_VALUE', 'message' => $message]; // 원문 없는 보고
+                $original = $sourceRow['values'][$index] ?? null; // 변환 전 자료형
+                $missing = $original === null || (is_string($original) && trim($original) === ''); // 실제 결측 판정
+                $invalidCell = !is_string($original) || mb_strlen($original) > 4000; // 범용 셀 제한
+                $code = $missing ? 'REQUIRED_MISSING' : ($invalidCell ? 'INVALID_CELL' : ($column['type'] === 'number' ? 'INVALID_NUMBER' : 'INVALID_DATE')); // 기존 오류의 세분 코드
+                $errors[] = ['source_row' => $sourceRow['source_row'], 'source_id' => $column['source_id'], 'field' => $column['label'], 'code' => $code, 'message' => $message]; // 원문 없는 보고
                 $value = null; // 잘못된 값 저장 금지
             } // 오류 추가 끝
             $values[] = $value; // 필드 순서

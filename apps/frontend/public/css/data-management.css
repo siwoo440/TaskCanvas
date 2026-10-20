@@ -1,3 +1,7 @@
+.quality-panel /* 품질 보고서 본문 */
+{ /* 보고서 시작 */
+    margin: 24px 0; min-width: 0; overflow-wrap: anywhere; /* 좁은 화면과 긴 필드 이름 */
+} /* 보고서 끝 */
 .data-view /* 데이터 화면 */
 { /* 화면 시작 */
     height: auto; min-height: 100vh; overflow: visible; background: #f3f6f5; color: #203830; /* 차분한 자료 배경 */

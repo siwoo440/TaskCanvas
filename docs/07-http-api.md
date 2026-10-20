@@ -133,3 +133,8 @@
 `POST /imports/validate`·`/imports/commit`, `GET /datasets`·`/datasets/{datasetId}`·`/rows`·`/chart`·`/runs`, `GET /imports/runs`, `POST /datasets/{datasetId}/delete`를 추가했다. 모든 경로는 `/api/projects/{id}` 기준이다. 편집자 이상은 검증·저장·재가져오기, 열람자 이상은 조회, 관리자만 삭제 가능하다.
 
 검증은 서버 원본 전체와 컬럼 설정을 검사하고 validation_revision을 반환한다. 저장은 draft_token·validation_revision만 받으며 오류 행이 있으면422, revision/version 충돌은409다. 같은 초안의 재시도는 동일한 확정 결과를 반환한다. [컬럼 계약·입력 필드·오류·권한 상세](31-dataset-storage.md#4-api).
+
+---
+## 32일차 품질 보고서
+
+검증 응답에 run_id·quality를 추가했다. GET /api/projects/{id}/imports/runs/{runId}/quality 및 /quality/rows는 열람자 이상이 조회한다. 상세 행은20개 단위이며 page·severity·type·column 교집합을 적용한다. 실제 확정값은 성공 전 null, 보고서 없는 구형 이력은404다. [입력·수치·권한·보관 상세](32-data-quality.md#4-api와-권한).

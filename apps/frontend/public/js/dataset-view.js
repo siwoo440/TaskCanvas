@@ -5,6 +5,7 @@ window.DatasetView = { mount(root, callbacks) // 작업실 데이터 관리
     let active = null; let lifetime = 0; let listGeneration = 0; let detailGeneration = 0; let chartGeneration = 0; let runGeneration = 0; // 요청 소유권
     let controls = {}; let selected = null; let chart = null; let listPage = 1; let rowPage = 1; let runPage = 1; let search = ''; // 현재 조회
     const importRoot = node('section'); // 독립 초안 영역
+    const qualityRoot = node('section'); const qualityView = window.ImportQualityView.mount(qualityRoot, { onAccessLost: (error) => fail(error) }); // 독립 보고서 수명
     const importer = window.DataImport.mount(importRoot, // 같은 화면의 가져오기
     { // 가져오기 콜백
         onSaved: (result) => // DB 확정 결과
@@ -14,9 +15,18 @@ window.DatasetView = { mount(root, callbacks) // 작업실 데이터 관리
                 return; // 오래된 결과 무시
             } // 응답 폐기 끝
             controls.message.textContent = '저장 완료 · 신규 ' + result.inserted + ' · 갱신 ' + result.updated + ' · 건너뛰기 ' + result.skipped; // 실제 확정 건수
-            loadList(listPage); choose(result.dataset_id); // DB 재조회
+            const life = lifetime; const current = detailGeneration + 1; loadList(listPage); // 목록·상세 요청 소유권
+            choose(result.dataset_id).then(() => // 저장 표 재조회 후 보고서
+            { // 성공 보고서 표시
+                if (active && life === lifetime && current === detailGeneration) // 현재 작업실과 선택
+                { // 확정 검사 재조회
+                    qualityView.open({ projectId: active.projectId, runId: result.run_id }); // 실제 확정 수치
+                } // 확정 검사 재조회 끝
+            }); // 성공 보고서 끝
         }, // 저장 콜백 끝
         onAccessLost: (error) => fail(error), // 인증 전체 정리
+        onQuality: ({ runId }) => active && qualityView.open({ projectId: active.projectId, runId }), // 검사 직후 상세
+        onQualityClose: () => qualityView.close(), // 조건 변경·초안 이탈 폐기
     }); // 가져오기 연결 끝
     function destroyChart() // 외부 캔버스 정리
     { // 차트 정리
@@ -28,6 +38,7 @@ window.DatasetView = { mount(root, callbacks) // 작업실 데이터 관리
     function close() // 신원·작업실 수명 종료
     { // 정리 시작
         lifetime++; listGeneration++; detailGeneration++; chartGeneration++; runGeneration++; importer.close(); destroyChart(); // 모든 요청 무효
+        qualityView.close(); // 과거 보고서와 지연 응답 폐기
         active = null; selected = null; controls = {}; search = ''; listPage = 1; rowPage = 1; runPage = 1; root.replaceChildren(); // 자료 폐기
     } // 정리 끝
     function path() // 현재 작업실 API
@@ -104,6 +115,7 @@ window.DatasetView = { mount(root, callbacks) // 작업실 데이터 관리
             runPage = data.pagination.page; // 실제 페이지
             const names = { validated: '검증 완료', invalid: '오류 발견', failed: '저장 실패', success: '저장 완료' }; // 상태 이름
             table(controls.runs, ['파일', '상태', '수신', '신규', '갱신', '건너뜀', '오류', '시각'], data.runs.map((run) => [run.file_name, names[run.status] || run.status, run.received, run.inserted, run.updated, run.skipped, run.error_count, run.created_at]), datasetId ? '선택 자료의 가져오기 이력' : '작업실 전체 가져오기 이력'); // 토큰 없는 기록
+            const reports = node('div'); reports.className = 'data-actions'; data.runs.forEach((run) => reports.append(button('품질 보고서 · ' + run.file_name + ' · 검사 ' + run.run_id, 'quality-run-' + run.run_id, () => active && qualityView.open({ projectId: active.projectId, runId: run.run_id })))); controls.runs.append(reports); // 보고서 없는 과거 이력도 명확한 안내
             pager(controls.runPage, data.pagination, (next) => loadRuns(next, datasetId), 'dataset-runs'); // 페이지 간 같은 범위
         } // 요청 끝
         catch (error) // 이력 실패
@@ -258,7 +270,7 @@ window.DatasetView = { mount(root, callbacks) // 작업실 데이터 관리
                     fail(error); // 재조회 안내
                 } // 오류 전달 끝
             } // 오류 소유권 끝
-        })); detail.append(deleteBox); layout.append(sidebar, detail); root.append(importRoot, layout); // 삭제 영역
+        })); detail.append(deleteBox); layout.append(sidebar, detail); root.append(importRoot, qualityRoot, layout); // 초안·보고서·저장 자료
         const history = node('section'); history.className = 'data-card'; const runs = node('div'); const runsPager = node('nav'); runsPager.className = 'data-actions'; history.append(node('h2', '가져오기 이력'), button('작업실 전체 이력', 'dataset-all-runs', () => // 전체 이력 선택
         { // 이력 범위 변경
             return loadRuns(1, null); // 전체 범위 유지

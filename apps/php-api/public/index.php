@@ -46,6 +46,8 @@ $router->add('GET', '/api/projects/{id}/datasets/{datasetId}/rows', [ImportContr
 $router->add('GET', '/api/projects/{id}/datasets/{datasetId}/chart', [ImportController::class, 'chart']); // 정확한 막대 집계
 $router->add('GET', '/api/projects/{id}/datasets/{datasetId}/runs', [ImportController::class, 'runs']); // 자료 이력
 $router->add('GET', '/api/projects/{id}/imports/runs', [ImportController::class, 'runs']); // 전체 가져오기 이력
+$router->add('GET', '/api/projects/{id}/imports/runs/{runId}/quality', [ImportController::class, 'quality']); // 검사 스냅샷·저장 대조
+$router->add('GET', '/api/projects/{id}/imports/runs/{runId}/quality/rows', [ImportController::class, 'qualityRows']); // 문제 행 교집합·페이지
 $router->add('POST', '/api/projects/{id}/datasets/{datasetId}/delete', [ImportController::class, 'delete']); // 관리자 삭제
 $router->add('GET', '/api/projects/{id}/invites', [InviteController::class, 'list']); // 초대 코드 목록(관리자)
 $router->add('POST', '/api/projects/{id}/invites', [InviteController::class, 'create']); // 초대 코드 발급(관리자)

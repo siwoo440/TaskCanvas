@@ -3,7 +3,7 @@ declare(strict_types=1); // 엄격한 자료형
 require __DIR__ . '/import-test-support.php'; // 테스트 환경
 ImportTest::database(static function (PDO $pdo): void // 실제 분리 DB
 { // 검사 시작
-    $tables = ['import_datasets', 'import_rows', 'import_drafts', 'import_draft_chunks', 'import_runs']; // 승인된 표
+    $tables = ['import_datasets', 'import_rows', 'import_drafts', 'import_draft_chunks', 'import_runs', 'import_quality_reports', 'import_quality_rows']; // 승인된 표와 품질 종속 표
     $definitions = []; // 신규 정의
     foreach ($tables as $table) // 실제 설치 확인
     { // 표 검사
@@ -25,7 +25,7 @@ ImportTest::database(static function (PDO $pdo): void // 실제 분리 DB
     { // 신규 표 제거
         $pdo->exec('DROP TABLE `' . $table . '`'); // 이번 테스트 DB만
     } // 제거 끝
-    ImportTest::same(count(Schema::upgrade()), 5, '기존 DB 다섯 표 보정'); // 적용 수
+    ImportTest::same(count(Schema::upgrade()), 7, '기존 DB 일곱 표 보정'); // 적용 수
     ImportTest::same(Database::all('SELECT * FROM guests'), $before, '기존 게스트 전체 행 보존'); // 정확 비교
     foreach ($oldRows as $table => $rows) // 기존 자료 검증
     { // 표별 비교
