@@ -36,8 +36,17 @@ $router->add('GET', '/api/projects/{id}/members', [ProjectController::class, 'me
 $router->add('GET', '/api/projects/{id}/tasks', [ProjectController::class, 'tasks']); // 공유 업무 목록(P1)
 $router->add('GET', '/api/projects/{id}/analytics/summary', [AnalyticsController::class, 'summary']); // 작업실 SQL 통계
 $router->add('GET', '/api/projects/{id}/analytics/dashboard', [AnalyticsController::class, 'dashboard']); // 분석 화면 조회
-$router->add('POST', '/api/projects/{id}/imports/upload', [ImportController::class, 'upload']); // 세션별 파일 초안
+$router->add('POST', '/api/projects/{id}/imports/upload', [ImportController::class, 'upload']); // 세션 결합 파일 초안
 $router->add('POST', '/api/projects/{id}/imports/preview', [ImportController::class, 'preview']); // 원본 경로 미리보기
+$router->add('POST', '/api/projects/{id}/imports/validate', [ImportController::class, 'validate']); // 전체 행·중복 검증
+$router->add('POST', '/api/projects/{id}/imports/commit', [ImportController::class, 'commit']); // 원자적 데이터셋 저장
+$router->add('GET', '/api/projects/{id}/datasets', [ImportController::class, 'datasets']); // 저장 목록
+$router->add('GET', '/api/projects/{id}/datasets/{datasetId}', [ImportController::class, 'detail']); // 자료 상세
+$router->add('GET', '/api/projects/{id}/datasets/{datasetId}/rows', [ImportController::class, 'rows']); // 저장 행
+$router->add('GET', '/api/projects/{id}/datasets/{datasetId}/chart', [ImportController::class, 'chart']); // 정확한 막대 집계
+$router->add('GET', '/api/projects/{id}/datasets/{datasetId}/runs', [ImportController::class, 'runs']); // 자료 이력
+$router->add('GET', '/api/projects/{id}/imports/runs', [ImportController::class, 'runs']); // 전체 가져오기 이력
+$router->add('POST', '/api/projects/{id}/datasets/{datasetId}/delete', [ImportController::class, 'delete']); // 관리자 삭제
 $router->add('GET', '/api/projects/{id}/invites', [InviteController::class, 'list']); // 초대 코드 목록(관리자)
 $router->add('POST', '/api/projects/{id}/invites', [InviteController::class, 'create']); // 초대 코드 발급(관리자)
 $router->add('POST', '/api/invites/{id}/revoke', [InviteController::class, 'revoke']); // 초대 코드 취소(관리자)

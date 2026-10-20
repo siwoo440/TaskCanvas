@@ -1,0 +1,111 @@
+.data-view /* 데이터 화면 */
+{ /* 화면 시작 */
+    height: auto; min-height: 100vh; overflow: visible; background: #f3f6f5; color: #203830; /* 차분한 자료 배경 */
+} /* 화면 끝 */
+.data-management /* 본문 범위 */
+{ /* 본문 시작 */
+    max-width: 1240px; margin: 0 auto; padding: 36px 24px 64px; box-sizing: border-box; /* 화면 여백 */
+} /* 본문 끝 */
+.data-heading, .data-actions /* 제목과 조작 */
+{ /* 배치 시작 */
+    display: flex; align-items: end; justify-content: space-between; gap: 12px; flex-wrap: wrap; /* 작은 화면 줄바꿈 */
+} /* 배치 끝 */
+.data-heading h1 /* 큰 제목 */
+{ /* 제목 시작 */
+    margin: 4px 0 12px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.04em; overflow-wrap: anywhere; /* 긴 작업실 이름 */
+} /* 제목 끝 */
+.data-actions /* 단계 조작 */
+{ /* 버튼 배치 */
+    justify-content: flex-start; margin: 16px 0; /* 조작 간격 */
+} /* 버튼 배치 끝 */
+.data-layout /* 목록과 선택 자료 */
+{ /* 열 배치 */
+    display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 3fr); gap: 20px; align-items: start; margin: 24px 0; /* 화면 비율 */
+} /* 열 배치 끝 */
+.data-card /* 자료 카드 */
+{ /* 카드 시작 */
+    min-width: 0; padding: 22px; border: 1px solid #d6e2dc; border-radius: 16px; background: white; box-shadow: 0 5px 20px #173e2e06; /* 시각적 구분 */
+} /* 카드 끝 */
+.data-card h2, .data-card h3 /* 카드 제목 */
+{ /* 제목 시작 */
+    margin-top: 0; overflow-wrap: anywhere; /* 긴 자료명 */
+} /* 제목 끝 */
+.data-card h3 /* 작은 제목 */
+{ /* 소제목 시작 */
+    margin-top: 24px; /* 섹션 구분 */
+} /* 소제목 끝 */
+.data-management label /* 입력 이름 */
+{ /* 이름 시작 */
+    display: block; font-weight: 600; margin: 8px 0 6px; /* 연결된 설명 */
+} /* 이름 끝 */
+.data-management input:not([type=checkbox]), .data-management select /* 입력 요소 */
+{ /* 입력 시작 */
+    width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; /* 모바일 너비 */
+} /* 입력 끝 */
+.data-management button /* 조작 요소 */
+{ /* 버튼 시작 */
+    min-height: 42px; max-width: 100%; overflow-wrap: anywhere; white-space: normal; /* 긴 이름과 터치 */
+} /* 버튼 끝 */
+.dataset-entry /* 저장 목록 버튼 */
+{ /* 목록 시작 */
+    display: block; width: 100%; margin-bottom: 8px; padding: 14px; text-align: left; background: #f1f7f3; color: #214d3e; border-color: #c8dbd0; /* 선택 가능한 자료 */
+} /* 목록 끝 */
+.import-panel /* 가져오기 카드 */
+{ /* 가져오기 시작 */
+    margin: 24px 0; border-top: 4px solid #377f70; /* 현재 작업 강조 */
+} /* 가져오기 끝 */
+.import-column /* 컬럼 설정 행 */
+{ /* 컬럼 배치 */
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) 80px; align-items: center; gap: 16px; border-bottom: 1px solid #e5ece7; padding: 12px 0; /* 필드별 구분 */
+} /* 컬럼 배치 끝 */
+.data-table-scroll /* 표 내부 이동 */
+{ /* 스크롤 시작 */
+    max-width: 100%; overflow-x: auto; margin: 16px 0; border: 1px solid #e1e8e3; border-radius: 8px; /* 화면 전체 넘침 방지 */
+} /* 스크롤 끝 */
+.data-table-scroll table /* 저장 표 */
+{ /* 표 시작 */
+    width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; /* 읽기 쉬운 행 */
+} /* 표 끝 */
+.data-table-scroll th, .data-table-scroll td /* 표 셀 */
+{ /* 셀 시작 */
+    padding: 12px 14px; border-bottom: 1px solid #e6ece8; min-width: 90px; max-width: 320px; overflow-wrap: anywhere; white-space: pre-wrap; /* 공백과 긴 원문 보존 */
+} /* 셀 끝 */
+.data-table-scroll th /* 열 머리글 */
+{ /* 머리글 시작 */
+    background: #edf4ef; color: #284f3e; /* 열 구분 */
+} /* 머리글 끝 */
+.data-table-scroll caption /* 표 이름 */
+{ /* 캡션 시작 */
+    text-align: left; font-weight: 600; padding: 12px; color: #395e4e; /* 접근 가능한 설명 */
+} /* 캡션 끝 */
+.data-chart-frame /* 차트 높이 */
+{ /* 차트 시작 */
+    height: 320px; position: relative; max-width: 100%; margin: 12px 0; /* 캔버스 영역 */
+} /* 차트 끝 */
+#dataset-message, #import-message /* 상태 안내 */
+{ /* 안내 시작 */
+    color: #335e4a; overflow-wrap: anywhere; /* 오류와 처리 상태 */
+} /* 안내 끝 */
+.data-management :focus-visible /* 키보드 위치 */
+{ /* 포커스 시작 */
+    outline: 3px solid #217c63; outline-offset: 3px; /* 명확한 현재 위치 */
+} /* 포커스 끝 */
+@media (max-width: 760px) /* 좁은 화면 */
+{ /* 모바일 시작 */
+    .data-management /* 작은 본문 */
+    { /* 여백 시작 */
+        padding: 24px 12px 40px; /* 최소 여백 */
+    } /* 여백 끝 */
+    .data-layout, .import-column /* 단일 열 */
+    { /* 배치 시작 */
+        grid-template-columns: minmax(0, 1fr); /* 모바일 세로 배치 */
+    } /* 배치 끝 */
+    .data-card /* 작은 카드 */
+    { /* 카드 시작 */
+        padding: 16px; /* 내부 너비 확보 */
+    } /* 카드 끝 */
+    .data-actions > div /* 입력 줄 */
+    { /* 입력 시작 */
+        width: 100%; min-width: 0; /* 화면 너비 준수 */
+    } /* 입력 끝 */
+} /* 모바일 끝 */

@@ -75,7 +75,7 @@ async function main() // 실제 모듈 검증
     find('encoding').value = 'CP949'; find('encoding').handlers.change(); const network = find('apply').handlers.click(); requests.at(-1).reject(new Error('network')); await network; assert(find('rows').textContent === '' && !find('apply').disabled); // 통신 실패 시 원문 폐기와 재시도
     preview.close(); assert.equal(find('file').value, ''); assert.equal(find('rows').textContent, ''); // 파일·원문 폐기
     const app = fs.readFileSync(path.join(directory, 'app.js'), 'utf8'); const start = app.indexOf('function showView(name)'); const end = app.indexOf('// ----------', start); let closed = 0; // 실제 앱 뷰 함수
-    const navigation = vm.createContext({ analyticsDashboard: { close() {} }, importPreview: { close: () => closed++ }, document: { querySelectorAll: () => [] }, forgetBoard() {} }); vm.runInContext(app.slice(start, end), navigation); vm.runInContext("showView('home')", navigation); assert.equal(closed, 1); vm.runInContext("showView('data')", navigation); assert.equal(closed, 1); // 진입 유지·이탈 폐기
+    const navigation = vm.createContext({ analyticsDashboard: { close() {} }, datasetView: { close: () => closed++ }, document: { querySelectorAll: () => [] }, forgetBoard() {} }); vm.runInContext(app.slice(start, end), navigation); vm.runInContext("showView('home')", navigation); assert.equal(closed, 1); vm.runInContext("showView('data')", navigation); assert.equal(closed, 1); // 진입 유지·이탈 폐기
     console.log('PASS multipart·안전원문·파일교체·이전응답·열람자·JSON경로·토큰유지·만료·앱이탈'); // 실제 결과
 } // 검사 끝
 main().catch((error) => // 검증 실패

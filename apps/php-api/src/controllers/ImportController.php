@@ -22,4 +22,45 @@ final class ImportController // 인증 우선 처리
         $projectId = $this->authorize($request, 'editor'); // 사전 권한
         Response::ok(ImportDrafts::preview($request, $projectId, $request->json())); // 제한된 원본
     } // 미리보기 끝
+    public function validate(Request $request): void // 전체 행 검증
+    { // 검증 시작
+        $projectId = $this->authorize($request, 'editor'); // 파싱 전 인증
+        Response::ok(ImportService::validate($request, $projectId, $request->json())); // 확정 전 보고서
+    } // 검증 끝
+    public function commit(Request $request): void // 원자적 저장
+    { // 저장 시작
+        $projectId = $this->authorize($request, 'editor'); // 파싱 전 인증
+        Response::ok(ImportService::commit($request, $projectId, $request->json())); // 멱등 결과
+    } // 저장 끝
+    public function datasets(Request $request): void // 저장 목록
+    { // 목록 시작
+        $projectId = $this->authorize($request, 'viewer'); // 조회 권한
+        Response::ok(ImportDatasets::list($projectId, $_GET)); // 검색 목록
+    } // 목록 끝
+    public function detail(Request $request): void // 자료 상세
+    { // 상세 시작
+        $projectId = $this->authorize($request, 'viewer'); // 조회 권한
+        ImportValues::keys($_GET, []); // 불명 조건 차단
+        Response::ok(ImportDatasets::detail($projectId, $request->params['datasetId'])); // 저장 스키마
+    } // 상세 끝
+    public function rows(Request $request): void // 저장 행
+    { // 행 시작
+        $projectId = $this->authorize($request, 'viewer'); // 조회 권한
+        Response::ok(ImportDatasets::rows($projectId, $request->params['datasetId'], $_GET)); // 페이지 표
+    } // 행 끝
+    public function chart(Request $request): void // 막대 집계
+    { // 집계 시작
+        $projectId = $this->authorize($request, 'viewer'); // 조회 권한
+        Response::ok(ImportDatasets::chart($projectId, $request->params['datasetId'], $_GET)); // 정확한 수치
+    } // 집계 끝
+    public function runs(Request $request): void // 전체 또는 자료 이력
+    { // 이력 시작
+        $projectId = $this->authorize($request, 'viewer'); // 조회 권한
+        Response::ok(ImportDatasets::runs($projectId, $request->params['datasetId'] ?? null, $_GET)); // 제한된 이력
+    } // 이력 끝
+    public function delete(Request $request): void // 관리자 자료 삭제
+    { // 삭제 시작
+        $projectId = $this->authorize($request, 'admin'); // 관리자 보호
+        Response::ok(ImportDatasets::delete($request, $projectId, $request->params['datasetId'], $request->json())); // 원자적 삭제
+    } // 삭제 끝
 } // 컨트롤러 끝

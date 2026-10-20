@@ -69,7 +69,7 @@ async function main() // 가져오기 통합 검증
         const cp = await api('POST', route + '/imports/upload', file(Buffer.from([0xC0, 0xCC, 0xB8, 0xA7, 10, 0xC7, 0xD1, 0xB1, 0xDB, 10]), '한글.csv', 'CP949'), editor.cookie); // 실제 CP949 바이트
         check(cp.status === 201 && cp.data.encoding === 'CP949' && cp.data.rows[0].values[0] === '한글', 'CP949 실제 업로드 원문'); // 인코딩 손실 방지
         check((await api('POST', route + '/imports/preview', { draft_token: cp.data.draft_token }, viewer.cookie)).status === 403, '열람자 원본 재미리보기 차단'); // 쓰기 역할
-        check((await api('POST', route + '/imports/commit', {}, cookie)).status === 404, '31일차 확정 저장 API 미노출'); // 이번 개발 범위
+        check((await api('POST', route + '/imports/commit', {}, viewer.cookie)).status === 403, '확정 저장 API 열람자 차단'); // 후속 저장 권한 회귀
         const [[beforeDry]] = await h.db.query('SELECT COUNT(*) AS n FROM import_drafts'); // 원본 수
         const cli = 'apps/php-api/bin/cleanup-imports.php'; const cliEnv = { ...process.env, DB_NAME: h.name }; // 고유 DB 명령
         execFileSync('C:/xampp/php/php.exe', [cli], { cwd: h.root, env: cliEnv }); const [[afterDry]] = await h.db.query('SELECT COUNT(*) AS n FROM import_drafts'); // 기본 미리보기

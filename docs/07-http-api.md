@@ -125,4 +125,11 @@
 ---
 ## 30일차 파일 업로드·미리보기
 
-`POST /api/projects/{id}/imports/upload`는 multipart `file`·`encoding`, `/imports/preview`는 JSON `draft_token`·선택 `encoding/json_path`를 받는다. 편집자 이상과 변경 보호 헤더가 필요하다. 초안은 세션·작업실에 결합한15분 임시 보관이며 최초 응답만 토큰을 제공한다. 원본 메타데이터·전체 행 수·최대20행을 반환한다. [응답 필드·오류·제한](30-file-preview.md#4-api-계약). 확정 저장 API는 이번 범위에 포함하지 않는다.
+`POST /api/projects/{id}/imports/upload`는 multipart `file`·`encoding`, `/imports/preview`는 JSON `draft_token`·선택 `encoding/json_path`를 받는다. 편집자 이상과 변경 보호 헤더가 필요하다. 초안은 세션·작업실에 결합한15분 임시 보관이며 최초 응답만 토큰을 제공한다. 원본 메타데이터·전체 행 수·최대20행을 반환한다. [응답 필드·오류·제한](30-file-preview.md#4-api-계약).
+
+---
+## 31일차 — 데이터셋 확정 저장·재조회
+
+`POST /imports/validate`·`/imports/commit`, `GET /datasets`·`/datasets/{datasetId}`·`/rows`·`/chart`·`/runs`, `GET /imports/runs`, `POST /datasets/{datasetId}/delete`를 추가했다. 모든 경로는 `/api/projects/{id}` 기준이다. 편집자 이상은 검증·저장·재가져오기, 열람자 이상은 조회, 관리자만 삭제 가능하다.
+
+검증은 서버 원본 전체와 컬럼 설정을 검사하고 validation_revision을 반환한다. 저장은 draft_token·validation_revision만 받으며 오류 행이 있으면422, revision/version 충돌은409다. 같은 초안의 재시도는 동일한 확정 결과를 반환한다. [컬럼 계약·입력 필드·오류·권한 상세](31-dataset-storage.md#4-api).
