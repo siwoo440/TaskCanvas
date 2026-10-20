@@ -17,6 +17,20 @@ const state = {
 }; // 전역 상태
 
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
+const importPreview = window.ImportPreview.mount($('view-data'), // 파일 미리보기 수명
+{ // 작업실 연결
+    onBack: () => openWorkspace().catch((error) => leaveDeletedWorkspace(error.message)), // 현재 작업실 복귀
+    onAccessLost: () => leaveDeletedWorkspace('파일 미리보기 권한이 만료되었습니다. 작업실을 다시 선택하세요.'), // 신원 변경 정리
+}); // 미리보기 연결 끝
+$('ws-data').addEventListener('click', () => // 작업실 데이터 관리
+{ // 진입 시작
+    if (!state.project) // 작업실 선택 필요
+    { // 잘못된 진입 차단
+        return; // 요청 생략
+    } // 잘못된 진입 차단 끝
+    showView('data'); window.scrollTo(0, 0); // 전용 화면 상단
+    importPreview.open({ projectId: state.project.project_id, title: state.project.title, role: state.project.role }); // 현재 역할 전달
+}); // 진입 끝
 const analyticsDashboard = window.AnalyticsDashboard.mount($('view-analytics'), // 분석 화면 수명
 { // 기존 작업실 흐름 연결
     onBack: () => openWorkspace().catch((error) => leaveDeletedWorkspace(error.message)), // 최신 작업실 복귀
@@ -64,6 +78,10 @@ async function whenIdle()
 
 function showView(name)
 {
+    if (name !== 'data') // 파일 화면 이탈
+    { // 원본 정리
+        importPreview.close(); // 파일·토큰·지연 응답 폐기
+    } // 원본 정리 끝
     if (name !== 'analytics') // 분석 화면 이탈
     { // 결과 정리
         analyticsDashboard.close(); // 이전 신원과 지표 폐기
@@ -510,6 +528,7 @@ $('ws-owner-done').addEventListener('click', () =>
 function leaveDeletedWorkspace(message)
 {
     analyticsDashboard.close(); // 인증과 작업실 변경의 분석 폐기
+    importPreview.close(); // 인증과 작업실 변경의 원본 폐기
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 메모 편집 취소
     clearUndo(); // 실행 취소 기록 비움

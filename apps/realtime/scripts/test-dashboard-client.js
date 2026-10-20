@@ -125,7 +125,7 @@ async function main() // 클라이언트 검증
     const start = app.indexOf('function showView(name)'); // 뷰 전환 함수
     const end = app.indexOf('// ----------', start); // 다음 기능 경계
     let closed = 0; // 분석 폐기 관찰
-    const navigation = vm.createContext({ analyticsDashboard: { close: () => closed += 1 }, document: { querySelectorAll: () => [] }, forgetBoard: () => {} }); // 외부 화면 의존성
+    const navigation = vm.createContext({ analyticsDashboard: { close: () => closed += 1 }, importPreview: { close() {} }, document: { querySelectorAll: () => [] }, forgetBoard: () => {} }); // 외부 화면 의존성
     vm.runInContext(app.slice(start, end), navigation); // 제품 뷰 전환
     vm.runInContext("showView('home')", navigation); // 작업실 복귀
     assert.equal(closed, 1); // 이전 결과 폐기 연결

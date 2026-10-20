@@ -185,3 +185,93 @@ CREATE TABLE IF NOT EXISTS join_attempts ( -- 게스트 입장 시도 기록(요
     attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 시도 시각
     INDEX idx_attempts_ip_time (client_ip, attempted_at) -- IP·시간 조회 인덱스
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4; -- 입장 시도 테이블
+
+CREATE TABLE IF NOT EXISTS import_datasets ( -- 확정 데이터셋
+    dataset_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 데이터셋 ID
+    project_id BIGINT UNSIGNED NOT NULL, -- 작업실 범위
+    name VARCHAR(120) NOT NULL, -- 표시 이름
+    schema_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 순서 있는 필드 정의
+    key_column VARCHAR(8) NULL, -- 단일 키 필드
+    version BIGINT UNSIGNED NOT NULL DEFAULT 1, -- 동시 갱신 버전
+    row_count INT UNSIGNED NOT NULL DEFAULT 0, -- 확정 행 수
+    created_by BIGINT UNSIGNED NULL, -- 생성 게스트
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 생성 시각
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 갱신 시각
+    KEY idx_import_dataset_project (project_id,dataset_id), -- 작업실 목록
+    CONSTRAINT fk_import_dataset_project FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE, -- 작업실 정리
+    CONSTRAINT fk_import_dataset_creator FOREIGN KEY (created_by) REFERENCES guests(guest_id) ON DELETE SET NULL, -- 기록 보존
+    CONSTRAINT ck_import_dataset_schema CHECK (JSON_VALID(schema_json)) -- 올바른 스키마 JSON
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 데이터셋 표
+
+CREATE TABLE IF NOT EXISTS import_rows ( -- 확정 원본 행
+    row_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 안정적인 행 ID
+    dataset_id BIGINT UNSIGNED NOT NULL, -- 부모 데이터셋
+    source_row INT UNSIGNED NOT NULL, -- 파일 내 데이터 행 번호
+    key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL, -- 정규 키 해시
+    key_value TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, -- 충돌 확인 원문 키
+    values_json LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, -- 스키마 순서의 값
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 최초 저장
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 최종 갱신
+    UNIQUE KEY uq_import_row_key (dataset_id,key_hash), -- 키 없는 행은 별도 허용
+    KEY idx_import_row_dataset (dataset_id,row_id), -- 안정적인 페이지
+    CONSTRAINT fk_import_row_dataset FOREIGN KEY (dataset_id) REFERENCES import_datasets(dataset_id) ON DELETE CASCADE, -- 데이터셋 정리
+    CONSTRAINT ck_import_row_values CHECK (JSON_VALID(values_json)) -- 유효한 값 JSON
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 행 표
+
+CREATE TABLE IF NOT EXISTS import_drafts ( -- 세션 소유 임시 원본
+    draft_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY, -- 공개 토큰의 해시
+    project_id BIGINT UNSIGNED NOT NULL, -- 작업실 범위
+    guest_session_id BIGINT UNSIGNED NOT NULL, -- 업로드 세션
+    original_name VARCHAR(255) NOT NULL, -- 안전한 파일 이름
+    format VARCHAR(8) NOT NULL, -- csv 또는 json
+    encoding VARCHAR(16) NOT NULL DEFAULT 'UTF-8', -- 명시적 인코딩
+    json_path VARCHAR(1024) NULL, -- 선택 배열 경로
+    size_bytes INT UNSIGNED NOT NULL, -- 원본 크기
+    source_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 복원 무결성
+    config_json LONGTEXT NULL, -- 서버 검증 설정
+    validation_revision INT UNSIGNED NOT NULL DEFAULT 0, -- 검증 세대
+    target_version BIGINT UNSIGNED NULL, -- 검증한 데이터 버전
+    report_json LONGTEXT NULL, -- 제한된 오류 보고
+    result_json LONGTEXT NULL, -- 반복 저장 응답
+    status VARCHAR(16) NOT NULL DEFAULT 'uploaded', -- uploaded 또는 consumed
+    expires_at DATETIME NOT NULL, -- 접근 만료
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 업로드 시각
+    KEY idx_import_draft_session (guest_session_id,status,expires_at), -- 세션별 한도
+    KEY idx_import_draft_project (project_id,status,expires_at), -- 작업실별 한도
+    CONSTRAINT fk_import_draft_project FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE, -- 작업실 정리
+    CONSTRAINT fk_import_draft_session FOREIGN KEY (guest_session_id) REFERENCES guest_sessions(session_id) ON DELETE CASCADE -- 세션 정리
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 초안 표
+
+CREATE TABLE IF NOT EXISTS import_draft_chunks ( -- 작은 패킷의 원본 조각
+    draft_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 부모 초안
+    chunk_no INT UNSIGNED NOT NULL, -- 0부터 시작하는 순서
+    data MEDIUMBLOB NOT NULL, -- 최대 64KiB 조각
+    PRIMARY KEY (draft_hash,chunk_no), -- 순서별 중복 방지
+    CONSTRAINT fk_import_chunk_draft FOREIGN KEY (draft_hash) REFERENCES import_drafts(draft_hash) ON DELETE CASCADE -- 초안과 함께 정리
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 조각 표
+
+CREATE TABLE IF NOT EXISTS import_runs ( -- 검증과 저장 이력
+    run_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 이력 ID
+    project_id BIGINT UNSIGNED NOT NULL, -- 작업실 범위
+    dataset_id BIGINT UNSIGNED NULL, -- 저장 전에는 미지정
+    actor_id BIGINT UNSIGNED NULL, -- 실행 게스트
+    draft_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 세션 만료 후에도 이력 유지
+    validation_revision INT UNSIGNED NOT NULL, -- 검증 세대
+    file_name VARCHAR(255) NOT NULL, -- 출처 파일
+    source_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 원본 식별
+    status VARCHAR(20) NOT NULL, -- invalid·validated·failed·success
+    received INT UNSIGNED NOT NULL DEFAULT 0, -- 입력 데이터 행
+    inserted INT UNSIGNED NOT NULL DEFAULT 0, -- 추가 예정 또는 확정
+    updated INT UNSIGNED NOT NULL DEFAULT 0, -- 갱신 예정 또는 확정
+    skipped INT UNSIGNED NOT NULL DEFAULT 0, -- 건너뛴 행
+    error_count INT UNSIGNED NOT NULL DEFAULT 0, -- 전체 오류 수
+    report_json LONGTEXT NULL, -- 원문 값 없는 보고
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 검증 시각
+    finished_at DATETIME NULL, -- 저장 종료 시각
+    UNIQUE KEY uq_import_run_revision (draft_hash,validation_revision), -- 검증당 이력 하나
+    KEY idx_import_run_project (project_id,run_id), -- 작업실 이력
+    KEY idx_import_run_dataset (dataset_id,run_id), -- 데이터셋 이력
+    CONSTRAINT fk_import_run_project FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE, -- 작업실 정리
+    CONSTRAINT fk_import_run_dataset FOREIGN KEY (dataset_id) REFERENCES import_datasets(dataset_id) ON DELETE CASCADE, -- 데이터셋 정리
+    CONSTRAINT fk_import_run_actor FOREIGN KEY (actor_id) REFERENCES guests(guest_id) ON DELETE SET NULL -- 실행자 기록 보존
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; -- 이력 표

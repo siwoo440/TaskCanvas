@@ -121,3 +121,8 @@
 ## 29일차 분석 조회
 
 `GET /api/projects/{id}/analytics/dashboard` — 기존 세션과 열람자 이상 권한 필요. 생성일·상태·담당자 필터, 기본 최근 30일·최대 366일, page 기본 1·20건 고정이다. summary·daily_created·assignee_options·pagination·rows를 같은 DB 스냅샷에서 반환한다. 잘못된 조건은 INVALID_FILTER 400, 응답은 no-store다. 기존 `/analytics/summary` 계약은 유지한다. [입력·응답 필드와 검증](29-analytics-dashboard.md).
+
+---
+## 30일차 파일 업로드·미리보기
+
+`POST /api/projects/{id}/imports/upload`는 multipart `file`·`encoding`, `/imports/preview`는 JSON `draft_token`·선택 `encoding/json_path`를 받는다. 편집자 이상과 변경 보호 헤더가 필요하다. 초안은 세션·작업실에 결합한15분 임시 보관이며 최초 응답만 토큰을 제공한다. 원본 메타데이터·전체 행 수·최대20행을 반환한다. [응답 필드·오류·제한](30-file-preview.md#4-api-계약). 확정 저장 API는 이번 범위에 포함하지 않는다.

@@ -24,7 +24,7 @@ if errorlevel 1 (
 "C:\xampp\php\php.exe" apps\php-api\bin\migrate.php
 echo [3/3] 실시간 서버(3001)와 PHP 서버(8080) 시작
 start "TaskCanvas Realtime :3001" cmd /k "cd /d apps\realtime && node src\server.js"
-start "TaskCanvas PHP :8080" cmd /k "C:\xampp\php\php.exe -S 0.0.0.0:8080 -t apps\frontend\public apps\php-api\public\index.php"
+start "TaskCanvas PHP :8080" cmd /k "C:\xampp\php\php.exe -d upload_max_filesize=12M -d post_max_size=12M -S 0.0.0.0:8080 -t apps\frontend\public apps\php-api\public\index.php" & rem 기존 이미지10MB와 데이터5MiB 전송 한도
 
 echo.
 echo 이 PC:     http://localhost:8080

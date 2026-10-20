@@ -7,6 +7,7 @@
     <title>TaskCanvas — 실시간 협업 화이트보드</title>
     <link rel="stylesheet" href="css/app.css">
     <link rel="stylesheet" href="css/analytics.css"> <!-- 분석 화면 스타일 -->
+    <link rel="stylesheet" href="css/import-preview.css"> <!-- 파일 미리보기 화면 -->
     <link rel="stylesheet" href="css/member-auth.css"> <!-- 회원 화면 공통 스타일 -->
 </head>
 <body>
@@ -329,6 +330,7 @@
                     </span> <!-- 작업실 역할 표시 종료 -->
                     <h1 id="boards-project-title">프로젝트</h1>
                     <button type="button" id="ws-analytics" class="primary">분석 대시보드</button> <!-- 현재 작업실 분석 -->
+                    <button type="button" id="ws-data">데이터 관리</button> <!-- 파일 업로드와 첫20행 미리보기 -->
                     <button type="button" id="ws-rename" class="text-link" hidden>이름 변경</button>
                     <button type="button" id="ws-delete" class="text-link danger-link" hidden>작업실 삭제</button>
                 </div>
@@ -485,6 +487,39 @@
         </main> <!-- 분석 본문 끝 -->
     </section> <!-- 분석 화면 끝 -->
 
+    <section id="view-data" class="view import-preview-view" hidden> <!-- 파일 미리보기 전용 화면 -->
+        <main class="site-inner import-preview-shell"> <!-- 데이터 관리 본문 -->
+            <header class="import-preview-heading"> <!-- 화면 제목과 복귀 -->
+                <div><p class="eyebrow">데이터 라이브러리</p><h1 id="import-preview-title">데이터 관리</h1><p>CSV·JSON을 업로드하고 원본 구조를 확인하세요.</p></div> <!-- 목적 안내 -->
+                <button type="button" id="import-preview-back">작업실로 돌아가기</button> <!-- 기존 작업실 복귀 -->
+            </header> <!-- 제목 끝 -->
+            <section class="import-preview-card"> <!-- 파일 입력 카드 -->
+                <h2>파일 업로드·미리보기</h2> <!-- 현재 개발 범위 -->
+                <p class="muted">최대 5MiB · 데이터 10,000행 · 원본 50열 · 첫 20행 미리보기</p> <!-- 파일 한도 -->
+                <form id="import-preview-form" class="import-preview-controls"> <!-- 파일과 해석 조건 -->
+                    <div><label for="import-preview-file">CSV 또는 JSON 파일</label><input type="file" id="import-preview-file" accept=".csv,.json" aria-describedby="import-preview-hint import-preview-message"></div> <!-- 실제 파일 선택 -->
+                    <div><label for="import-preview-encoding">CSV 문자 인코딩</label><select id="import-preview-encoding"><option value="UTF-8">UTF-8 / BOM</option><option value="CP949">CP949 · CSV 전용</option></select></div> <!-- 명시적 문자 해석 -->
+                    <button type="button" id="import-preview-upload" class="primary">파일 업로드</button> <!-- 세션 초안 생성 -->
+                    <div id="import-preview-path-box" class="import-preview-path" hidden> <!-- JSON 배열 선택 -->
+                        <div><label for="import-preview-candidates">발견한 JSON 배열</label><select id="import-preview-candidates"></select></div> <!-- 서버 경로 후보 -->
+                        <div><label for="import-preview-path">JSON 배열 경로 · 직접 입력</label><input type="text" id="import-preview-path" placeholder="/data/items" maxlength="1024"><p class="muted">JSON Pointer 형식 · 루트 배열은 빈 경로</p></div> <!-- 임의 경로 입력 -->
+                    </div> <!-- JSON 배열 선택 끝 -->
+                    <button type="button" id="import-preview-apply" disabled>원본 다시 읽기</button> <!-- 경로·인코딩 재적용 -->
+                </form> <!-- 입력 끝 -->
+                <p id="import-preview-hint" class="muted">초안은 현재 세션에서 15분간 유효합니다. 활성 초안은 세션당 3개·작업실당 10개까지이며, 닫은 초안도 만료 전까지 한도에 포함됩니다.</p> <!-- 실제 초안 수명과 한도 -->
+                <p id="import-preview-message" role="status" aria-live="polite"></p> <!-- 로딩·오류·빈 상태 -->
+                <p id="import-preview-meta" class="import-preview-meta"></p> <!-- 서버가 확인한 출처 -->
+            </section> <!-- 입력 카드 끝 -->
+            <section id="import-preview-results" class="import-preview-card" hidden> <!-- 성공한 원본 결과 -->
+                <h2>원본 미리보기</h2><p class="muted">헤더를 제외한 데이터 레코드 번호 · 값은 원문으로 표시</p> <!-- 행 번호 의미 -->
+                <div class="import-preview-table" tabindex="0" role="region" aria-label="원본 파일 표 가로 스크롤"> <!-- 표 내부 이동 -->
+                    <table><caption>업로드 원본 · 첫 20행</caption><thead id="import-preview-head"></thead><tbody id="import-preview-rows"></tbody></table> <!-- 안전한 원문 표 -->
+                </div> <!-- 표 내부 이동 끝 -->
+                <ul id="import-preview-notices" aria-label="미리보기 행 구조 안내"></ul> <!-- 열 수·지원 셀 오류 -->
+            </section> <!-- 원본 결과 끝 -->
+            <p class="muted">업로드 원본은 미리보기용으로 임시 보관됩니다. 확정 데이터셋으로 저장되지 않습니다.</p> <!-- 저장 상태 오인 방지 -->
+        </main> <!-- 데이터 관리 본문 끝 -->
+    </section> <!-- 파일 미리보기 끝 -->
     <section id="view-board" class="view board-layout" hidden>
         <header class="topbar">
             <button id="board-back" type="button" title="작업실로 돌아가기">‹ 작업실</button>
@@ -737,6 +772,7 @@
     <script src="lib/chartjs/chart.umd.js"></script> <!-- 로컬 차트 배포물 -->
     <script src="js/analytics-charts.js"></script> <!-- 차트 수명과 대체 표 -->
     <script src="js/analytics-dashboard.js"></script> <!-- 분석 조회 상태 -->
+    <script src="js/import-preview.js"></script> <!-- 파일 원본과 초안 수명 -->
     <script src="js/app.js"></script>
     <script src="js/member-workspaces.js"></script> <!-- 회원 작업실 UI 연결 -->
 </body>

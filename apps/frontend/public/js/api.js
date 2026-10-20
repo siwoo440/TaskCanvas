@@ -11,13 +11,13 @@ class ApiError extends Error
     }
 }
 
-async function apiRequest(method, path, body)
+async function apiRequest(method, path, body, multipart = false) // JSON과 파일 전송
 {
     const res = await fetch(window.TC_CONFIG.apiBase + path, {
         method, // HTTP 메서드
         credentials: 'same-origin', // 세션 쿠키 포함
-        headers: { 'Content-Type': 'application/json', 'X-TaskCanvas': '1' }, // JSON 과 CSRF 방어 헤더
-        body: body === undefined ? undefined : JSON.stringify(body), // JSON 본문
+        headers: multipart ? { 'X-TaskCanvas': '1' } : { 'Content-Type': 'application/json', 'X-TaskCanvas': '1' }, // 파일 경계는 브라우저 지정
+        body: body === undefined ? undefined : multipart ? body : JSON.stringify(body), // FormData 원본 유지
     }); // HTTP 요청
     let data = null; // 응답 본문
     try
@@ -39,5 +39,6 @@ async function apiRequest(method, path, body)
 window.api = {
     get: (path) => apiRequest('GET', path), // GET 호출
     post: (path, body) => apiRequest('POST', path, body ?? {}), // POST 호출
+    multipart: (path, body) => apiRequest('POST', path, body, true), // 파일 업로드
     ApiError, // 오류 타입
 }; // 전역 API 객체

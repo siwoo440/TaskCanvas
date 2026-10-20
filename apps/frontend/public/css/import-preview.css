@@ -1,0 +1,83 @@
+.import-preview-view /* 파일 화면 */
+{ /* 화면 시작 */
+    height: auto; min-height: 100vh; overflow: visible; background: #f3f7f5; color: #203a30; /* 읽기 전용 원본 배경 */
+} /* 화면 끝 */
+.import-preview-shell /* 본문 너비 */
+{ /* 본문 시작 */
+    max-width: 1240px; padding-top: 36px; padding-bottom: 56px; box-sizing: border-box; /* 긴 파일 표 여백 */
+} /* 본문 끝 */
+.import-preview-heading /* 화면 제목 */
+{ /* 제목 배치 */
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; /* 제목과 복귀 버튼 */
+} /* 제목 배치 끝 */
+.import-preview-heading h1 /* 큰 제목 */
+{ /* 제목 시작 */
+    margin: 6px 0; font-size: clamp(24px, 4vw, 34px); overflow-wrap: anywhere; /* 긴 작업실 이름 */
+} /* 제목 끝 */
+.import-preview-card /* 파일 카드 */
+{ /* 카드 시작 */
+    min-width: 0; background: white; padding: 24px; border: 1px solid #d6e3dc; border-radius: 16px; margin-bottom: 24px; /* 단계 구분 */
+} /* 카드 끝 */
+.import-preview-card h2 /* 카드 제목 */
+{ /* 제목 시작 */
+    margin-top: 0; /* 카드 상단 정렬 */
+} /* 제목 끝 */
+.import-preview-controls, .import-preview-path /* 입력 배치 */
+{ /* 배치 시작 */
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr) auto; align-items: end; gap: 16px; margin: 20px 0; /* 파일·인코딩·전송 */
+} /* 배치 끝 */
+.import-preview-path /* JSON 경로 영역 */
+{ /* 경로 시작 */
+    grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; /* 후보와 직접 입력 */
+} /* 경로 끝 */
+.import-preview-view label /* 입력 이름 */
+{ /* 라벨 시작 */
+    display: block; font-weight: 600; margin-bottom: 8px; /* 접근 가능한 입력 */
+} /* 라벨 끝 */
+.import-preview-view input, .import-preview-view select /* 입력 요소 */
+{ /* 입력 시작 */
+    width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; /* 모바일 너비 보호 */
+} /* 입력 끝 */
+.import-preview-view button /* 조작 버튼 */
+{ /* 버튼 시작 */
+    min-height: 42px; max-width: 100%; white-space: normal; /* 터치와 줄바꿈 */
+} /* 버튼 끝 */
+.import-preview-meta, #import-preview-message /* 현재 원본 상태 */
+{ /* 상태 시작 */
+    overflow-wrap: anywhere; color: #2f604a; /* 긴 파일명과 오류 */
+} /* 상태 끝 */
+.import-preview-table /* 표 내부 이동 */
+{ /* 스크롤 시작 */
+    max-width: 100%; overflow-x: auto; border: 1px solid #dde7e0; border-radius: 8px; /* 화면 전체 넘침 방지 */
+} /* 스크롤 끝 */
+.import-preview-table table /* 원본 표 */
+{ /* 표 시작 */
+    width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; /* 읽기 쉬운 원문 */
+} /* 표 끝 */
+.import-preview-table th, .import-preview-table td /* 원문 셀 */
+{ /* 셀 시작 */
+    padding: 12px 14px; border-bottom: 1px solid #e2eae5; min-width: 100px; max-width: 360px; overflow-wrap: anywhere; white-space: pre-wrap; /* 공백·여러 줄 보존 */
+} /* 셀 끝 */
+.import-preview-table th, .import-preview-table caption /* 표 제목 */
+{ /* 제목 시작 */
+    background: #edf5ef; padding: 12px 14px; text-align: left; font-weight: 600; /* 열 구분 */
+} /* 제목 끝 */
+.import-preview-view :focus-visible /* 키보드 위치 */
+{ /* 포커스 시작 */
+    outline: 3px solid #217c63; outline-offset: 3px; /* 명확한 현재 위치 */
+} /* 포커스 끝 */
+@media (max-width: 760px) /* 작은 화면 */
+{ /* 모바일 시작 */
+    .import-preview-controls, .import-preview-path /* 단일 열 */
+    { /* 배치 시작 */
+        grid-template-columns: minmax(0, 1fr); /* 360px 세로 배치 */
+    } /* 배치 끝 */
+    .import-preview-shell /* 모바일 본문 */
+    { /* 여백 시작 */
+        padding-left: 12px; padding-right: 12px; /* 표 너비 확보 */
+    } /* 여백 끝 */
+    .import-preview-card /* 작은 카드 */
+    { /* 카드 시작 */
+        padding: 16px; /* 내부 여백 */
+    } /* 카드 끝 */
+} /* 모바일 끝 */
