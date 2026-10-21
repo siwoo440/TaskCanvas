@@ -126,6 +126,8 @@ async function main() // 인증 통합 검증
         check(ready, '격리된 PHP·DB 서버 시작'); // 환경 검사
         const route = (id, query = '') => '/api/projects/' + id + '/analytics/dashboard' + query; // 통계 경로
         check((await request('GET', route(1))).status === 401, '통계 조회 비인증 거부'); // 구현 전 실패 기준
+        const csvRoute = (id, query = '') => '/api/projects/' + id + '/analytics/export' + query; // 전체 CSV 경로
+        check((await request('GET', csvRoute(1))).status === 401, 'CSV 비인증 거부'); // 다운로드 인증
         const password = 'Analytics-test-28!'; // 가상 비밀번호
         await request('POST', '/api/auth/register', { login_id: 'stats28', display_name: '통계 관리자', password, password_confirm: password }); // 테스트 회원
         const login = await request('POST', '/api/auth/login', { login_id: 'stats28', password }); // 회원 로그인
@@ -139,6 +141,7 @@ async function main() // 인증 통합 검증
         const assignee = viewer.data.guest.guest_id; // 담당자 B
         const foreign = await request('POST', '/api/projects', { display_name: '다른 작업실 관리자', title: '통계 격리' }); // 타 작업실
         check((await request('GET', route(id), undefined, foreign.cookie)).status === 403, '다른 작업실 통계 접근 거부'); // 역할 경계
+        check((await request('GET', csvRoute(id), undefined, foreign.cookie)).status === 403, '다른 작업실 CSV 접근 거부'); // 다운로드 범위
         check((await request('GET', route(id), undefined, made.cookie)).status === 401, '회원 쿠키 없는 연결 게스트 거부'); // 27일차 인증 유지
         const empty = await request('GET', route(id), undefined, viewer.cookie); // 열람자 접근
         check(empty.status === 200 && empty.data.summary.tasks.total === 0, '열람자와 빈 결과'); // 권한과 0건
@@ -151,15 +154,25 @@ async function main() // 인증 통합 검증
         const ids = []; // 업무 식별자
         for (let i = 0; i < 21; i += 1) // 페이지 경계 데이터
         { // 업무 추가
-            const [row] = await db.query('INSERT INTO tasks (project_id,title,status,assignee_id,created_at,due_at) VALUES (?,?,?,?,?,?)', [id, '<img src=x> 업무 ' + i, i === 0 ? 'legacy' : i % 2 === 0 ? 'done' : 'todo', i === 0 ? null : i % 2 === 0 ? owner : assignee, today + ' 12:00:00', day(-1) + ' 23:59:59']); // 안전 출력과 마감
+            const [row] = await db.query('INSERT INTO tasks (project_id,title,status,assignee_id,created_at,due_at) VALUES (?,?,?,?,?,?)', [id, i === 1 ? '=2+2' : '<img src=x> 업무 ' + i, i === 0 ? 'legacy' : i % 2 === 0 ? 'done' : 'todo', i === 0 ? null : i % 2 === 0 ? owner : assignee, today + ' 12:00:00', day(-1) + ' 23:59:59']); // 안전 출력·CSV 수식과 마감
             ids.push(row.insertId); // ID 보관
         } // 업무 추가 끝
         await db.query('INSERT INTO task_items (task_id,title,is_done) VALUES (?, ?, 1), (?, ?, 0)', [ids[0], '완료 항목', ids[0], '미완료 항목']); // 항목 다건
+        await db.query("INSERT INTO board_objects (board_id,task_id,type,payload_json) VALUES (?,?,'task','{}')", [made.data.board.board_id, ids[20]]); // 최신 업무의 원본 보드
+        await db.query('INSERT INTO task_status_history (project_id,task_id,from_status,to_status,actor_guest_id,request_id,changed_at) VALUES (?,?,?,?,?,?,?)', [id, ids[2], 'todo', 'done', owner, 'dashboard-history-1', today + ' 13:00:00']); // 실제 완료 전환
         const stats = (await request('GET', route(id), undefined, cookie)).data; // 기본 조회
         check(stats.summary.tasks.total === 21 && stats.summary.tasks.done === 10 && stats.summary.tasks.other === 1, '원본 업무 상태 집계'); // 독립 기대값
         check(stats.summary.checklist.total === 2 && stats.summary.checklist.done === 1 && stats.summary.checklist.completion_rate === 50, '체크리스트 다건 집계'); // 조인 중복 방지
         check(stats.daily_created.reduce((sum, row) => sum + row.count, 0) === 21 && stats.pagination.total === 21, '카드·추이·표 건수 일치'); // 필터 정합성
         check(stats.rows.length === 20 && stats.rows[0].task_id === ids[20] && stats.rows[19].task_id === ids[1], '20건과 동일 시각 ID 역순'); // 안정 정렬
+        check(stats.status_trend.reduce((sum, row) => sum + row.done, 0) === 1 && stats.rows[0].board_id === made.data.board.board_id, '실제 완료 이력과 원본 보드 연결'); // 추정 없는 추이
+        const exported = await request('GET', '/api/projects/' + id + '/analytics/export?created_from=' + today + '&created_to=' + today, undefined, cookie); // 같은 조건 CSV
+        check(exported.status === 200 && exported.headers.get('content-type').includes('text/csv'), 'CSV 다운로드 응답'); // 전용 자료형
+        check(exported.text.trim().split(/\r?\n/).length === 22, 'CSV 머리·21건 전체 행'); // 화면 총계와 일치
+        check(exported.text.includes("'=2+2"), 'CSV 수식 실행 기호 이스케이프'); // 스프레드시트 안전
+        check(exported.headers.get('content-disposition').includes('taskcanvas-project-' + id), '안전한 CSV 파일명'); // 다운로드 헤더
+        const doneCsv = await request('GET', csvRoute(id, '?status=done'), undefined, viewer.cookie); // 열람자와 상태 조건
+        check(doneCsv.status === 200 && doneCsv.text.trim().split(/\r?\n/).length === 11, '열람자 CSV 완료 필터와 10개 업무'); // 지표·전체 CSV 대조
         check(stats.assignee_options.filter((row) => row.display_name === '동명 담당자').length === 2 && stats.summary.assignees.length === 3, '동명 담당자 ID별 구분과 미배정'); // 이름 병합 금지
         const last = (await request('GET', route(id, '?page=9223372036854775807'), undefined, cookie)).data; // 유효 최대 페이지
         check(last.pagination.page === 2 && last.rows.length === 1 && last.rows[0].task_id === ids[0], '큰 페이지 마지막 보정'); // 곱셈 오버플로 방지
@@ -188,6 +201,7 @@ async function main() // 인증 통합 검증
             check((await request('GET', route(id, '?' + query), undefined, cookie)).status === 400, '잘못된 입력: ' + query); // 일관된 400
         } // 입력 검증 끝
         await request('POST', '/api/auth/logout', {}, cookie); // 회원 만료
+        check((await request('GET', csvRoute(id), undefined, cookie)).status === 401, '로그아웃 후 CSV 거부'); // 다운로드 세션 만료
         check((await request('GET', route(id), undefined, cookie)).status === 401, '로그아웃 후 차단'); // 세션 경계
 
         console.log('대시보드 ' + passed + '개 통과'); // 검증 집계

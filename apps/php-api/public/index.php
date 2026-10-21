@@ -36,6 +36,7 @@ $router->add('GET', '/api/projects/{id}/members', [ProjectController::class, 'me
 $router->add('GET', '/api/projects/{id}/tasks', [ProjectController::class, 'tasks']); // 공유 업무 목록(P1)
 $router->add('GET', '/api/projects/{id}/analytics/summary', [AnalyticsController::class, 'summary']); // 작업실 SQL 통계
 $router->add('GET', '/api/projects/{id}/analytics/dashboard', [AnalyticsController::class, 'dashboard']); // 분석 화면 조회
+$router->add('GET', '/api/projects/{id}/analytics/export', [AnalyticsController::class, 'export']); // 분석 CSV 내보내기
 $router->add('POST', '/api/projects/{id}/imports/upload', [ImportController::class, 'upload']); // 세션 결합 파일 초안
 $router->add('POST', '/api/projects/{id}/imports/preview', [ImportController::class, 'preview']); // 원본 경로 미리보기
 $router->add('POST', '/api/projects/{id}/imports/validate', [ImportController::class, 'validate']); // 전체 행·중복 검증

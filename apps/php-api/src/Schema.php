@@ -140,6 +140,24 @@ final class Schema
             CONSTRAINT fk_guest_user_link_guest FOREIGN KEY (guest_id) REFERENCES guests (guest_id) ON DELETE CASCADE, -- 게스트 삭제 시 연결 정리
             CONSTRAINT fk_guest_user_link_user FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE RESTRICT -- 연결 해제 없는 회원 삭제 차단
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 게스트 연결 테이블 추가
+        ['task_status_history', 'CREATE TABLE IF NOT EXISTS task_status_history ( -- 실제 업무 상태 변경 이력
+            history_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 이력 ID
+            project_id BIGINT UNSIGNED NOT NULL, -- 작업실 범위
+            task_id BIGINT UNSIGNED NOT NULL, -- 대상 업무
+            from_status VARCHAR(24) NOT NULL, -- 변경 전 상태
+            to_status VARCHAR(24) NOT NULL, -- 변경 후 상태
+            actor_guest_id BIGINT UNSIGNED NULL, -- 변경 게스트
+            actor_user_id BIGINT UNSIGNED NULL, -- 연결 회원
+            request_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, -- 멱등 요청 키
+            changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 실제 변경 시각
+            UNIQUE KEY uq_task_status_request (project_id,request_id), -- 작업실별 중복 기록 방지
+            KEY idx_task_status_project_time (project_id,changed_at,history_id), -- 기간 추이 조회
+            KEY idx_task_status_task_time (task_id,changed_at,history_id), -- 업무별 이력 조회
+            CONSTRAINT fk_task_status_project FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE, -- 작업실 정리
+            CONSTRAINT fk_task_status_task FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE, -- 업무 정리
+            CONSTRAINT fk_task_status_guest FOREIGN KEY (actor_guest_id) REFERENCES guests(guest_id) ON DELETE SET NULL, -- 게스트 기록 보존
+            CONSTRAINT fk_task_status_user FOREIGN KEY (actor_user_id) REFERENCES users(user_id) ON DELETE SET NULL -- 회원 기록 보존
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 상태 이력 표 추가
         ['task_items', 'CREATE TABLE IF NOT EXISTS task_items (
             item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
             task_id BIGINT UNSIGNED NOT NULL,

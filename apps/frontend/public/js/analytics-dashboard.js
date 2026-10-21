@@ -4,18 +4,36 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
     function mount(root, callbacks) // 한 화면의 수명 관리
     { // 화면 연결
         const find = (id) => root.querySelector('#analytics-' + id); // 내부 요소
-        const charts = window.AnalyticsCharts.mount(root); // 차트 자원 소유
+        const charts = window.AnalyticsCharts.mount(root, { onStatus: (value) => applyChartFilter('status', value), onAssignee: (value) => applyChartFilter('assignee', value) }); // 차트 선택 연결
         const statusNames = { todo: '할 일', doing: '진행 중', done: '완료' }; // 상태 이름
         let generation = 0; // 응답 순서 보호
         let active = null; // 현재 작업실
         let used = {}; // 마지막 요청 조건
         let page = 1; // 실제 페이지
         let totalPages = 1; // 마지막 페이지
+        function applyChartFilter(field, value) // 차트 드릴다운
+        { // 필터 적용 시작
+            find(field).value = value; // 선택 조건 반영
+            return load({ ...used, [field === 'assignee' ? 'assignee_id' : 'status']: value }, 1); // 같은 기간의 상세 조회
+        } // 필터 적용 끝
+        function filterQuery(filters) // 서버 적용 조건 쿼리
+        { // 쿼리 시작
+            const params = new URLSearchParams(); // 안전한 인코딩
+            Object.entries(filters).forEach(([key, value]) => // 모든 조건
+            { // 조건 추가
+                if (value !== null && value !== '') // 전체 조건 생략
+                { // 실제 조건
+                    params.set(key, String(value)); // 조건 인코딩
+                } // 실제 조건 끝
+            }); // 조건 추가 끝
+            return params; // 완성 쿼리
+        } // 쿼리 끝
         function clear() // 기존 숫자 폐기
         { // 초기화 시작
             charts.destroy(); // 차트와 대체 표 해제
             find('kpis').replaceChildren(); find('rows').replaceChildren(); // 실제 데이터 폐기
             find('applied').textContent = ''; find('page').textContent = ''; // 조건과 페이지 폐기
+            find('export').href = '#'; find('export').setAttribute('aria-disabled', 'true'); // 이전 CSV 링크 폐기
             find('results').hidden = true; // 오래된 결과 숨김
         } // 초기화 끝
         function busy(value) // 현재 요청의 조작 상태
@@ -62,6 +80,8 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
             find('assignee').value = data.filters.assignee_id === null ? '' : String(data.filters.assignee_id); // 적용 담당자
             const person = data.filters.assignee_id === null ? '전체 담당자' : data.filters.assignee_id === 'unassigned' ? '미배정' : '담당자 #' + data.filters.assignee_id; // 실제 조건 설명
             find('applied').textContent = data.filters.created_from + ' ~ ' + data.filters.created_to + ' · ' + (statusNames[data.filters.status] ?? '전체 상태') + ' · ' + person + ' · 조회 ' + new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul' }); // 성공 조회 시각
+            find('export').href = '/api/projects/' + data.project_id + '/analytics/export?' + filterQuery(data.filters); // 현재 조건 CSV
+            find('export').setAttribute('aria-disabled', 'false'); // 성공한 현재 링크 활성
             data.rows.forEach((task) => // 현재 페이지
             { // 행 생성
                 const row = document.createElement('tr'); // 업무 행
@@ -70,6 +90,40 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
                 { // 셀 생성
                     const cell = document.createElement('td'); cell.textContent = String(value); row.append(cell); // HTML 주입 방지
                 }); // 셀 끝
+                const boardCell = document.createElement('td'); // 원본 보드 셀
+                if (task.board_id === null) // 연결 보드 없음
+                { // 안내 출력
+                    boardCell.textContent = '연결된 보드 없음'; // 삭제·미배치 안내
+                } // 안내 끝
+                else // 이동 가능한 보드
+                { // 버튼 생성
+                    const button = document.createElement('button'); button.type = 'button'; button.textContent = '보드 열기'; // 이동 버튼
+                    button.addEventListener('click', async () => // 원본 이동
+                    { // 이동 시작
+                        const current = generation; // 이동 요청 소유권
+                        button.disabled = true; // 반복 이동 제한
+                        try // 최신 권한·보드 확인
+                        { // 이동 확인
+                            if (await callbacks.onOpenBoard(task.board_id) === false && current === generation) // 최신 목록에서 사라진 보드
+                            { // 이동 실패
+                                find('message').textContent = '원본 보드가 삭제되었거나 접근할 수 없습니다. 새로고침 후 다시 확인하세요.'; // 실패 안내
+                            } // 이동 실패 끝
+                        } // 이동 확인 끝
+                        catch (error) // 삭제·권한·통신 실패
+                        { // 실패 처리
+                            if (current === generation) // 현재 화면만 갱신
+                            { // 안내 출력
+                                find('message').textContent = '원본 보드를 열지 못했습니다. 삭제 여부와 접근 권한을 확인하세요.'; // 이동 실패 안내
+                            } // 안내 끝
+                        } // 실패 처리 끝
+                        finally // 이동 버튼 복원
+                        { // 복원 시작
+                            button.disabled = false; // 재시도 허용
+                        } // 복원 끝
+                    }); // 이동 끝
+                    boardCell.append(button); // 버튼 결합
+                } // 이동 버튼 끝
+                row.append(boardCell); // 원본 열 추가
                 find('rows').append(row); // 표에 결합
             }); // 행 끝
             page = data.pagination.page; totalPages = data.pagination.total_pages; // 실제 보정 페이지
@@ -85,14 +139,7 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
             const current = ++generation; const projectId = active.projectId; // 응답 소유권
             used = { ...filters }; clear(); busy(true); // 실패 재시도 조건과 로딩
             find('message').textContent = '업무 데이터를 불러오는 중입니다.'; // 로딩 안내
-            const params = new URLSearchParams(); // 안전한 쿼리
-            Object.entries(filters).forEach(([key, value]) => // 공통 조건
-            { // 조건 추가
-                if (value !== null && value !== '') // 전체 조건 생략
-                { // 실제 조건
-                    params.set(key, String(value)); // 쿼리 인코딩
-                } // 조건 끝
-            }); // 조건 추가 끝
+            const params = filterQuery(filters); // 안전한 공통 조건
             params.set('page', String(requestedPage)); // 페이지 지정
             try // HTTP 조회
             { // 응답 처리
@@ -136,6 +183,13 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
             return load({ created_from: find('from').value, created_to: find('to').value, status: find('status').value, assignee_id: find('assignee').value }, 1); // 초안 적용
         }); // 조회 동작 끝
         find('refresh').addEventListener('click', () => load(used, page)); // 적용 조건 재시도
+        find('export').addEventListener('click', (event) => // 키보드 다운로드 보호
+        { // 링크 검사
+            if (find('export').getAttribute('aria-disabled') === 'true') // 현재 결과 없음
+            { // 다운로드 중단
+                event.preventDefault(); // 비활성 링크 이동 차단
+            } // 다운로드 중단 끝
+        }); // 링크 검사 끝
         find('prev').addEventListener('click', () => load(used, page - 1)); // 이전 페이지
         find('next').addEventListener('click', () => load(used, page + 1)); // 다음 페이지
         find('back').addEventListener('click', () => // 작업실 복귀

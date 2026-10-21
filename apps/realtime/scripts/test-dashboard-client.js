@@ -33,6 +33,10 @@ class Element // DOM 입출력 대역
     { // 연결 시작
         this.handlers[type] = callback; // 실행 함수
     } // 연결 끝
+    getAttribute(key) // 실제 DOM 속성 조회
+    { // 속성 읽기
+        return this.attributes[key] ?? null; // 미설정 구분
+    } // 속성 읽기 끝
     focus() // 포커스 경계
     { // 포커스 시작
         this.focused = true; // 상태 기록
@@ -64,15 +68,20 @@ class Chart // 캔버스 외부 라이브러리 대역
 const pending = []; // HTTP 지연 제어
 const context = vm.createContext({ window: { Chart, api: { get: (url) => new Promise((resolve, reject) => pending.push({ url, resolve, reject })) } }, document: { createElement: (tag) => new Element(tag) }, URLSearchParams, Date, console }); // 실제 로직과 외부 경계
 vm.runInContext(fs.readFileSync(path.join(rootPath, 'js/analytics-charts.js'), 'utf8'), context); // 제품 차트 실행
-const data = { project_id: 1, time_zone: 'Asia/Seoul', as_of_date: '2024-02-29', filters: { created_from: '2024-01-31', created_to: '2024-02-29', status: null, assignee_id: null }, summary: { tasks: { total: 3, todo: 1, doing: 0, done: 1, other: 1, completion_rate: 33.3 }, due: { overdue: 1 }, checklist: { total: 2, done: 1, completion_rate: 50 }, assignees: [{ assignee_id: 7, display_name: '동명', total: 2, done: 1 }, { assignee_id: 8, display_name: '동명', total: 1, done: 0 }] }, daily_created: [{ date: '2024-02-28', count: 0 }, { date: '2024-02-29', count: 3 }], assignee_options: [{ assignee_id: 7, display_name: '동명' }, { assignee_id: 8, display_name: '동명' }], pagination: { page: 1, page_size: 20, total: 3, total_pages: 1 }, rows: [{ task_id: 1, title: '<img src=x>', status: 'todo', assignee_id: null, assignee_name: null, due_at: null, created_at: '2024-02-29 12:00:00', checklist: { total: 2, done: 1, completion_rate: 50 } }] }; // 완전한 응답 fixture
+const data = { project_id: 1, time_zone: 'Asia/Seoul', as_of_date: '2024-02-29', filters: { created_from: '2024-01-31', created_to: '2024-02-29', status: null, assignee_id: null }, summary: { tasks: { total: 3, todo: 1, doing: 0, done: 1, other: 1, completion_rate: 33.3 }, due: { overdue: 1 }, checklist: { total: 2, done: 1, completion_rate: 50 }, assignees: [{ assignee_id: 7, display_name: '동명', total: 2, done: 1 }, { assignee_id: 8, display_name: '동명', total: 1, done: 0 }] }, daily_created: [{ date: '2024-02-28', count: 0 }, { date: '2024-02-29', count: 3 }], status_trend: [{ date: '2024-02-28', todo: 0, doing: 1, done: 0 }, { date: '2024-02-29', todo: 0, doing: 0, done: 2 }], assignee_options: [{ assignee_id: 7, display_name: '동명' }, { assignee_id: 8, display_name: '동명' }], pagination: { page: 1, page_size: 20, total: 3, total_pages: 1 }, rows: [{ task_id: 1, board_id: 9, title: '<img src=x>', status: 'todo', assignee_id: null, assignee_name: null, due_at: null, created_at: '2024-02-29 12:00:00', checklist: { total: 2, done: 1, completion_rate: 50 } }] }; // 완전한 응답 fixture
 async function main() // 클라이언트 검증
 { // 검증 시작
-    const charts = context.window.AnalyticsCharts.mount(root); // 제품 차트
+    let selectedStatus = null; // 차트 상태 선택
+    const charts = context.window.AnalyticsCharts.mount(root, { onStatus: (value) => selectedStatus = value }); // 제품 차트
     charts.render(data); // 실제 렌더
     assert.equal(instances.length, 3); // 세 종류 출력
     assert.deepEqual(Array.from(instances[0].config.data.datasets[0].data), [1, 0, 1, 1]); // other 상태 누락 방지
     assert.notEqual(instances[1].config.data.labels[0], instances[1].config.data.labels[1]); // 동명이인 구별
-    assert.deepEqual(Array.from(instances[2].config.data.datasets[0].data), [0, 3]); // 0일 보존
+    assert.deepEqual(Array.from(instances[2].config.data.datasets[1].data), [0, 2]); // 실제 완료 추이와 0일 보존
+    instances[0].config.options.onClick(null, [{ index: 3 }]); // 기타 조각 선택
+    assert.equal(selectedStatus, null); // 지원하지 않는 전체 전환 금지
+    instances[0].config.options.onClick(null, [{ index: 2 }]); // 완료 조각 선택
+    assert.equal(selectedStatus, 'done'); // 완료 필터 전달
     charts.render(data); // 재조회 렌더
     assert(instances.slice(0, 3).every((chart) => chart.destroyed)); // 이전 차트 파기
     context.window.Chart = undefined; // 배포 파일 로드 실패
@@ -87,7 +96,13 @@ async function main() // 클라이언트 검증
     } // 제한 실행 끝
     vm.runInContext(fs.readFileSync(path.join(rootPath, 'js/analytics-dashboard.js'), 'utf8'), context); // 제품 조회 모듈
     let lost = 0; // 접근 만료 통지
-    const dashboard = context.window.AnalyticsDashboard.mount(root, { onBack: () => {}, onAccessLost: () => lost += 1 }); // 실제 수명 관리
+    let openedBoard = null; // 원본 이동 관찰
+    let boardMissing = false; // 삭제된 보드 응답
+    const dashboard = context.window.AnalyticsDashboard.mount(root, { onBack: () => {}, onAccessLost: () => lost += 1, onOpenBoard: (id) => // 원본 이동 경계
+    { // 이동 응답
+        openedBoard = id; // 대상 관찰
+        return !boardMissing; // 최신 목록 확인 결과
+    } }); // 실제 수명 관리
     const first = dashboard.open({ projectId: 1, title: '첫 작업실' }); // 지연 요청
     assert(pending[0].url.startsWith('/api/projects/1/analytics/dashboard?')); // 실제 앱 API 접두사
     const second = dashboard.open({ projectId: 2, title: '다음 작업실' }); // 작업실 전환
@@ -95,6 +110,12 @@ async function main() // 클라이언트 검증
     pending[0].reject({ status: 401 }); await first; // 이전 오류 나중
     assert.equal(lost, 0); // 이전 오류로 현재 인증 폐기 금지
     assert(root.querySelector('#analytics-kpis').textContent.includes('3')); // 현재 결과 유지
+    assert(root.querySelector('#analytics-export').href.includes('/api/projects/2/analytics/export?')); // 서버 적용 조건 CSV
+    const boardButton = root.querySelector('#analytics-rows').children[0].children.at(-1).children[0]; // 원본 이동 버튼
+    await boardButton.handlers.click(); // 실제 이동 동작
+    assert.equal(openedBoard, 9); // 보드 번호 전달
+    boardMissing = true; await boardButton.handlers.click(); // 삭제된 보드
+    assert(root.querySelector('#analytics-message').textContent.includes('삭제')); // 실패 안내
     root.querySelector('#analytics-from').value = '2020-01-01'; // 적용 전 초안
     const refresh = root.querySelector('#analytics-refresh').handlers.click(); // 새로고침
     assert(pending[2].url.includes('created_from=2024-01-31') && !pending[2].url.includes('2020-01-01')); // 적용 조건 사용
@@ -104,6 +125,7 @@ async function main() // 클라이언트 검증
     assert(pending[3].url.includes('status=done') && pending[3].url.includes('page=1')); // 새 조건과 첫 페이지
     pending[3].reject({ status: 400, message: '조건 오류' }); await apply; // 입력 실패
     assert.equal(root.querySelector('#analytics-kpis').textContent, ''); // 오래된 결과 삭제
+    assert.equal(root.querySelector('#analytics-export').href, '#'); // 이전 작업실 CSV 링크 폐기
     const retry = root.querySelector('#analytics-refresh').handlers.click(); // 실패 조건 재시도
     assert(pending[4].url.includes('status=done')); // 실패한 입력 유지
     dashboard.close(); pending[4].resolve(data); await retry; // 닫힌 뒤 성공

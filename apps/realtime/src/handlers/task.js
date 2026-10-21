@@ -2,6 +2,7 @@
 // 업무에는 체크리스트(세부 항목)가 함께 실린다. 항목을 바꾸는 요청은 handlers/checklist.js 가 맡는다
 'use strict';
 
+const crypto = require('crypto'); // 요청 식별자 생성
 const db = require('../db'); // DB 접근
 const auth = require('../auth'); // 권한 검사
 const locks = require('../locks'); // 지워지는 업무 블럭의 잠금 정리
@@ -10,6 +11,29 @@ const { ok, fail, joinedProject } = require('./reply'); // 응답 헬퍼
 
 const STATUSES = ['todo', 'doing', 'done']; // 허용 상태
 const DATE = /^\d{4}-\d{2}-\d{2}$/; // 마감일 형식
+const REQUEST_ID = /^[\x21-\x7e]{1,64}$/; // 안전한 ASCII 요청 키
+
+function historyRequestId(value) // 이력 멱등 키 정리
+{ // 요청 키 검사 시작
+    if (value === undefined || value === null || value === '') // 이전 클라이언트 요청
+    { // 이전 요청 보완
+        return crypto.randomUUID(); // 서버 고유 키
+    } // 이전 요청 보완 끝
+    return typeof value === 'string' && REQUEST_ID.test(value) ? value : null; // 검증 결과
+} // 요청 키 검사 끝
+
+async function recordStatusHistory(conn, values) // 같은 트랜잭션의 상태 이력
+{ // 이력 저장 시작
+    const [result] = await conn.execute( // 동일 연결의 저장
+        'INSERT IGNORE INTO task_status_history (project_id,task_id,from_status,to_status,actor_guest_id,actor_user_id,request_id,changed_at) VALUES (?,?,?,?,?,(SELECT user_id FROM user_sessions WHERE session_id = ?),?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL 9 HOUR))', // 서울 시각과 멱등 기록
+        [values.projectId, values.taskId, values.before, values.after, values.guestId, values.userSessionId || null, values.requestId] // 변경과 행위자 값
+    ); // 상태와 행위자 기록
+    if (result.affectedRows === 1) // 새 이력 저장
+    { // 새 기록 완료
+        return; // 충돌 검사 생략
+    } // 새 기록 완료 끝
+    throw new Error('상태 이력 요청 ID 충돌'); // 새 상태 변경의 요청 키 재사용과 전체 롤백
+} // 이력 저장 끝
 
 function projectRoom(projectId)
 {
@@ -188,8 +212,19 @@ function register(io, socket)
                 return;
             }
             const f = cleaned.fields; // 변경 필드
+            const statusChanged = f.status !== undefined && f.status !== current.status; // 실제 상태 변경
+            const requestId = statusChanged ? historyRequestId(data.request_id) : null; // 변경 요청 키
+            if (statusChanged && requestId === null) // 잘못된 이력 키
+            { // 키 거부
+                await conn.rollback(); // 변경 전 되돌림
+                return fail(ack, 'BAD_REQUEST', 'request_id는 1~64자의 ASCII 문자열이어야 합니다.'); // 키 안내
+            } // 키 거부 끝
             const sets = Object.keys(f).map((k) => k + ' = ?'); // SET 절
             await conn.execute('UPDATE tasks SET ' + sets.join(', ') + ', version = version + 1 WHERE task_id = ? AND version = ?', [...Object.values(f), taskId, version]); // 변경 저장
+            if (statusChanged && f.status !== current.status) // 실제 상태 변화만 이력화
+            { // 이력 연결
+                await recordStatusHistory(conn, { projectId: socket.data.projectId, taskId, before: current.status, after: f.status, guestId: socket.data.guestId, userSessionId: socket.data.userSessionId, requestId }); // 원자적 이력 저장
+            } // 이력 연결 끝
             await conn.commit(); // 트랜잭션 확정
             conn.release(); // 결과를 다시 읽기 전에 연결을 돌려줌(연결을 쥔 채 풀에서 하나를 더 기다리면 요청이 한꺼번에 몰릴 때 서로 막힘)
             conn = null; // finally 에서 다시 돌려주지 않게

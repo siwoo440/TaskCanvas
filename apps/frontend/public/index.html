@@ -460,9 +460,9 @@
             <form id="analytics-form" class="analytics-filters"> <!-- 공통 조회 조건 -->
                 <div><label for="analytics-from">생성 시작일</label><input id="analytics-from" type="date" min="1000-01-01" max="9999-12-31" aria-describedby="analytics-filter-hint analytics-message"></div> <!-- 시작 날짜 -->
                 <div><label for="analytics-to">생성 종료일</label><input id="analytics-to" type="date" min="1000-01-01" max="9999-12-31" aria-describedby="analytics-filter-hint analytics-message"></div> <!-- 종료 날짜 -->
-                <div><label for="analytics-status">업무 상태</label><select id="analytics-status"><option value="">전체 상태</option value="todo">할 일</option><option value="doing">진행 중</option><option value="done">완료</option></select></div> <!-- 상태 선택 -->
+                <div><label for="analytics-status">업무 상태</label><select id="analytics-status"><option value="">전체 상태</option><option value="todo">할 일</option><option value="doing">진행 중</option><option value="done">완료</option></select></div> <!-- 상태 선택 -->
                 <div><label for="analytics-assignee">담당자</label><select id="analytics-assignee"><option value="">전체 담당자</option></select></div> <!-- 담당자 선택 -->
-                <button type="submit" id="analytics-submit" class="primary">조회</button> <!-- 조건 적용 -->
+                <button type="submit" id="analytics-submit" class="primary">조회</button><a id="analytics-export" class="button" href="#" download>CSV 내보내기</a> <!-- 조건 적용과 다운로드 -->
                 <p id="analytics-filter-hint" class="muted">업무 생성일 기준 · 기본 최근 30일 · 최대 366일 · 조건을 바꾼 후 조회를 누르세요.</p> <!-- 조건 의미 -->
             </form> <!-- 조회 조건 끝 -->
             <p id="analytics-message" class="analytics-message" role="status" aria-live="polite"></p> <!-- 로딩과 오류 -->
@@ -473,13 +473,13 @@
                     <section class="analytics-card"><h2>업무 상태</h2><p class="muted">현재 업무의 상태별 분포</p><div class="analytics-chart-frame"><canvas id="analytics-status-chart" role="img" aria-label="업무 상태 도넛 차트. 수치는 아래 데이터 표 참고"></canvas></div></section> <!-- 상태 분포 -->
                     <section class="analytics-card"><h2>담당자별 업무</h2><p class="muted">전체 업무와 완료 업무 비교</p><div class="analytics-assignee-scroll"><div id="analytics-assignee-frame" class="analytics-chart-frame"><canvas id="analytics-assignee-chart" role="img" aria-label="담당자별 전체와 완료 업무 막대 차트. 수치는 아래 데이터 표 참고"></canvas></div></div></section> <!-- 담당자 비교 -->
                 </div> <!-- 차트 묶음 끝 -->
-                <section class="analytics-card"><h2>일별 업무 생성 수</h2><p class="muted">선택 기간에 생성된 업무 수 · 생성되지 않은 날은 0건</p><div class="analytics-chart-frame"><canvas id="analytics-daily-chart" role="img" aria-label="일별 업무 생성 수 선 그래프. 수치는 아래 데이터 표 참고"></canvas></div></section> <!-- 생성 추이 -->
+                <section class="analytics-card"><h2>일별 생성·상태 변경 추이</h2><p class="muted">선택 기간의 생성 업무와 기록된 실제 상태 변경 수 · 과거 이력은 추정하지 않음</p><div class="analytics-chart-frame"><canvas id="analytics-daily-chart" role="img" aria-label="일별 업무 생성과 상태 변경 선 그래프. 수치는 아래 데이터 표 참고"></canvas></div></section> <!-- 실제 추이 -->
                 <p id="analytics-chart-notice" role="status"></p> <!-- 차트 대체 안내 -->
                 <section id="analytics-chart-tables" class="analytics-data-tables" aria-label="차트 데이터 표"></section> <!-- 접근 가능한 수치 -->
                 <section class="analytics-card"> <!-- 업무 목록 -->
                     <h2>업무 목록</h2><p class="muted">생성일 최신순 · 페이지당 20건</p> <!-- 정렬과 크기 -->
                     <div class="analytics-table-scroll" tabindex="0" role="region" aria-label="업무 목록 가로 스크롤"> <!-- 표 내부 스크롤 -->
-                        <table><caption class="sr-only">적용된 조건에 해당하는 업무</caption><thead><tr><th scope="col">업무</th><th scope="col">상태</th><th scope="col">담당자</th><th scope="col">마감일</th><th scope="col">생성일</th><th scope="col">체크리스트</th></tr></thead><tbody id="analytics-rows"></tbody></table> <!-- 업무 세부 정보 -->
+                        <table><caption class="sr-only">적용된 조건에 해당하는 업무</caption><thead><tr><th scope="col">업무</th><th scope="col">상태</th><th scope="col">담당자</th><th scope="col">마감일</th><th scope="col">생성일</th><th scope="col">체크리스트</th><th scope="col">원본 보드</th></tr></thead><tbody id="analytics-rows"></tbody></table> <!-- 업무 세부 정보 -->
                     </div> <!-- 표 스크롤 끝 -->
                     <nav class="analytics-pagination" aria-label="업무 목록 페이지"><button type="button" id="analytics-prev">이전</button><span id="analytics-page" aria-live="polite"></span><button type="button" id="analytics-next">다음</button></nav> <!-- 페이지 이동 -->
                 </section> <!-- 업무 목록 끝 -->

@@ -16,8 +16,16 @@
 } /* 제목 끝 */
 .analytics-filters /* 조건 카드 */
 { /* 조건 시작 */
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 14px; align-items: end; padding: 22px; background: white; border: 1px solid #dce3ed; border-radius: 16px; /* 공통 조회 영역 */
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto auto; gap: 14px; align-items: end; padding: 22px; background: white; border: 1px solid #dce3ed; border-radius: 16px; /* 공통 조회 영역 */
 } /* 조건 끝 */
+#analytics-export /* CSV 링크 버튼 */
+{ /* 링크 시작 */
+    display: inline-flex; min-height: 42px; align-items: center; justify-content: center; padding: 0 15px; border: 1px solid #cbd5e1; border-radius: 9px; color: #1e293b; text-decoration: none; background: #fff; /* 버튼형 링크 */
+} /* 링크 끝 */
+#analytics-export[aria-disabled="true"] /* 비활성 CSV */
+{ /* 비활성 시작 */
+    pointer-events: none; opacity: .55; /* 오래된 다운로드 차단 */
+} /* 비활성 끝 */
 .analytics-filters label /* 입력 이름 */
 { /* 이름 시작 */
     display: block; font-weight: 600; margin-bottom: 7px; /* 입력 연결 */
@@ -25,6 +33,7 @@
 .analytics-filters input, .analytics-filters select /* 조건 입력 */
 { /* 입력 시작 */
     width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; /* 작은 화면 보호 */
+    padding-inline-start: 12px; /* 날짜·선택 글자의 왼쪽 안쪽 여백 */
 } /* 입력 끝 */
 #analytics-filter-hint /* 기간 안내 */
 { /* 안내 시작 */

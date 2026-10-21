@@ -35,6 +35,23 @@ const analyticsDashboard = window.AnalyticsDashboard.mount($('view-analytics'), 
 { // 기존 작업실 흐름 연결
     onBack: () => openWorkspace().catch((error) => leaveDeletedWorkspace(error.message)), // 최신 작업실 복귀
     onAccessLost: () => leaveDeletedWorkspace('분석 화면의 접근 권한이 만료되었습니다. 작업실을 다시 선택하세요.'), // 인증 상실 정리
+    onOpenBoard: async (id) => // 분석 원본 보드 이동
+    { // 이동 시작
+        const project = state.project; // 이동 전 작업실
+        const data = await window.api.get('/api/projects/' + project.project_id + '/boards'); // 서버의 최신 권한·목록
+        if (state.project !== project) // 조회 중 작업실 변경
+        { // 오래된 이동 차단
+            return false; // 현재 작업실 유지
+        } // 오래된 이동 차단 끝
+        state.boards = data.boards; // 최신 보드 목록
+        const target = state.boards.find((board) => board.board_id === id); // 서버 확인 대상
+        if (!target) // 삭제되거나 접근 불가
+        { // 이동 거부
+            return false; // 분석 안내 유지
+        } // 이동 거부 끝
+        openBoard(target); // 기존 보드 진입
+        return true; // 이동 시작됨
+    }, // 원본 이동 끝
 }); // 분석 화면 연결 끝
 $('ws-analytics').addEventListener('click', () => // 작업실 분석 진입
 { // 진입 시작
@@ -3140,7 +3157,11 @@ function attachTaskInputs()
 function nextRequestId()
 {
     state.requestSeq += 1; // 일련번호 증가
-    return 'req-' + Date.now().toString(36) + '-' + state.requestSeq; // 요청 ID
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') // 충돌 방지 API
+    { // 고유 키 생성
+        return 'req-' + window.crypto.randomUUID(); // 탭 사이 고유 요청 ID
+    } // 고유 키 생성 끝
+    return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + state.requestSeq; // 이전 브라우저 임의 키
 }
 
 async function createObject(event, data, draft, record = true)

@@ -77,4 +77,4 @@
 - 최종 독립 검토 후 업로드 중 이름 변경으로 정상 응답이 폐기되던 경합을 재현·수정했다. 원본 해석과 검증 조건의 응답 수명을 분리하고, 다른 파일 응답 폐기는 유지했다. 오류 목록은 전체 건수와 첫100건 표시 한도를 함께 안내한다.
 - 브라우저 검증용 회원9·작업실26·데이터셋2개/4행을 고유 소유 식별자 대조 후 정리했다. 실제 사용자 자료는 정리 대상에서 제외했다.
 
-재실행: `node apps/realtime/scripts/test-datasets.js`, `test-import.js`, `test-import-client.js`, `test-import-flow.js`. DB 테스트는 고유 분리 DB를 사용한다. 학교PC4대 AC15 현장 검증은77일차로 유지한다.
+재실행: `node apps/realtime/scripts/test-datasets.js`, `test-import.js`, `test-import-client.js`, `test-import-flow.js`. DB 테스트는 고유 분리 DB를 사용한다. 학교 PC 4대 AC15 현장 검증은 최신 압축 일정의 40일차로 변경했다.

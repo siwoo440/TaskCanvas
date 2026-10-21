@@ -76,7 +76,7 @@ summary는 received·valid_rows·error_rows·error_count·warning_rows·warning_
 - 개발 DB 전체 백업88,846바이트, 기존22개 표 전체 행 해시 동일, 품질 표2개 추가.
 - 기존 저장91·업로드35·통계40·대시보드41·회원인증41·회원접근59, PHP 기존 검사·화면 VM·인증 가드·포트 보호·작업실 선택/하단7개 통과. 분리 DB 수용 자동28·보안2·운영1 통과, 수동2 유지.
 
-다른 탭 로그아웃의 비활성 DOM 즉시 삭제는 기존처럼 지원하지 않는다. 탭 복귀·계정 이벤트·서버 인증 오류에서 정리한다. 고급 대시보드 필터는33일차, 학교PC4대 AC15는77일차 현장 검증 범위다.
+다른 탭 로그아웃의 비활성 DOM 즉시 삭제는 기존처럼 지원하지 않는다. 탭 복귀·계정 이벤트·서버 인증 오류에서 정리한다. 고급 대시보드 필터는 압축 33일차, 학교 PC 4대 AC15는 압축 40일차 현장 검증 범위다.
 
 재실행: `php apps/php-api/tests/import-quality-schema.php`, `import-quality-scan.php`, `node apps/realtime/scripts/test-import-quality.js`, `test-import-quality-client.js`. DB 검사는 고유 테스트 DB를 생성·정리하고 개발 DB를 초기화하지 않는다.
 

@@ -2,6 +2,13 @@
 declare(strict_types=1); // 엄격한 자료형
 final class AnalyticsController // 읽기 전용 통계 처리
 { // 컨트롤러 시작
+    public function export(Request $request): void // CSV 내보내기
+    { // 내보내기 시작
+        $guest = Auth::requireGuest($request); // 기존 결합 인증
+        $projectId = $request->params['id']; // 작업실 번호
+        Auth::requireRole((int) $guest['guest_id'], $projectId, 'viewer'); // 다운로드 권한
+        AnalyticsExport::download($projectId, $_GET); // 공통 필터 CSV
+    } // 내보내기 끝
     public function dashboard(Request $request): void // 대시보드 조회
     { // 조회 시작
         $guest = Auth::requireGuest($request); // 기존 결합 인증

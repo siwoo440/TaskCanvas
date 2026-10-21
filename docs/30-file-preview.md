@@ -91,4 +91,4 @@ JSON Pointer는 `/`를 `~1`, `~`를 `~0`으로 표현한다. JSON 배열 셀·�
 
 다른 탭의 로그아웃을 비활성 탭 DOM에 즉시 전파하는 기능은 없다. 기존 계정 변경 이벤트·서버 인증 오류·탭 복귀 시 재인증 경로에서 원문을 정리한다. 브라우저 검증의 파일교체/화면이탈과 VM의 만료/계정 이벤트 수명 검사를 이 범위로 해석한다.
 
-재실행: `C:\xampp\php\php.exe apps/php-api/tests/import-schema.php`, `import-parser.php`, `node apps/realtime/scripts/test-import.js`, `test-import-preview-client.js`. DB 검사는 고유 테스트 DB와 예약한 포트를 사용하며 개발 DB를 초기화하지 않는다. 학교 PC4대 AC15는77일차 현장 검증 범위다.
+재실행: `C:\xampp\php\php.exe apps/php-api/tests/import-schema.php`, `import-parser.php`, `node apps/realtime/scripts/test-import.js`, `test-import-preview-client.js`. DB 검사는 고유 테스트 DB와 예약한 포트를 사용하며 개발 DB를 초기화하지 않는다. 학교 PC 4대 AC15는 최신 압축 일정의 40일차 현장 검증 범위다.

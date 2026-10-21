@@ -390,10 +390,12 @@ async function run(envInfo)
     const staleUpdate = await ack(C.socket, 'task:update', { board_id: boardB, task_id: taskId, version: 1, changes: { title: 'stale' } }); // 이전 버전으로 수정 시도
     const tasksList = (await api('GET', '/api/projects/' + projectId + '/tasks', undefined, B.cookie)).json; // 업무 목록
     const listed = tasksList.tasks.find((t) => t.task_id === taskId); // 목록의 업무
+    const analytics = (await api('GET', '/api/projects/' + projectId + '/analytics/dashboard', undefined, B.cookie)).json; // 실제 상태 이력 조회
+    const completedTransitions = analytics.status_trend.reduce((sum, row) => sum + row.done, 0); // 기록된 완료 전환 수
     record('AC16', '공유 업무', taskCreate.ok && taskCreated !== null && taskCreate.task.assignee_name === 'AC-B' && taskCreate.task.due_at === '2026-10-20'
         && blockA.ok && blockB.ok && blockA.object.task_id === taskId && blockB.object.task_id === taskId && blockA.object.object_id !== blockB.object.object_id
         && taskUpdate.ok && taskUpdate.task.version === 2 && taskUpdated !== null && staleUpdate.ok === false && staleUpdate.error.code === 'VERSION_CONFLICT'
-        && listed && listed.status === 'done' && listed.version === 2, '보드 A 상태 변경 → 보드 B 수신, 이전 버전 수정은 VERSION_CONFLICT');
+        && listed && listed.status === 'done' && listed.version === 2 && completedTransitions === 1, '보드 A 상태 변경 → 보드 B 수신·이력 1건, 이전 버전 수정은 VERSION_CONFLICT');
 
     // AC17 공유 업무 삭제: 한 보드의 블럭만 제거, 원본과 다른 보드 블럭 유지
     const lockBlock = await ack(B.socket, 'object:lock', { board_id: boardA, object_id: blockA.object_id }); // 블럭 잠금

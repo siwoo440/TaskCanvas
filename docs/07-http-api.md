@@ -120,7 +120,9 @@
 ---
 ## 29일차 분석 조회
 
-`GET /api/projects/{id}/analytics/dashboard` — 기존 세션과 열람자 이상 권한 필요. 생성일·상태·담당자 필터, 기본 최근 30일·최대 366일, page 기본 1·20건 고정이다. summary·daily_created·assignee_options·pagination·rows를 같은 DB 스냅샷에서 반환한다. 잘못된 조건은 INVALID_FILTER 400, 응답은 no-store다. 기존 `/analytics/summary` 계약은 유지한다. [입력·응답 필드와 검증](29-analytics-dashboard.md).
+`GET /api/projects/{id}/analytics/dashboard` — 기존 세션과 열람자 이상 권한 필요. 생성일·상태·담당자 필터, 기본 최근 30일·최대 366일, page 기본 1·20건 고정이다. summary·daily_created·status_trend·assignee_options·pagination·rows를 같은 DB 스냅샷에서 반환한다. status_trend는 기록된 상태 변경만 날짜·도착 상태별로 집계하며 과거 상태를 추정하지 않는다. rows의 board_id는 연결된 원본 보드 중 가장 작은 ID이며 없으면 null이다. 잘못된 조건은 INVALID_FILTER 400, 응답은 no-store다. 기존 `/analytics/summary` 계약은 유지한다. [입력·응답 필드와 검증](29-analytics-dashboard.md).
+
+`GET /api/projects/{id}/analytics/export` — 대시보드와 같은 생성일·상태·담당자 필터를 적용해 전체 업무를 UTF-8 BOM CSV로 반환한다. 열람자 이상 권한과 no-store를 적용하며 page는 받지 않는다. 같은 데이터 시점에서 화면의 pagination.total과 CSV 데이터 행 수가 일치한다. 요청 사이에 업무가 바뀌면 값이 달라질 수 있다. 500행 분할 조회·일관된 스냅샷·수식 방어를 적용한다. [33일차 상세](33-analytics-completion.md).
 
 ---
 ## 30일차 파일 업로드·미리보기
