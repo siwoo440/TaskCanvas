@@ -137,6 +137,13 @@
 검증은 서버 원본 전체와 컬럼 설정을 검사하고 validation_revision을 반환한다. 저장은 draft_token·validation_revision만 받으며 오류 행이 있으면422, revision/version 충돌은409다. 같은 초안의 재시도는 동일한 확정 결과를 반환한다. [컬럼 계약·입력 필드·오류·권한 상세](31-dataset-storage.md#4-api).
 
 ---
+## 34일차 회원 작업 흐름 API
+
+회원 쿠키를 사용하는 `GET /api/auth/home`, `GET /api/auth/search?q=검색어`, `POST /api/auth/boards/{id}/favorite`·`/visit`, `GET/POST /api/projects/{id}/analytics/views`, `POST /analytics/views/{viewId}/delete`를 추가했다. 즐겨찾기는 명시적 active 불리언, 저장 뷰 수정·삭제는 version을 요구한다. 다른 회원의 설정은 404다.
+
+`GET /api/projects/{id}/members/manage`, `POST /members/role`·`/members/remove`는 회원 관리자만 사용한다. target_guest_id 기준 같은 회원의 연결 별칭 전체를 변경한다. 내보내기는 confirm_name을 요구하고 마지막 관리자 변경은409다. 변경 요청은 모두 보호 헤더와 최신 세션 검사를 적용한다. [상세 계약·한도](34-member-workflow.md).
+
+---
 ## 32일차 품질 보고서
 
 검증 응답에 run_id·quality를 추가했다. GET /api/projects/{id}/imports/runs/{runId}/quality 및 /quality/rows는 열람자 이상이 조회한다. 상세 행은20개 단위이며 page·severity·type·column 교집합을 적용한다. 실제 확정값은 성공 전 null, 보고서 없는 구형 이력은404다. [입력·수치·권한·보관 상세](32-data-quality.md#4-api와-권한).

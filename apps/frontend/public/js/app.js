@@ -17,6 +17,56 @@ const state = {
 }; // 전역 상태
 
 const $ = (id) => document.getElementById(id); // 요소 조회 단축
+let memberNavigation = 0; // 개인 이동 응답 순서
+let workspaceGeneration = 0; // 작업실 신원과 조회 세대
+const memberTools = window.MemberTools.mount({ onNavigate: navigateMemberItem }); // 개인 홈과 검색 이동
+const memberManagement = window.MemberManagement.mount($('member-management'), // 참여자 관리 수명
+{ // 변경 후 최신 역할
+    onChanged: async (id) => // 자기 강등과 내보내기 반영
+    { // 재선택 시작
+        leaveDeletedWorkspace(''); await bootstrap(id); // 서버 최신 멤버십 복원
+    }, // 재선택 끝
+}); // 관리 연결 끝
+async function navigateMemberItem(item) // 검색과 개인 홈의 공통 이동
+{ // 이동 시작
+    const token = ++memberNavigation; const uid = window.TC_MEMBER_USER?.user_id; // 이동 계정 고정
+    await window.api.post('/api/auth/workspaces/select', { project_id: Number(item.project_id) }); // 접근 범위 재검사
+    if (token !== memberNavigation || uid !== window.TC_MEMBER_USER?.user_id) // 계정 또는 요청 변경
+    { // 오래된 이동 차단
+        return; // 현재 화면 유지
+    } // 차단 끝
+    leaveDeletedWorkspace(''); await bootstrap(Number(item.project_id)); // 기존 연결 정리와 선택 복원
+    if (token !== memberNavigation || uid !== window.TC_MEMBER_USER?.user_id || Number(state.project?.project_id) !== Number(item.project_id)) // 이동 중 권한 상실
+    { // 대상 검사
+        throw new Error('작업실을 열 수 없습니다. 접근 권한을 확인하세요.'); // 실패 안내
+    } // 검사 끝
+    if (item.board_id) // 보드 또는 메모
+    { // 원본 보드 열기
+        const target = state.boards.find((board) => Number(board.board_id) === Number(item.board_id)); // 최신 보드 목록
+        if (!target) // 삭제된 보드
+        { // 이동 중단
+            throw new Error('보드가 삭제되었거나 접근할 수 없습니다.'); // 대상 안내
+        } // 중단 끝
+        await openBoard(target); // 기존 보드 복원
+        if (token === memberNavigation && state.board === target && item.kind === 'note') // 메모 검색 위치
+        { // 메모 위치 이동
+            const note = canvas.objects.find((object) => Number(object.object_id) === Number(item.id)); // 현재 메모
+            if (note) // 삭제되지 않은 메모
+            { // 중앙 이동
+                canvas.centerOn(note.x + note.width / 2, note.y + note.height / 2); // 검색 원문 위치
+            } // 중앙 이동 끝
+        } // 메모 이동 끝
+    } // 보드 이동 끝
+    else if (item.kind === 'task') // 업무 직접 보기
+    { // 업무 확인
+        const task = state.tasks.get(Number(item.id)); // 최신 업무
+        if (!task) // 삭제된 업무
+        { // 이동 중단
+            throw new Error('업무가 삭제되었거나 접근할 수 없습니다.'); // 대상 안내
+        } // 중단 끝
+        openWorkspaceTask(task); // 역할에 맞춘 업무 대화상자
+    } // 업무 확인 끝
+} // 공통 이동 끝
 const datasetView = window.DatasetView.mount($('dataset-root'), // 데이터 화면 수명
 { // 작업실 연결
     onBack: () => openWorkspace().catch((error) => leaveDeletedWorkspace(error.message)), // 최신 작업실 복귀
@@ -196,6 +246,7 @@ function recallBoard()
 // 새로고침 전에 보던 보드가 있으면 작업실을 거치지 않고 그 보드로 돌아간다. 없거나 사라졌으면 작업실
 async function resumeOrWorkspace()
 {
+    const project = state.project; const token = workspaceGeneration; // 복원 요청 소유권
     const remembered = recallBoard(); // 이 탭에서 보던 보드
     if (!remembered)
     {
@@ -203,10 +254,19 @@ async function resumeOrWorkspace()
     }
     try
     {
-        state.boards = (await window.api.get('/api/projects/' + state.project.project_id + '/boards')).boards; // 보드 목록(상단 전환 목록에도 쓰임)
+        const data = await window.api.get('/api/projects/' + project.project_id + '/boards'); // 보드 복원 목록
+        if (token !== workspaceGeneration || state.project !== project) // 계정 또는 작업실 변경
+        { // 이전 응답 폐기
+            return; // 현재 신원 보호
+        } // 폐기 끝
+        state.boards = data.boards; // 현재 작업실 목록만 저장
     }
     catch (err)
     {
+        if (token !== workspaceGeneration || state.project !== project) // 이전 복원 실패
+        { // 실패 무시
+            return; // 새 화면 유지
+        } // 무시 끝
         return openWorkspace(); // 목록을 받지 못하면 작업실에서 오류를 보여 줌
     }
     const target = state.boards.find((b) => b.board_id === remembered.board_id); // 보던 보드
@@ -269,15 +329,29 @@ let ownerCode = null; // 방금 만든 작업실의 재입장 코드 {code, days
 
 async function bootstrap(preferredProjectId = null)
 {
+    const token = ++workspaceGeneration; const uid = window.TC_MEMBER_USER?.user_id; // 이번 신원 확인 소유권
+    const current = () => token === workspaceGeneration && (uid === undefined || uid === window.TC_MEMBER_USER?.user_id); // 최초 확인과 계정 전환 구분
     try
     {
         let me = await window.api.get('/api/me'); // 기존 세션 확인
+        if (!current()) // 조회 중 계정 변경
+        { // 이전 신원 폐기
+            return; // 상태 변경 전 차단
+        } // 폐기 끝
         state.member = me.member === true; // 회원용 작업실 여부
         const selected = WorkspaceSelection.choose(me.projects, preferredProjectId, readSelectedProjectId()); // 복원할 실제 멤버십
         if (state.member && selected && selected.guest_id !== me.guest.guest_id) // 다른 보유 게스트의 작업실
         { // 서버 선택 동기화
             await window.api.post('/api/auth/workspaces/select', { project_id: selected.project_id }); // 해당 소유 게스트 활성화
+            if (!current()) // 선택 중 계정 변경
+            { // 이전 선택 폐기
+                return; // 재조회와 상태 변경 차단
+            } // 폐기 끝
             me = await window.api.get('/api/me'); // 전환된 게스트 확인
+            if (!current()) // 선택 결과 대기 중 계정 변경
+            { // 이전 신원 폐기
+                return; // 새 회원 화면 보호
+            } // 폐기 끝
         } // 선택 동기화 끝
         window.dispatchEvent(new Event('taskcanvas:workspace-refresh')); // 회원 목록 갱신
         state.guest = me.guest; // 게스트 저장
@@ -294,6 +368,10 @@ async function bootstrap(preferredProjectId = null)
     {
         // 세션 없음 → 소개 페이지
     }
+    if (!current()) // 이전 조회 실패
+    { // 오래된 화면 전환 차단
+        return; // 현재 화면 유지
+    } // 차단 끝
     if (pendingInviteCode)
     {
         return showJoin(); // 초대 링크로 들어오면 소개를 건너뛰고 바로 입장 화면
@@ -409,6 +487,11 @@ window.setWorkspaceRoleIdentity = setWorkspaceRoleIdentity; // 화면 검증용 
 
 async function openWorkspace()
 {
+    const project = state.project; const token = workspaceGeneration; // 현재 작업실 조회 소유권
+    if (!project) // 이탈한 작업실
+    { // 재진입 차단
+        return; // 잘못된 신원 표시 방지
+    } // 차단 끝
     setHomeMode(true); // 같은 홈 화면을 작업실 구성으로 전환
     showView('home'); // 홈 화면
     window.scrollTo(0, 0); // 맨 위부터 표시
@@ -436,24 +519,41 @@ async function openWorkspace()
     }
     try
     {
-        const data = await window.api.get('/api/projects/' + state.project.project_id + '/boards'); // 보드 목록 조회
+        const data = await window.api.get('/api/projects/' + project.project_id + '/boards'); // 보드 목록 조회
+        if (token !== workspaceGeneration || state.project !== project) // 조회 중 신원 변경
+        { // 이전 목록 폐기
+            return; // 새 작업실 보호
+        } // 폐기 끝
         state.boards = data.boards; // 목록 저장
         renderBoardList(); // 목록 표시
     }
     catch (err)
     {
+        if (token !== workspaceGeneration || state.project !== project) // 이전 보드 오류
+        { // 오류 폐기
+            return; // 현재 안내 유지
+        } // 폐기 끝
         $('boards-error').textContent = err.message; // 오류 표시
     }
     try
     {
         await loadProjectData(); // 참여자·공유 업무 조회
+        if (token !== workspaceGeneration || state.project !== project) // 하위 조회 중 변경
+        { // 이전 구성 중단
+            return; // 현재 화면 보호
+        } // 중단 끝
         renderWorkspaceInfo(); // 작업실 현황 표시
     }
     catch (err)
     {
+        if (token !== workspaceGeneration || state.project !== project) // 이전 업무 오류
+        { // 오류 폐기
+            return; // 현재 화면 보호
+        } // 폐기 끝
         $('boards-error').textContent = err.message; // 오류 표시(보드 목록은 그대로 사용 가능)
     }
     connectWorkspace(); // 업무 현황판용 실시간 연결(기다리지 않음: 연결 전에도 작업실은 쓸 수 있음)
+    memberManagement.open({ ...state.project, role: state.member ? state.project.role : 'viewer' }); memberTools.refresh(); // 회원 소유 작업실의 관리 화면만 표시
 }
 
 // 서버가 확인한 프로젝트 목록만 전환 선택지로 표시
@@ -544,6 +644,8 @@ $('ws-owner-done').addEventListener('click', () =>
 // 작업실이 지워졌을 때(내가 지웠거나, 관리자가 지웠다는 알림을 받았을 때): 연결과 화면 상태를 모두 정리하고 소개 화면으로 돌아간다
 function leaveDeletedWorkspace(message)
 {
+    workspaceGeneration += 1; // 이전 신원의 모든 조회 취소
+    memberManagement.close(); // 이전 관리자 목록과 확인 입력 제거
     analyticsDashboard.close(); // 인증과 작업실 변경의 분석 폐기
     datasetView.close(); // 인증과 작업실 변경의 데이터 폐기
     cancelMove(); // 진행 중 이동 취소
@@ -667,6 +769,10 @@ function renderBoardList()
         btn.append(title, meta, open); // 카드 구성
         btn.addEventListener('click', () => openBoard(b)); // 보드 열기
         li.appendChild(btn); // 카드 추가
+        if (window.TC_MEMBER_USER) // 회원 개인 보드 설정
+        { // 즐겨찾기 표시
+            li.appendChild(memberTools.favoriteButton(b)); // 본인 등록과 해제
+        } // 즐겨찾기 끝
         if (canEdit())
         {
             const actions = document.createElement('div'); // 카드 아래 동작
@@ -952,13 +1058,17 @@ async function moveTask(task, status)
 function openWorkspaceTask(task)
 {
     workspaceTaskTarget = task ?? null; // 대상 업무
-    $('ws-task-dialog-title').textContent = task ? '업무 수정' : '새 업무'; // 제목
+    $('ws-task-dialog-title').textContent = task ? (canEdit() ? '업무 수정' : '업무 보기') : '새 업무'; // 현재 역할 제목
+    $('ws-task-form').querySelectorAll('input, select, button[type="submit"]').forEach((input) => // 열람자 읽기 전용
+    { // 조작 제한
+        input.disabled = !canEdit(); // 서버 역할과 입력 일치
+    }); // 조작 제한 끝
     $('ws-task-title').value = task ? task.title : ''; // 업무 제목
     $('ws-task-status').value = task ? task.status : 'todo'; // 상태
     $('ws-task-assignee').value = task && task.assignee_id !== null ? String(task.assignee_id) : ''; // 담당자
     $('ws-task-due').value = task ? (task.due_at ?? '') : ''; // 마감일
     $('ws-task-dialog-error').textContent = ''; // 오류 초기화
-    $('ws-task-delete').hidden = !task; // 삭제는 있는 업무를 고칠 때만
+    $('ws-task-delete').hidden = !task || !canEdit(); // 편집 가능한 기존 업무만 삭제
     $('ws-task-dialog').showModal(); // 대화상자 열기
     renderWorkspaceChecklist(); // 고치는 업무의 체크리스트(새 업무면 안내만)
     $('ws-task-title').focus(); // 바로 입력할 수 있게
@@ -1309,6 +1419,8 @@ for (const [buttonId, sourceId] of [['invite-copy-code', 'invite-code'], ['invit
 
 async function openBoard(board, resumeView = null)
 {
+    const token = workspaceGeneration; const project = state.project; // 보드 진입 소유권
+    const current = () => token === workspaceGeneration && state.project === project && state.board === board; // 현재 계정과 대상 보드
     cancelMove(); // 진행 중 이동 취소
     finishNoteEdit(false); // 다른 보드로 옮기기 전에 메모 편집 취소
     clearUndo(); // 실행 취소 기록은 보드마다 따로
@@ -1350,8 +1462,24 @@ async function openBoard(board, resumeView = null)
     try
     {
         await loadSnapshot(); // 저장 상태 복원
+        if (!current()) // 복원 중 계정 변경
+        { // 이전 보드 중단
+            return; // 새 화면 보호
+        } // 중단 끝
         await loadProjectData(); // 참여자·공유 업무 목록
+        if (!current()) // 업무 조회 중 화면 변경
+        { // 이전 연결 중단
+            return; // 현재 신원 보호
+        } // 중단 끝
+        if (window.TC_MEMBER_USER && state.board === board) // 실제 회원 보드 방문
+        { // 방문 기록
+            window.api.post('/api/auth/boards/' + board.board_id + '/visit', {}).catch(() => {}); // 부가 기록 실패의 편집 차단 방지
+        } // 방문 끝
         await Realtime.loadClient(window.TC_CONFIG.realtimeUrl); // Socket.IO 클라이언트 로드
+        if (!current()) // 클라이언트 로드 중 변경
+        { // 이전 참여 차단
+            return; // 새 보드 보호
+        } // 차단 끝
         if (!realtime)
         {
             realtime = new Realtime(window.TC_CONFIG.realtimeUrl, realtimeHandlers); // 실시간 연결 관리자
@@ -1360,6 +1488,10 @@ async function openBoard(board, resumeView = null)
     }
     catch (err)
     {
+        if (!current()) // 이전 보드 실패
+        { // 오류 폐기
+            return; // 현재 보드 안내 유지
+        } // 폐기 끝
         toast(err.message, 5000); // 오류 안내
         setConnection('offline'); // 연결 실패
     }
@@ -1367,8 +1499,9 @@ async function openBoard(board, resumeView = null)
 
 async function loadSnapshot()
 {
-    const snapshot = await window.api.get('/api/boards/' + state.board.board_id + '/snapshot'); // 저장 완료 객체 조회
-    if (state.board && snapshot.board_id === state.board.board_id)
+    const board = state.board; const token = workspaceGeneration; // 스냅샷 요청 대상
+    const snapshot = await window.api.get('/api/boards/' + board.board_id + '/snapshot'); // 저장 완료 객체 조회
+    if (token === workspaceGeneration && state.board === board && snapshot.board_id === board.board_id) // 현재 신원과 보드 일치
     {
         canvas.setObjects(snapshot.objects); // 캔버스 복원
         canvas.setLinks(snapshot.links ?? []); // 연결선 복원
@@ -2956,10 +3089,15 @@ const TASK_STATUS_LABELS = { todo: '할 일', doing: '진행 중', done: '완료
 
 async function loadProjectData()
 {
+    const project = state.project; const token = workspaceGeneration; const uid = window.TC_MEMBER_USER?.user_id; // 현재 자료 소유권
     const [members, tasks] = await Promise.all([
-        window.api.get('/api/projects/' + state.project.project_id + '/members'), // 참여자 목록
-        window.api.get('/api/projects/' + state.project.project_id + '/tasks'), // 공유 업무 목록
+        window.api.get('/api/projects/' + project.project_id + '/members'), // 참여자 목록
+        window.api.get('/api/projects/' + project.project_id + '/tasks'), // 공유 업무 목록
     ]); // 병렬 조회
+    if (token !== workspaceGeneration || state.project !== project || uid !== window.TC_MEMBER_USER?.user_id) // 응답 중 계정·작업실 변경
+    { // 이전 자료 폐기
+        return; // 현재 업무와 담당자 보존
+    } // 폐기 끝
     state.members = members.members; // 참여자 저장
     state.tasks.clear(); // 기존 업무 비움
     for (const t of tasks.tasks)

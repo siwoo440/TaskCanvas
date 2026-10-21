@@ -36,7 +36,11 @@ async function close(socket, ack, inspectProject) // 무효 연결 정리
 } // 해제 끝
 async function valid(socket) // 활성 연결 검사
 { // 검사 시작
-    return auth.validSession(socket.data.guestSessionId, socket.data.guestId, socket.data.projectId); // 발급 세션과 역할 소유
+    if (!await auth.validSession(socket.data.guestSessionId, socket.data.guestId, socket.data.projectId)) // 세션·소유 검사
+    { // 무효 인증
+        return false; // 접근 거부
+    } // 무효 인증 끝
+    return await auth.currentRole(socket.data.guestId, socket.data.projectId) === socket.data.role; // 참여 시점 역할 변경 감지
 } // 검사 끝
 function register(io, socket) // 수신 이벤트 인증
 { // 등록 시작

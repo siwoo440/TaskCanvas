@@ -1,0 +1,87 @@
+.personal-home, .saved-views, .member-management /* 회원 영역 공통 */
+{ /* 공통 시작 */
+    margin-block: 24px; /* 세로 간격 */
+    padding: 22px; /* 내부 여백 */
+    border: 1px solid #d8deea; /* 영역 경계 */
+    border-radius: 16px; /* 모서리 곡률 */
+    background: #fff; /* 읽기 배경 */
+} /* 공통 끝 */
+.personal-grid /* 개인 자료 배치 */
+{ /* 배치 시작 */
+    display: grid; /* 격자 배치 */
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* 두 열 구성 */
+    gap: 24px; /* 자료 간격 */
+} /* 배치 끝 */
+.personal-grid h3 small /* 보조 상한 안내 */
+{ /* 안내 시작 */
+    display: block; /* 별도 줄 */
+    color: #526176; /* 읽기 대비 */
+    font-size: 12px; /* 보조 크기 */
+    font-weight: 400; /* 제목 대비 */
+} /* 안내 끝 */
+.personal-list /* 업무와 검색 목록 */
+{ /* 목록 시작 */
+    display: grid; /* 세로 배치 */
+    gap: 8px; /* 버튼 간격 */
+    max-height: 260px; /* 긴 목록 제한 */
+    overflow-y: auto; /* 목록 내부 스크롤 */
+} /* 목록 끝 */
+.personal-list button /* 긴 이름 버튼 */
+{ /* 버튼 시작 */
+    text-align: start; /* 왼쪽 정렬 */
+    white-space: normal; /* 긴 이름 줄바꿈 */
+    overflow-wrap: anywhere; /* 긴 원문 대응 */
+} /* 버튼 끝 */
+.saved-controls, .manage-member /* 설정과 참여자 배치 */
+{ /* 배치 시작 */
+    display: flex; /* 가로 배치 */
+    flex-wrap: wrap; /* 좁은 화면 줄바꿈 */
+    align-items: end; /* 입력 하단 정렬 */
+    gap: 12px; /* 조작 간격 */
+    margin-block: 16px; /* 행 간격 */
+} /* 배치 끝 */
+.saved-controls label, .manage-member strong /* 입력과 이름 폭 */
+{ /* 폭 시작 */
+    min-width: 130px; /* 읽기 최소 폭 */
+} /* 폭 끝 */
+.saved-views label, .saved-views input, .saved-views select /* 설정 입력 배치 */
+{ /* 입력 시작 */
+    max-width: 100%; /* 영역 초과 방지 */
+} /* 입력 끝 */
+.saved-views summary, .member-management summary /* 접기 버튼 */
+{ /* 버튼 시작 */
+    cursor: pointer; /* 조작 표시 */
+    font-weight: 600; /* 제목 강조 */
+} /* 버튼 끝 */
+#member-search-dialog /* 빠른 검색 창 */
+{ /* 창 시작 */
+    width: min(640px, calc(100vw - 32px)); /* 반응형 폭 */
+    max-height: calc(100dvh - 48px); /* 화면 높이 제한 */
+    overflow-y: auto; /* 내부 스크롤 */
+} /* 창 끝 */
+#member-search-query /* 검색 입력 */
+{ /* 입력 시작 */
+    width: 100%; /* 전체 입력 폭 */
+} /* 입력 끝 */
+#member-search-results /* 검색 결과 높이 */
+{ /* 결과 시작 */
+    max-height: 50dvh; /* 결과 스크롤 제한 */
+    margin-block: 16px; /* 조작 간격 */
+} /* 결과 끝 */
+:is(.personal-home, .saved-views, .member-management, #member-search-dialog) :focus-visible /* 키보드 초점 */
+{ /* 초점 시작 */
+    outline: 3px solid #475af6; /* 명확한 초점선 */
+    outline-offset: 3px; /* 경계 분리 */
+} /* 초점 끝 */
+@media (max-width: 700px) /* 좁은 화면 */
+{ /* 반응형 시작 */
+    .personal-grid /* 개인 자료 열 */
+    { /* 열 시작 */
+        grid-template-columns: minmax(0, 1fr); /* 한 열 전환 */
+    } /* 열 끝 */
+    .manage-member input /* 확인 이름 입력 */
+    { /* 폭 시작 */
+        width: 100%; /* 전체 폭 입력 */
+        min-width: 0; /* 화면 초과 방지 */
+    } /* 폭 끝 */
+} /* 반응형 끝 */

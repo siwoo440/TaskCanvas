@@ -11,6 +11,7 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
         let used = {}; // 마지막 요청 조건
         let page = 1; // 실제 페이지
         let totalPages = 1; // 마지막 페이지
+        const savedViews = window.SavedViews?.mount(root.querySelector('#saved-views'), { onApply: (filters) => load(filters, 1) }); // 개인 조건 연결
         function applyChartFilter(field, value) // 차트 드릴다운
         { // 필터 적용 시작
             find(field).value = value; // 선택 조건 반영
@@ -30,6 +31,7 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
         } // 쿼리 끝
         function clear() // 기존 숫자 폐기
         { // 초기화 시작
+            savedViews?.clearApplied(); // 실패한 조회의 조건 저장 차단
             charts.destroy(); // 차트와 대체 표 해제
             find('kpis').replaceChildren(); find('rows').replaceChildren(); // 실제 데이터 폐기
             find('applied').textContent = ''; find('page').textContent = ''; // 조건과 페이지 폐기
@@ -48,6 +50,7 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
         { // 닫기 시작
             generation += 1; active = null; used = {}; page = 1; totalPages = 1; // 요청 무효화
             clear(); busy(false); // 화면과 로딩 초기화
+            savedViews?.close(); // 이전 회원 설정 폐기
             ['from', 'to', 'status', 'assignee'].forEach((id) => find(id).value = ''); // 입력 초기화
             find('assignee').replaceChildren(); // 이전 담당자 제거
             find('message').textContent = ''; find('title').textContent = ''; // 신원 정보 폐기
@@ -129,6 +132,7 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
             page = data.pagination.page; totalPages = data.pagination.total_pages; // 실제 보정 페이지
             find('page').textContent = page + ' / ' + totalPages + '페이지 · 총 ' + data.pagination.total + '건'; // 페이지 안내
             find('results').hidden = false; charts.render(data); // 현재 결과 노출
+            savedViews?.setApplied(data.filters); // 성공한 실제 조건만 보관
         } // 표시 끝
         async function load(filters, requestedPage = 1) // 현재 조건 조회
         { // 요청 시작
@@ -175,7 +179,12 @@ window.AnalyticsDashboard = (() => // 분석 조회 모듈
         { // 열기 시작
             close(); active = { ...project }; // 이전 신원 제거
             find('title').textContent = project.title + ' 분석'; // 현재 작업실
-            return load({}, 1); // 서버의 최근 30일 기본값
+            const token = generation; const preferred = savedViews ? await savedViews.open(project) : null; // 회원 기본 조건 조회
+            if (token !== generation || !active) // 설정 조회 중 화면 이탈
+            { // 이전 요청 제외
+                return; // 다른 화면 조회 방지
+            } // 제외 끝
+            return load(preferred ?? {}, 1); // 개인 기본값 또는 최근 30일
         } // 열기 끝
         find('form').addEventListener('submit', (event) => // 새 조건 적용
         { // 조회 동작

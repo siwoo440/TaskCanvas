@@ -15,6 +15,13 @@ $router->add('GET', '/api/health', [SystemController::class, 'health']); // 상�
 $router->add('POST', '/api/auth/register', [MemberAuthController::class, 'register']); // 정식 회원가입
 $router->add('POST', '/api/auth/login', [MemberAuthController::class, 'login']); // 회원 로그인
 $router->add('GET', '/api/auth/me', [MemberAuthController::class, 'me']); // 회원 로그인 상태
+$router->add('GET', '/api/auth/home', [MemberToolsController::class, 'home']); // 개인 업무·즐겨찾기
+$router->add('GET', '/api/auth/search', [MemberToolsController::class, 'search']); // 권한 범위 검색
+$router->add('POST', '/api/auth/boards/{id}/favorite', [MemberToolsController::class, 'favorite']); // 개인 즐겨찾기
+$router->add('POST', '/api/auth/boards/{id}/visit', [MemberToolsController::class, 'visit']); // 최근 보드 기록
+$router->add('GET', '/api/projects/{id}/analytics/views', [MemberToolsController::class, 'views']); // 회원 저장 보기
+$router->add('POST', '/api/projects/{id}/analytics/views', [MemberToolsController::class, 'saveView']); // 보기 생성·수정
+$router->add('POST', '/api/projects/{id}/analytics/views/{viewId}/delete', [MemberToolsController::class, 'deleteView']); // 본인 보기 삭제
 $router->add('POST', '/api/auth/logout', [MemberAuthController::class, 'logout']); // 회원 로그아웃
 $router->add('GET', '/api/auth/workspaces', [MemberWorkspaceController::class, 'index']); // 회원 작업실 목록
 $router->add('POST', '/api/auth/guest-link', [MemberWorkspaceController::class, 'link']); // 현재 게스트 연결
@@ -33,6 +40,9 @@ $router->add('GET', '/api/boards/{id}/snapshot', [BoardController::class, 'snaps
 $router->add('POST', '/api/boards/{id}/rename', [BoardController::class, 'rename']); // 보드 이름 변경(편집자 이상)
 $router->add('POST', '/api/boards/{id}/delete', [BoardController::class, 'delete']); // 보드 삭제(관리자)
 $router->add('GET', '/api/projects/{id}/members', [ProjectController::class, 'members']); // 참여자 목록
+$router->add('GET', '/api/projects/{id}/members/manage', [MemberToolsController::class, 'members']); // 회원 관리자 목록
+$router->add('POST', '/api/projects/{id}/members/role', [MemberToolsController::class, 'role']); // 회원별 역할 변경
+$router->add('POST', '/api/projects/{id}/members/remove', [MemberToolsController::class, 'remove']); // 확인 후 회원 내보내기
 $router->add('GET', '/api/projects/{id}/tasks', [ProjectController::class, 'tasks']); // 공유 업무 목록(P1)
 $router->add('GET', '/api/projects/{id}/analytics/summary', [AnalyticsController::class, 'summary']); // 작업실 SQL 통계
 $router->add('GET', '/api/projects/{id}/analytics/dashboard', [AnalyticsController::class, 'dashboard']); // 분석 화면 조회

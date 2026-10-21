@@ -158,6 +158,36 @@ final class Schema
             CONSTRAINT fk_task_status_guest FOREIGN KEY (actor_guest_id) REFERENCES guests(guest_id) ON DELETE SET NULL, -- 게스트 기록 보존
             CONSTRAINT fk_task_status_user FOREIGN KEY (actor_user_id) REFERENCES users(user_id) ON DELETE SET NULL -- 회원 기록 보존
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 상태 이력 표 추가
+        ['dashboard_views', 'CREATE TABLE IF NOT EXISTS dashboard_views ( -- 회원별 분석 보기
+    view_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, -- 보기 ID
+    user_id BIGINT UNSIGNED NOT NULL, -- 소유 회원
+    project_id BIGINT UNSIGNED NOT NULL, -- 작업실 범위
+    name VARCHAR(60) NOT NULL, -- 보기 이름
+    filters_json TEXT NOT NULL, -- 검증한 공통 필터
+    is_default TINYINT(1) NOT NULL DEFAULT 0, -- 기본 보기 여부
+    version BIGINT UNSIGNED NOT NULL DEFAULT 1, -- 수정 충돌 버전
+    UNIQUE KEY uq_dashboard_view_name (user_id,project_id,name), -- 회원별 이름 중복 방지
+    CONSTRAINT fk_dashboard_view_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE, -- 회원 정리
+    CONSTRAINT fk_dashboard_view_project FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE, -- 작업실 정리
+    CONSTRAINT ck_dashboard_view_filters CHECK (JSON_VALID(filters_json)) -- 필터 JSON 검사
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 34일차 회원 설정 표
+        ['user_board_favorites', 'CREATE TABLE IF NOT EXISTS user_board_favorites ( -- 회원 보드 즐겨찾기
+    user_id BIGINT UNSIGNED NOT NULL, -- 소유 회원
+    board_id BIGINT UNSIGNED NOT NULL, -- 대상 보드
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- 등록 시각
+    PRIMARY KEY (user_id,board_id), -- 중복 즐겨찾기 방지
+    CONSTRAINT fk_user_favorite_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE, -- 회원 정리
+    CONSTRAINT fk_user_favorite_board FOREIGN KEY (board_id) REFERENCES boards(board_id) ON DELETE CASCADE -- 보드 정리
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 34일차 회원 설정 표
+        ['user_board_visits', 'CREATE TABLE IF NOT EXISTS user_board_visits ( -- 회원 최근 보드
+    user_id BIGINT UNSIGNED NOT NULL, -- 소유 회원
+    board_id BIGINT UNSIGNED NOT NULL, -- 방문 보드
+    visited_at DATETIME NOT NULL, -- 서울 방문 시각
+    PRIMARY KEY (user_id,board_id), -- 보드별 최근 시각
+    KEY idx_user_visit_time (user_id,visited_at), -- 최근 보드 조회
+    CONSTRAINT fk_user_visit_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE, -- 회원 정리
+    CONSTRAINT fk_user_visit_board FOREIGN KEY (board_id) REFERENCES boards(board_id) ON DELETE CASCADE -- 보드 정리
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'], // 34일차 회원 설정 표
         ['task_items', 'CREATE TABLE IF NOT EXISTS task_items (
             item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
             task_id BIGINT UNSIGNED NOT NULL,
